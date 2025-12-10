@@ -1,3 +1,5 @@
+import { EventType, EventSeverity } from './event';
+
 export interface ActivityEvent {
   id: string;
   orgId: string;
@@ -9,44 +11,6 @@ export interface ActivityEvent {
   metadata?: Record<string, unknown>;
   createdAt: Date;
 }
-
-export type EventType =
-  | 'CLUSTER_CREATED'
-  | 'CLUSTER_UPDATED'
-  | 'CLUSTER_RESIZED'
-  | 'CLUSTER_DELETED'
-  | 'CLUSTER_FAILED'
-  | 'CLUSTER_READY'
-  | 'CLUSTER_DEGRADED'
-  | 'CLUSTER_PAUSED'
-  | 'CLUSTER_RESUMED'
-  | 'BACKUP_STARTED'
-  | 'BACKUP_COMPLETED'
-  | 'BACKUP_FAILED'
-  | 'BACKUP_DELETED'
-  | 'BACKUP_RESTORE_STARTED'
-  | 'BACKUP_RESTORE_COMPLETED'
-  | 'RESTORE_STARTED'
-  | 'RESTORE_COMPLETED'
-  | 'RESTORE_FAILED'
-  | 'PITR_ENABLED'
-  | 'PITR_DISABLED'
-  | 'PITR_RESTORE_STARTED'
-  | 'PITR_RESTORE_COMPLETED'
-  | 'PITR_RESTORE_FAILED'
-  | 'OPLOG_CAPTURED'
-  | 'USER_INVITED'
-  | 'USER_JOINED'
-  | 'USER_REMOVED'
-  | 'DATABASE_USER_CREATED'
-  | 'DATABASE_USER_DELETED'
-  | 'NETWORK_ACCESS_UPDATED'
-  | 'ALERT_TRIGGERED'
-  | 'ALERT_RESOLVED'
-  | 'API_KEY_CREATED'
-  | 'API_KEY_REVOKED';
-
-export type EventSeverity = 'info' | 'warning' | 'error';
 
 export interface EventFilter {
   types?: string[];
