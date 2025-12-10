@@ -6,38 +6,41 @@ WORKDIR /app
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@8 --activate
 
-# Copy package files
-COPY package.json pnpm-lock.yaml* ./
+# Copy root workspace files first
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-# Install dependencies
+# Copy shared package
+COPY shared ./shared
+
+# Copy frontend package
+COPY frontend ./frontend
+
+# Install all workspace dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy source code
-COPY . .
+# Build shared first
+RUN cd shared && pnpm build || true
 
 # Build arguments for environment variables
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
-# Build the application
-RUN pnpm build
+# Build the frontend application
+RUN cd frontend && pnpm build
 
 # Production stage
 FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@8 --activate
-
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
 
 # Copy necessary files from standalone build
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/frontend/public ./public
+COPY --from=builder /app/frontend/.next/standalone ./
+COPY --from=builder /app/frontend/.next/static ./.next/static
 
 # Change ownership
 RUN chown -R nextjs:nodejs /app
