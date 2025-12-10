@@ -2,7 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@eutlas/shared'],
-  output: 'standalone',
+  // Enable standalone output only on Linux (CI) - Windows has symlink issues
+  output: process.platform === 'linux' ? 'standalone' : undefined,
   eslint: {
     // Allow production builds to complete even with ESLint errors
     ignoreDuringBuilds: true,
