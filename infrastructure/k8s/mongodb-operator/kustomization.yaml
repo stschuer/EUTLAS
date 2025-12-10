@@ -1,0 +1,25 @@
+# MongoDB Community Operator Installation
+# This deploys the MongoDB Community Kubernetes Operator
+# 
+# To install:
+#   kubectl apply -k infrastructure/k8s/mongodb-operator/
+#
+# Or use the official Helm chart:
+#   helm repo add mongodb https://mongodb.github.io/helm-charts
+#   helm install community-operator mongodb/community-operator --namespace mongodb-operator --create-namespace
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mongodb-operator
+
+resources:
+  - namespace.yaml
+  - mongodb-operator.yaml
+
+# Use the latest stable version
+images:
+  - name: quay.io/mongodb/mongodb-kubernetes-operator
+    newTag: 0.9.0
+
+

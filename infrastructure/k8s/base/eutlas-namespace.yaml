@@ -1,0 +1,84 @@
+# Base EUTLAS System Namespace
+# This namespace contains the EUTLAS control plane components
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: eutlas-system
+  labels:
+    app.kubernetes.io/name: eutlas
+    app.kubernetes.io/component: system
+    app.kubernetes.io/managed-by: eutlas
+---
+# Service Account for EUTLAS backend
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eutlas-backend
+  namespace: eutlas-system
+  labels:
+    app.kubernetes.io/name: eutlas
+    app.kubernetes.io/component: backend
+---
+# ClusterRole for EUTLAS to manage MongoDB clusters
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eutlas-cluster-manager
+rules:
+  # Namespace management
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  # Secret management for credentials
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  # Pod monitoring
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Service management
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  # PVC management
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  # StatefulSet management
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  # Job management for backups
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  # Network policy management
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  # MongoDB Community Operator resources
+  - apiGroups: ["mongodbcommunity.mongodb.com"]
+    resources: ["mongodbcommunity", "mongodbcommunity/status"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  # Metrics
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+# Bind the ClusterRole to the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eutlas-cluster-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eutlas-cluster-manager
+subjects:
+  - kind: ServiceAccount
+    name: eutlas-backend
+    namespace: eutlas-system
+
+

@@ -1,0 +1,17 @@
+# Placeholder for MongoDB Community Operator
+# Download from: https://github.com/mongodb/mongodb-kubernetes-operator
+#
+# Installation:
+# kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-kubernetes-operator/master/config/crd/bases/mongodbcommunity.mongodb.com_mongodbcommunity.yaml
+# kubectl apply -k https://github.com/mongodb/mongodb-kubernetes-operator/config/rbac
+# kubectl apply -k https://github.com/mongodb/mongodb-kubernetes-operator/config/manager
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mongodb-operator
+---
+# The actual operator deployment will be installed via the official helm chart or kustomize
+# See: https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/docs/install-upgrade.md
+
+

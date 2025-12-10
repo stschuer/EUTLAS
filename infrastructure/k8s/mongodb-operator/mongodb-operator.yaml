@@ -1,0 +1,253 @@
+# MongoDB Community Operator
+# This CRD allows creating MongoDB clusters declaratively
+#
+# Source: https://github.com/mongodb/mongodb-kubernetes-operator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-kubernetes-operator
+  namespace: mongodb-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mongodb-kubernetes-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mongodb-kubernetes-operator
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - services
+      - services/finalizers
+      - endpoints
+      - persistentvolumeclaims
+      - events
+      - configmaps
+      - secrets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - daemonsets
+      - replicasets
+      - statefulsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - servicemonitors
+    verbs:
+      - get
+      - create
+  - apiGroups:
+      - apps
+    resourceNames:
+      - mongodb-kubernetes-operator
+    resources:
+      - deployments/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - get
+  - apiGroups:
+      - mongodbcommunity.mongodb.com
+    resources:
+      - mongodbcommunity
+      - mongodbcommunity/status
+      - mongodbcommunity/spec
+      - mongodbcommunity/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb-kubernetes-operator
+  namespace: mongodb-operator
+  labels:
+    app.kubernetes.io/name: mongodb-kubernetes-operator
+    app.kubernetes.io/managed-by: eutlas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb-kubernetes-operator
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mongodb-kubernetes-operator
+    spec:
+      serviceAccountName: mongodb-kubernetes-operator
+      containers:
+        - name: operator
+          image: quay.io/mongodb/mongodb-kubernetes-operator:0.9.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/bin/entrypoint
+          env:
+            - name: WATCH_NAMESPACE
+              value: "*"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: mongodb-kubernetes-operator
+            - name: AGENT_IMAGE
+              value: quay.io/mongodb/mongodb-agent:12.0.29.7785-1
+            - name: VERSION_UPGRADE_HOOK_IMAGE
+              value: quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.8
+            - name: READINESS_PROBE_IMAGE
+              value: quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.17
+            - name: MONGODB_IMAGE
+              value: mongo
+            - name: MONGODB_REPO_URL
+              value: docker.io
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+# Custom Resource Definition for MongoDBCommunity
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: mongodbcommunity.mongodbcommunity.mongodb.com
+spec:
+  group: mongodbcommunity.mongodb.com
+  names:
+    kind: MongoDBCommunity
+    listKind: MongoDBCommunityList
+    plural: mongodbcommunity
+    shortNames:
+      - mdbc
+    singular: mongodbcommunity
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                members:
+                  type: integer
+                type:
+                  type: string
+                  enum:
+                    - ReplicaSet
+                    - Standalone
+                version:
+                  type: string
+                security:
+                  type: object
+                  properties:
+                    authentication:
+                      type: object
+                      properties:
+                        modes:
+                          type: array
+                          items:
+                            type: string
+                users:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      db:
+                        type: string
+                      passwordSecretRef:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                      roles:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            db:
+                              type: string
+                      scramCredentialsSecretName:
+                        type: string
+                additionalMongodConfig:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                statefulSet:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Version
+          type: string
+          jsonPath: .status.version
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+
+

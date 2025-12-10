@@ -1,0 +1,30 @@
+{
+  "name": "eutlas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EU MongoDB Atlas - Managed MongoDB clusters on European infrastructure",
+  "scripts": {
+    "dev": "pnpm run --parallel dev:backend dev:frontend",
+    "dev:backend": "cd backend && pnpm dev",
+    "dev:frontend": "cd frontend && pnpm dev",
+    "build": "pnpm run --filter @eutlas/shared build && pnpm run --filter @eutlas/backend build && pnpm run --filter @eutlas/frontend build",
+    "build:shared": "cd shared && pnpm build",
+    "clean": "pnpm run --parallel clean",
+    "lint": "pnpm run --parallel lint",
+    "lint:backend": "cd backend && pnpm lint",
+    "lint:frontend": "cd frontend && pnpm lint",
+    "test": "pnpm run --parallel test",
+    "setup": "pnpm install && pnpm build:shared",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:mongo": "docker compose up -d mongodb"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@8.14.1"
+}

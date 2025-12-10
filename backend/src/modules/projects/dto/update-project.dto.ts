@@ -1,0 +1,19 @@
+import { IsString, MinLength, MaxLength, IsOptional } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+
+export class UpdateProjectDto {
+  @ApiPropertyOptional({ example: 'Production Updated' })
+  @IsOptional()
+  @IsString()
+  @MinLength(2, { message: 'Project name must be at least 2 characters' })
+  @MaxLength(50, { message: 'Project name must be at most 50 characters' })
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'Updated description' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200, { message: 'Description must be at most 200 characters' })
+  description?: string;
+}
+
+
