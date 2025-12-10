@@ -1,0 +1,69 @@
+{{- if .Values.mongodb.enabled }}
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: {{ include "eutlas.fullname" . }}-mongodb
+  labels:
+    {{- include "eutlas.labels" . | nindent 4 }}
+spec:
+  members: {{ .Values.mongodb.replicas }}
+  type: ReplicaSet
+  version: {{ .Values.mongodb.version | quote }}
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    - name: eutlas-admin
+      db: admin
+      passwordSecretRef:
+        name: {{ include "eutlas.fullname" . }}-mongodb-password
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+        - name: readWriteAnyDatabase
+          db: admin
+      scramCredentialsSecretName: {{ include "eutlas.fullname" . }}-mongodb-scram
+  additionalMongodConfig:
+    storage.wiredTiger.engineConfig.journalCompressor: zlib
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongod
+              resources:
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+                requests:
+                  cpu: "0.5"
+                  memory: 1Gi
+      volumeClaimTemplates:
+        - metadata:
+            name: data-volume
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            storageClassName: {{ .Values.mongodb.storageClass }}
+            resources:
+              requests:
+                storage: {{ .Values.mongodb.storage }}
+        - metadata:
+            name: logs-volume
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            storageClassName: {{ .Values.mongodb.storageClass }}
+            resources:
+              requests:
+                storage: 2Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "eutlas.fullname" . }}-mongodb-password
+type: Opaque
+stringData:
+  password: {{ randAlphaNum 24 | quote }}
+{{- end }}
+

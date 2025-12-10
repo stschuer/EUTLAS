@@ -1,0 +1,65 @@
+# Fleet configuration for GitOps deployment
+# This file tells Rancher Fleet how to deploy EUTLAS
+
+defaultNamespace: eutlas
+
+# Helm chart configuration
+helm:
+  releaseName: eutlas
+  chart: ./charts/eutlas
+  values:
+    # Default values, overridden per environment
+    replicaCount: 1
+    image:
+      tag: latest
+
+# Target different clusters based on labels
+targetCustomizations:
+  - name: production
+    clusterSelector:
+      matchLabels:
+        env: production
+    helm:
+      values:
+        replicaCount: 3
+        image:
+          tag: stable
+        resources:
+          backend:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+        mongodb:
+          replicas: 3
+          storage: 100Gi
+        ingress:
+          host: app.eutlas.eu
+          tls: true
+
+  - name: staging
+    clusterSelector:
+      matchLabels:
+        env: staging
+    helm:
+      values:
+        replicaCount: 1
+        image:
+          tag: develop
+        resources:
+          backend:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+        mongodb:
+          replicas: 1
+          storage: 20Gi
+        ingress:
+          host: staging.eutlas.eu
+          tls: true
+

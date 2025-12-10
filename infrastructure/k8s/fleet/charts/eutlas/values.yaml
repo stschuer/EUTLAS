@@ -1,0 +1,90 @@
+# Default values for EUTLAS Helm chart
+
+replicaCount: 1
+
+image:
+  backend:
+    repository: ghcr.io/stschuer/eutlas-backend
+    tag: latest
+    pullPolicy: Always
+  frontend:
+    repository: ghcr.io/stschuer/eutlas-frontend
+    tag: latest
+    pullPolicy: Always
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+
+# Backend configuration
+backend:
+  port: 4000
+  env:
+    NODE_ENV: production
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# Frontend configuration
+frontend:
+  port: 3000
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "250m"
+
+# MongoDB configuration (using MongoDB Community Operator)
+mongodb:
+  enabled: true
+  replicas: 1
+  storage: 20Gi
+  storageClass: hcloud-volumes
+  version: "7.0.0"
+
+# Redis configuration
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    password: ""  # Set via secret
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  host: app.eutlas.eu
+  tls: true
+
+# Secrets (referenced from external secrets or Rancher secrets)
+secrets:
+  existingSecret: eutlas-secrets
+
+# Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Network policies
+networkPolicy:
+  enabled: true
+
