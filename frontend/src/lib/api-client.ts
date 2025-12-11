@@ -1,4 +1,18 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+// Use relative URL in production, absolute URL in development
+const getApiBaseUrl = () => {
+  // If explicitly set, use that
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  // In browser, use relative URL (will go through ingress)
+  if (typeof window !== 'undefined') {
+    return '/api/v1';
+  }
+  // Server-side fallback
+  return 'http://localhost:4000/api/v1';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 interface ApiResponse<T> {
   success: boolean;
