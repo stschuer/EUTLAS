@@ -1,0 +1,56 @@
+# Simple standalone MongoDB for EUTLAS
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: eutlas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:7.0
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: "eutlas-admin"
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eutlas-mongodb-credentials
+                  key: password
+          volumeMounts:
+            - name: mongodb-data
+              mountPath: /data/db
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+      volumes:
+        - name: mongodb-data
+          emptyDir: {}  # Use emptyDir for now (no persistence)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: eutlas
+spec:
+  selector:
+    app: mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+

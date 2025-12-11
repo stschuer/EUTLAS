@@ -40,15 +40,18 @@ RUN addgroup -g 1001 -S nodejs && \
     adduser -S nextjs -u 1001
 
 # Copy necessary files from standalone build
+# The standalone build preserves the monorepo structure
 COPY --from=builder /app/frontend/public ./public
 COPY --from=builder /app/frontend/.next/standalone ./
-COPY --from=builder /app/frontend/.next/static ./.next/static
+COPY --from=builder /app/frontend/.next/static ./frontend/.next/static
 
 # Change ownership
 RUN chown -R nextjs:nodejs /app
 
 # Switch to non-root user
 USER nextjs
+
+WORKDIR /app/frontend
 
 # Expose port
 EXPOSE 3000
