@@ -46,6 +46,7 @@ import { SchemaValidationModule } from './modules/schema-validation/schema-valid
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { SsoModule } from './modules/sso/sso.module';
 import { VectorSearchModule } from './modules/vector-search/vector-search.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -121,6 +122,7 @@ import { VectorSearchModule } from './modules/vector-search/vector-search.module
     DashboardsModule,
     SsoModule,
     VectorSearchModule,
+    AdminModule,
   ],
   providers: [
     // Global exception filter

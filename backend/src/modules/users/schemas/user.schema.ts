@@ -43,6 +43,15 @@ export class User {
   @Prop()
   passwordResetExpires?: Date;
 
+  @Prop({ default: false })
+  isGlobalAdmin: boolean;
+
+  @Prop({ default: true })
+  isActive: boolean;
+
+  @Prop()
+  lastLoginAt?: Date;
+
   @Prop()
   createdAt: Date;
 
