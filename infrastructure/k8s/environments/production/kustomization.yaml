@@ -1,0 +1,49 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: eutlas
+
+resources:
+  - ../base
+  - ingress-patch.yaml
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: eutlas-backend
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: eutlas-frontend
+
+configMapGenerator:
+  - name: eutlas-env
+    literals:
+      - ENVIRONMENT=production
+
+secretGenerator:
+  - name: eutlas-mongodb-credentials
+    behavior: replace
+    literals:
+      - password=EutlasSecure2025Prod!
+  - name: eutlas-secrets
+    behavior: replace
+    literals:
+      - JWT_SECRET=EutlasJwtSecret2025ProductionKey32ch
+      - MONGODB_URI=mongodb://eutlas-admin:EutlasSecure2025Prod!@mongodb:27017/eutlas?authSource=admin
+      - RESEND_API_KEY=re_e4RqM2Zz_UX8PyynNuB68WcJ8SUQN2aUW
+      - EMAIL_FROM=noreply@eutlas.eu
+
+images:
+  - name: ghcr.io/stschuer/eutlas-backend
+    newTag: latest
+  - name: ghcr.io/stschuer/eutlas-frontend
+    newTag: latest
+

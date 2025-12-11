@@ -1,0 +1,59 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: eutlas-test
+
+resources:
+  - ../base
+  - ingress-patch.yaml
+
+namePrefix: ""
+nameSuffix: ""
+
+# Patches for test environment
+patches:
+  - patch: |-
+      - op: replace
+        path: /metadata/name
+        value: eutlas-test
+    target:
+      kind: Namespace
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: eutlas-backend
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: eutlas-frontend
+
+configMapGenerator:
+  - name: eutlas-env
+    literals:
+      - ENVIRONMENT=test
+
+secretGenerator:
+  - name: eutlas-mongodb-credentials
+    behavior: replace
+    literals:
+      - password=TestPassword2025!
+  - name: eutlas-secrets
+    behavior: replace
+    literals:
+      - JWT_SECRET=TestJwtSecret2025Key32Characters!
+      - MONGODB_URI=mongodb://eutlas-admin:TestPassword2025!@mongodb:27017/eutlas-test?authSource=admin
+      - RESEND_API_KEY=re_e4RqM2Zz_UX8PyynNuB68WcJ8SUQN2aUW
+      - EMAIL_FROM=test@eutlas.eu
+
+images:
+  - name: ghcr.io/stschuer/eutlas-backend
+    newTag: test
+  - name: ghcr.io/stschuer/eutlas-frontend
+    newTag: test
+

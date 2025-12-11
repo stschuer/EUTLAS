@@ -1,0 +1,35 @@
+# IP-based Ingress for EUTLAS (no domain required)
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: eutlas-ingress-ip
+  namespace: eutlas
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Rewrite API calls to backend
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    # Default rule - no host means it matches any request
+    - http:
+        paths:
+          # API routes go to backend
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: eutlas-backend
+                port:
+                  number: 4000
+          # Everything else goes to frontend
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: eutlas-frontend
+                port:
+                  number: 3000
+
