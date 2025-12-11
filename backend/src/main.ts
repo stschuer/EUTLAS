@@ -39,16 +39,31 @@ async function bootstrap() {
     }),
   );
 
-  // CORS - Allow multiple frontend origins in development
+  // CORS - Allow frontend origins
   const frontendUrl = configService.get('FRONTEND_URL', 'http://localhost:3000');
-  const allowedOrigins = [frontendUrl, 'http://localhost:3001', 'http://localhost:3002'];
+  const allowedOrigins = [
+    frontendUrl,
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:3002',
+    // Production nip.io domains
+    'https://eutlas.46.224.42.63.nip.io',
+    'https://staging.46.224.42.63.nip.io',
+    'https://test.46.224.42.63.nip.io',
+  ];
   
   app.enableCors({
     origin: (origin, callback) => {
       // Allow requests with no origin (mobile apps, curl, etc.)
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      // Check if origin is in allowed list or matches nip.io pattern
+      if (allowedOrigins.includes(origin) || origin.endsWith('.nip.io')) {
         callback(null, true);
       } else {
+        logger.warn(`CORS blocked origin: ${origin}`);
         callback(new Error('Not allowed by CORS'));
       }
     },
