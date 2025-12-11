@@ -60,3 +60,4 @@ IpWhitelistEntrySchema.index({ clusterId: 1 });
 IpWhitelistEntrySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index for temporary entries
 
 
+

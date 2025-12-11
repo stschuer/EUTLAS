@@ -36,3 +36,4 @@ db.events.createIndex({ orgId: 1, createdAt: -1 });
 print('✅ MongoDB initialized with EUTLAS indexes');
 
 
+

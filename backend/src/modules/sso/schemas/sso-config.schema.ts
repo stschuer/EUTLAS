@@ -133,3 +133,4 @@ SsoConfigSchema.index({ orgId: 1, type: 1 });
 SsoConfigSchema.index({ emailDomains: 1 });
 
 
+

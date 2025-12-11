@@ -100,3 +100,4 @@ SlowQuerySchema.index({ clusterId: 1, database: 1, collection: 1 });
 SlowQuerySchema.index({ timestamp: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 }); // 30 days TTL
 
 
+

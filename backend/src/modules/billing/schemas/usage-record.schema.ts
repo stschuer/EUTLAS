@@ -82,3 +82,4 @@ UsageRecordSchema.index({ clusterId: 1, usageType: 1 });
 UsageRecordSchema.index({ invoiced: 1, billingPeriodEnd: 1 });
 
 
+

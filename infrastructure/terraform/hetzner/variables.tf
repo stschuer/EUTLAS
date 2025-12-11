@@ -32,3 +32,4 @@ variable "worker_type" {
 # cpx51: 16 vCPU, 32GB RAM - ~€62.99/mo
 
 
+

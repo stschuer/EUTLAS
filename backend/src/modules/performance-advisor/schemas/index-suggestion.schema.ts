@@ -90,3 +90,4 @@ IndexSuggestionSchema.index({ clusterId: 1, database: 1, collection: 1 });
 IndexSuggestionSchema.index({ impact: 1, status: 1 });
 
 
+

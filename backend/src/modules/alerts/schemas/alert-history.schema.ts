@@ -85,3 +85,4 @@ AlertHistorySchema.index({ alertRuleId: 1 });
 AlertHistorySchema.index({ firedAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 90 }); // 90 days TTL
 
 
+

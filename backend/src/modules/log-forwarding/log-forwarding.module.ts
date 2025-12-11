@@ -17,3 +17,4 @@ import { LogForwardingConfig, LogForwardingConfigSchema } from './schemas/log-fo
 export class LogForwardingModule {}
 
 
+

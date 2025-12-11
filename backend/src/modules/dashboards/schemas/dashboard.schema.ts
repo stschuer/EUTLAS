@@ -158,3 +158,4 @@ DashboardSchema.index({ clusterId: 1 });
 DashboardSchema.index({ visibility: 1 });
 
 
+

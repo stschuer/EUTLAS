@@ -90,3 +90,4 @@ AlertRuleSchema.index({ clusterId: 1 });
 AlertRuleSchema.index({ metricType: 1 });
 
 
+

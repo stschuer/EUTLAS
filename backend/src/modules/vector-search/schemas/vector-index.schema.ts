@@ -104,3 +104,4 @@ VectorIndexSchema.index({ clusterId: 1, database: 1, collection: 1, name: 1 }, {
 VectorIndexSchema.index({ status: 1 });
 
 
+

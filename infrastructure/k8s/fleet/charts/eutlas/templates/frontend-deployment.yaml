@@ -66,3 +66,4 @@ spec:
     {{- include "eutlas.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: frontend
 
+

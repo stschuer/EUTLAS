@@ -68,3 +68,4 @@ InvitationSchema.index({ email: 1, status: 1 });
 InvitationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index for auto-cleanup
 
 
+

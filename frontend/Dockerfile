@@ -24,6 +24,8 @@ RUN cd shared && pnpm build || true
 # Build arguments for environment variables
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Set DOCKER_BUILD to enable standalone mode in next.config.js
+ENV DOCKER_BUILD=true
 
 # Build the frontend application
 RUN cd frontend && pnpm build
