@@ -31,7 +31,7 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const token = localStorage.getItem("accessToken");
+        const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
         const response = await fetch("/api/v1/admin/stats", {
           headers: {
             Authorization: `Bearer ${token}`,

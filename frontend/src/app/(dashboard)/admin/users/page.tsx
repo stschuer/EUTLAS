@@ -81,7 +81,7 @@ export default function UsersPage() {
 
   const fetchUsers = async () => {
     try {
-      const token = localStorage.getItem("accessToken");
+      const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
       const url = search 
         ? `/api/v1/admin/users?search=${encodeURIComponent(search)}`
         : "/api/v1/admin/users";
@@ -113,7 +113,7 @@ export default function UsersPage() {
 
     setSubmitting(true);
     try {
-      const token = localStorage.getItem("accessToken");
+      const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
       const response = await fetch("/api/v1/admin/users", {
         method: "POST",
         headers: {
@@ -144,7 +144,7 @@ export default function UsersPage() {
 
     setSubmitting(true);
     try {
-      const token = localStorage.getItem("accessToken");
+      const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
       const updateData: any = {
         name: formData.name,
         isGlobalAdmin: formData.isGlobalAdmin,
@@ -191,7 +191,7 @@ export default function UsersPage() {
 
     setSubmitting(true);
     try {
-      const token = localStorage.getItem("accessToken");
+      const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
       const response = await fetch(`/api/v1/admin/users/${selectedUser.id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
@@ -215,7 +215,7 @@ export default function UsersPage() {
 
   const toggleUserStatus = async (user: User, field: 'isGlobalAdmin' | 'isActive') => {
     try {
-      const token = localStorage.getItem("accessToken");
+      const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
       const response = await fetch(`/api/v1/admin/users/${user.id}`, {
         method: "PUT",
         headers: {

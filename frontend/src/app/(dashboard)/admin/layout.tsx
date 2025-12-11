@@ -26,7 +26,7 @@ export default function AdminLayout({
     // Check if user is global admin
     const checkAdmin = async () => {
       try {
-        const token = localStorage.getItem("accessToken");
+        const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
         if (!token) {
           router.push("/login");
           return;

@@ -66,7 +66,7 @@ export default function TenantsPage() {
 
   const fetchTenants = async () => {
     try {
-      const token = localStorage.getItem("accessToken");
+      const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
       const url = search 
         ? `/api/v1/admin/tenants?search=${encodeURIComponent(search)}`
         : "/api/v1/admin/tenants";
@@ -98,7 +98,7 @@ export default function TenantsPage() {
 
     setSubmitting(true);
     try {
-      const token = localStorage.getItem("accessToken");
+      const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
       const response = await fetch("/api/v1/admin/tenants", {
         method: "POST",
         headers: {
@@ -129,7 +129,7 @@ export default function TenantsPage() {
 
     setSubmitting(true);
     try {
-      const token = localStorage.getItem("accessToken");
+      const token = localStorage.getItem("auth_token") || localStorage.getItem("accessToken");
       const response = await fetch(`/api/v1/admin/tenants/${selectedTenant.id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
