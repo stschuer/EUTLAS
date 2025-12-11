@@ -170,12 +170,17 @@ jobs:
           build-args: |
             NEXT_PUBLIC_API_URL=${{ needs.set-env.outputs.environment == 'production' && 'https://eutlas.46.224.42.63.nip.io/api/v1' || needs.set-env.outputs.environment == 'staging' && 'https://staging.46.224.42.63.nip.io/api/v1' || 'https://test.46.224.42.63.nip.io/api/v1' }}
 
-  # Deploy to Kubernetes
+  # Deploy to Kubernetes (requires KUBECONFIG secret to be set)
+  # To enable auto-deploy:
+  # 1. Get kubeconfig from your cluster
+  # 2. Base64 encode it: cat ~/.kube/config | base64 -w 0
+  # 3. Add as secret KUBECONFIG in GitHub repo settings
   deploy:
     name: Deploy to ${{ needs.set-env.outputs.environment }}
     runs-on: ubuntu-latest
     needs: [docker, set-env]
-    if: github.event_name == 'push'
+    # Only deploy if KUBECONFIG secret is configured
+    if: github.event_name == 'push' && vars.ENABLE_AUTO_DEPLOY == 'true'
     environment: ${{ needs.set-env.outputs.environment }}
     
     steps:
