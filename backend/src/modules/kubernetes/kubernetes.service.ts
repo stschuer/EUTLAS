@@ -297,25 +297,37 @@ export class KubernetesService implements OnModuleInit {
       // 1. Create Secret for MongoDB admin credentials
       await this.createCredentialsSecret(namespace, resourceName, params.credentials);
 
-      // 2. Create the MongoDBCommunity custom resource
-      await this.createMongoDBCommunityResource(namespace, resourceName, {
-        ...params,
-        resources,
-      });
+      // 2. Choose deployment strategy based on plan
+      const useOperator = ['MEDIUM', 'LARGE', 'XLARGE', 'DEDICATED_SMALL', 'DEDICATED_MEDIUM', 'DEDICATED_LARGE'].includes(params.plan);
+      
+      if (useOperator) {
+        // Use MongoDB Operator for larger plans (replica sets)
+        this.logger.log(`Using MongoDB Operator for plan ${params.plan}`);
+        await this.createMongoDBCommunityResource(namespace, resourceName, {
+          ...params,
+          resources,
+        });
+      } else {
+        // Use simple StatefulSet for DEV/SMALL plans (single node)
+        this.logger.log(`Using simple StatefulSet for plan ${params.plan}`);
+        await this.createSimpleMongoDBStatefulSet(namespace, resourceName, params.credentials, resources);
+      }
 
       // 3. Create NetworkPolicy for security
       await this.createDefaultNetworkPolicy(namespace, resourceName);
 
-      this.logger.log(`MongoDB cluster ${params.clusterId} creation initiated`);
+      this.logger.log(`MongoDB cluster ${params.clusterId} creation initiated successfully`);
 
+      const serviceName = useOperator ? `${resourceName}-svc` : resourceName;
       return {
-        host: `${resourceName}-svc.${namespace}.svc.cluster.local`,
+        host: `${serviceName}.${namespace}.svc.cluster.local`,
         port: 27017,
-        replicaSet: resourceName,
-        srv: `mongodb+srv://${resourceName}-svc.${namespace}.svc.cluster.local`,
+        replicaSet: useOperator ? resourceName : undefined,
+        srv: useOperator ? `mongodb+srv://${serviceName}.${namespace}.svc.cluster.local` : undefined,
       };
     } catch (error: any) {
-      this.logger.error(`Failed to create MongoDB cluster: ${error.message}`);
+      const errorDetails = error.response?.body || error.body || error.message;
+      this.logger.error(`Failed to create MongoDB cluster: ${JSON.stringify(errorDetails)}`);
       throw error;
     }
   }
@@ -481,14 +493,117 @@ export class KubernetesService implements OnModuleInit {
     } catch (error: any) {
       if (error.response?.statusCode === 404) {
         // Create new resource
-        await this.customApi.createNamespacedCustomObject(
-          'mongodbcommunity.mongodb.com',
-          'v1',
-          namespace,
-          'mongodbcommunity',
-          mongoDBSpec,
-        );
+        try {
+          await this.customApi.createNamespacedCustomObject(
+            'mongodbcommunity.mongodb.com',
+            'v1',
+            namespace,
+            'mongodbcommunity',
+            mongoDBSpec,
+          );
+          this.logger.log(`Created MongoDBCommunity resource ${resourceName} in ${namespace}`);
+        } catch (createError: any) {
+          this.logger.error(`Failed to create MongoDBCommunity: status=${createError.response?.statusCode}, body=${JSON.stringify(createError.response?.body || createError.body || createError.message)}`);
+          throw createError;
+        }
       } else {
+        this.logger.error(`Failed to check MongoDBCommunity: status=${error.response?.statusCode}, body=${JSON.stringify(error.response?.body || error.body || error.message)}`);
+        throw error;
+      }
+    }
+  }
+
+  private async createSimpleMongoDBStatefulSet(
+    namespace: string,
+    resourceName: string,
+    credentials: { username: string; password: string },
+    resources: typeof PLAN_RESOURCES.DEV,
+  ): Promise<void> {
+    // Create a simple StatefulSet for DEV/SMALL plans (single node, no operator)
+    const secretName = `${resourceName}-admin-password`;
+
+    // Create StatefulSet
+    const statefulSet: k8s.V1StatefulSet = {
+      metadata: {
+        name: resourceName,
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          app: resourceName,
+        },
+      },
+      spec: {
+        serviceName: resourceName,
+        replicas: 1,
+        selector: {
+          matchLabels: { app: resourceName },
+        },
+        template: {
+          metadata: {
+            labels: { app: resourceName },
+          },
+          spec: {
+            containers: [
+              {
+                name: 'mongodb',
+                image: 'mongo:7.0',
+                ports: [{ containerPort: 27017 }],
+                env: [
+                  { name: 'MONGO_INITDB_ROOT_USERNAME', value: credentials.username },
+                  { name: 'MONGO_INITDB_ROOT_PASSWORD', valueFrom: { secretKeyRef: { name: secretName, key: 'password' } } },
+                ],
+                resources: {
+                  requests: { cpu: resources.cpu, memory: resources.memory },
+                  limits: { cpu: resources.cpuLimit, memory: resources.memoryLimit },
+                },
+                volumeMounts: [{ name: 'data', mountPath: '/data/db' }],
+              },
+            ],
+          },
+        },
+        volumeClaimTemplates: [
+          {
+            metadata: { name: 'data' },
+            spec: {
+              accessModes: ['ReadWriteOnce'],
+              storageClassName: 'local-path',
+              resources: { requests: { storage: resources.storage } },
+            },
+          },
+        ],
+      },
+    };
+
+    // Create Service
+    const service: k8s.V1Service = {
+      metadata: {
+        name: resourceName,
+        namespace,
+        labels: { 'eutlas.eu/managed-by': 'eutlas', app: resourceName },
+      },
+      spec: {
+        selector: { app: resourceName },
+        ports: [{ port: 27017, targetPort: 27017 }],
+        clusterIP: 'None', // Headless service for StatefulSet
+      },
+    };
+
+    try {
+      await this.appsApi.createNamespacedStatefulSet(namespace, statefulSet);
+      this.logger.log(`Created StatefulSet ${resourceName} in ${namespace}`);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 409) { // Ignore "already exists"
+        this.logger.error(`Failed to create StatefulSet: ${JSON.stringify(error.response?.body || error.message)}`);
+        throw error;
+      }
+    }
+
+    try {
+      await this.coreApi.createNamespacedService(namespace, service);
+      this.logger.log(`Created Service ${resourceName} in ${namespace}`);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 409) { // Ignore "already exists"
+        this.logger.error(`Failed to create Service: ${JSON.stringify(error.response?.body || error.message)}`);
         throw error;
       }
     }
