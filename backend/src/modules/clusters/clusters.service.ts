@@ -49,7 +49,7 @@ export class ClustersService {
       orgId,
       name: createClusterDto.name,
       plan: createClusterDto.plan,
-      mongoVersion: createClusterDto.mongoVersion || '7.0',
+      mongoVersion: createClusterDto.mongoVersion || '7.0.0',
       status: 'creating' as ClusterStatus,
       credentialsEncrypted: credentials.encrypted,
     });

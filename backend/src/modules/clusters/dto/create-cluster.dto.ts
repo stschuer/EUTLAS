@@ -18,7 +18,7 @@ export class CreateClusterDto {
 
   @ApiPropertyOptional({ enum: ['6.0', '7.0'], example: '7.0' })
   @IsOptional()
-  @IsEnum(['6.0', '7.0'], { message: 'Invalid MongoDB version' })
+  @IsEnum(['6.0.0', '7.0.0', '7.0.5'], { message: 'Invalid MongoDB version' })
   mongoVersion?: string;
 
   @ApiPropertyOptional({ enum: ['fsn1', 'nbg1', 'hel1'], example: 'fsn1', description: 'Hetzner region' })
