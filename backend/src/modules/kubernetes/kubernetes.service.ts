@@ -125,6 +125,7 @@ export class KubernetesService implements OnModuleInit {
   private appsApi: k8s.AppsV1Api;
   private networkApi: k8s.NetworkingV1Api;
   private customApi: k8s.CustomObjectsApi;
+  private rbacApi: k8s.RbacAuthorizationV1Api;
   private isConnected = false;
   private readonly devMode: boolean;
 
@@ -165,6 +166,7 @@ export class KubernetesService implements OnModuleInit {
       this.appsApi = this.kc.makeApiClient(k8s.AppsV1Api);
       this.networkApi = this.kc.makeApiClient(k8s.NetworkingV1Api);
       this.customApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
+      this.rbacApi = this.kc.makeApiClient(k8s.RbacAuthorizationV1Api);
 
       // Test connection
       if (!this.devMode) {
@@ -206,12 +208,57 @@ export class KubernetesService implements OnModuleInit {
           },
         });
         this.logger.log(`Created namespace: ${namespace}`);
+        
+        // Create MongoDB service account and RBAC
+        await this.createMongoDBRBAC(namespace);
       } else {
         throw error;
       }
     }
 
     return namespace;
+  }
+
+  private async createMongoDBRBAC(namespace: string): Promise<void> {
+    try {
+      // Create mongodb-database service account
+      await this.coreApi.createNamespacedServiceAccount(namespace, {
+        metadata: { name: 'mongodb-database', namespace },
+      });
+
+      // Create Role for MongoDB
+      await this.rbacApi.createNamespacedRole(namespace, {
+        metadata: { name: 'mongodb-role', namespace },
+        rules: [
+          {
+            apiGroups: [''],
+            resources: ['secrets', 'pods', 'services', 'configmaps'],
+            verbs: ['get', 'list', 'watch', 'create', 'update', 'patch'],
+          },
+        ],
+      });
+
+      // Create RoleBinding
+      await this.rbacApi.createNamespacedRoleBinding(namespace, {
+        metadata: { name: 'mongodb-binding', namespace },
+        roleRef: {
+          apiGroup: 'rbac.authorization.k8s.io',
+          kind: 'Role',
+          name: 'mongodb-role',
+        },
+        subjects: [
+          {
+            kind: 'ServiceAccount',
+            name: 'mongodb-database',
+            namespace,
+          },
+        ],
+      });
+
+      this.logger.log(`Created MongoDB RBAC in namespace: ${namespace}`);
+    } catch (error: any) {
+      this.logger.warn(`Failed to create MongoDB RBAC: ${error.message}`);
+    }
   }
 
   async deleteNamespace(projectId: string): Promise<void> {
