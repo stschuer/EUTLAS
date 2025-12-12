@@ -101,14 +101,15 @@ export const PLAN_RESOURCES: Record<string, {
   cpuLimit: string;
   memoryLimit: string;
 }> = {
-  DEV: { cpu: '100m', memory: '256Mi', storage: '2Gi', replicas: 1, cpuLimit: '500m', memoryLimit: '512Mi' },
-  SMALL: { cpu: '250m', memory: '512Mi', storage: '10Gi', replicas: 1, cpuLimit: '1000m', memoryLimit: '1Gi' },
-  MEDIUM: { cpu: '500m', memory: '1Gi', storage: '25Gi', replicas: 3, cpuLimit: '2000m', memoryLimit: '2Gi' },
-  LARGE: { cpu: '1000m', memory: '2Gi', storage: '50Gi', replicas: 3, cpuLimit: '4000m', memoryLimit: '4Gi' },
-  XLARGE: { cpu: '2000m', memory: '4Gi', storage: '100Gi', replicas: 3, cpuLimit: '8000m', memoryLimit: '8Gi' },
-  DEDICATED_SMALL: { cpu: '2000m', memory: '4Gi', storage: '100Gi', replicas: 3, cpuLimit: '4000m', memoryLimit: '8Gi' },
-  DEDICATED_MEDIUM: { cpu: '4000m', memory: '8Gi', storage: '250Gi', replicas: 3, cpuLimit: '8000m', memoryLimit: '16Gi' },
-  DEDICATED_LARGE: { cpu: '8000m', memory: '16Gi', storage: '500Gi', replicas: 3, cpuLimit: '16000m', memoryLimit: '32Gi' },
+  // Reduced resource requests to fit on shared cluster
+  DEV: { cpu: '50m', memory: '128Mi', storage: '1Gi', replicas: 1, cpuLimit: '200m', memoryLimit: '256Mi' },
+  SMALL: { cpu: '100m', memory: '256Mi', storage: '5Gi', replicas: 1, cpuLimit: '500m', memoryLimit: '512Mi' },
+  MEDIUM: { cpu: '150m', memory: '512Mi', storage: '10Gi', replicas: 1, cpuLimit: '750m', memoryLimit: '1Gi' },
+  LARGE: { cpu: '250m', memory: '1Gi', storage: '25Gi', replicas: 3, cpuLimit: '1000m', memoryLimit: '2Gi' },
+  XLARGE: { cpu: '500m', memory: '2Gi', storage: '50Gi', replicas: 3, cpuLimit: '2000m', memoryLimit: '4Gi' },
+  DEDICATED_SMALL: { cpu: '1000m', memory: '2Gi', storage: '50Gi', replicas: 3, cpuLimit: '2000m', memoryLimit: '4Gi' },
+  DEDICATED_MEDIUM: { cpu: '2000m', memory: '4Gi', storage: '100Gi', replicas: 3, cpuLimit: '4000m', memoryLimit: '8Gi' },
+  DEDICATED_LARGE: { cpu: '4000m', memory: '8Gi', storage: '250Gi', replicas: 3, cpuLimit: '8000m', memoryLimit: '16Gi' },
 };
 
 // MongoDB Community Operator CRD API Version
