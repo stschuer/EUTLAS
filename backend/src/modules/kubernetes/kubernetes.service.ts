@@ -399,7 +399,7 @@ export class KubernetesService implements OnModuleInit {
                 },
                 spec: {
                   accessModes: ['ReadWriteOnce'],
-                  storageClassName: 'hcloud-volumes', // Hetzner storage class
+                  storageClassName: 'local-path', // Local path storage (or hcloud-volumes for Hetzner)
                   resources: {
                     requests: {
                       storage: params.resources.storage,
