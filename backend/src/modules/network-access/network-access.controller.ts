@@ -167,6 +167,22 @@ export class NetworkAccessController {
     return orgId;
   }
 
+  @Get('my-ip')
+  @ApiOperation({ summary: 'Get your current IP address' })
+  async getMyIp(
+    @Req() req: Request,
+  ) {
+    const clientIp = this.getClientIp(req);
+
+    return {
+      success: true,
+      data: {
+        ip: clientIp,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
   private getClientIp(req: Request): string {
     // Check various headers for the real IP
     const forwarded = req.headers['x-forwarded-for'];

@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { NetworkAccessController } from './network-access.controller';
+import { IpDetectionController } from './ip-detection.controller';
 import { NetworkAccessService } from './network-access.service';
 import { IpWhitelistEntry, IpWhitelistEntrySchema } from './schemas/ip-whitelist.schema';
 import { ClustersModule } from '../clusters/clusters.module';
@@ -20,7 +21,7 @@ import { EventsModule } from '../events/events.module';
     KubernetesModule,
     EventsModule,
   ],
-  controllers: [NetworkAccessController],
+  controllers: [NetworkAccessController, IpDetectionController],
   providers: [NetworkAccessService],
   exports: [NetworkAccessService],
 })

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/layout/page-header';
@@ -45,12 +45,38 @@ export default function NetworkAccessPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
   const [showAllowAnywhere, setShowAllowAnywhere] = useState(false);
+  const [myIp, setMyIp] = useState<string | null>(null);
+  const [loadingMyIp, setLoadingMyIp] = useState(true);
   const [newEntry, setNewEntry] = useState({
     cidrBlock: '',
     comment: '',
     isTemporary: false,
     expiresAt: '',
   });
+
+  // Fetch user's current IP
+  useEffect(() => {
+    const fetchMyIp = async () => {
+      try {
+        const response = await apiClient.get('/network/my-ip');
+        if (response.data.success) {
+          setMyIp(response.data.data.ip);
+        }
+      } catch (error) {
+        // Try public endpoint
+        try {
+          const res = await fetch('https://api.ipify.org?format=json');
+          const data = await res.json();
+          setMyIp(data.ip);
+        } catch (e) {
+          console.error('Failed to detect IP:', e);
+        }
+      } finally {
+        setLoadingMyIp(false);
+      }
+    };
+    fetchMyIp();
+  }, []);
 
   // Fetch IP whitelist
   const { data, isLoading, error } = useQuery({
@@ -194,6 +220,66 @@ export default function NetworkAccessPage() {
           </div>
         }
       />
+
+      {/* Your IP Card */}
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center">
+                <Wifi className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <div className="text-sm text-muted-foreground">Your Current IP Address</div>
+                <div className="font-mono text-xl font-bold">
+                  {loadingMyIp ? (
+                    <span className="text-muted-foreground">Detecting...</span>
+                  ) : myIp ? (
+                    myIp
+                  ) : (
+                    <span className="text-muted-foreground">Unable to detect</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {myIp && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(myIp);
+                      toast({ title: 'Copied!', description: 'IP address copied to clipboard' });
+                    }}
+                  >
+                    Copy
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => addCurrentIpMutation.mutate()}
+                    disabled={addCurrentIpMutation.isPending || data?.some(e => e.cidrBlock === `${myIp}/32`)}
+                  >
+                    {data?.some(e => e.cidrBlock === `${myIp}/32`) ? (
+                      <>
+                        <Shield className="h-4 w-4 mr-2" />
+                        Already Added
+                      </>
+                    ) : addCurrentIpMutation.isPending ? (
+                      'Adding...'
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add My IP
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Warning if Allow Anywhere is enabled */}
       {hasAllowAnywhere && (
