@@ -15,9 +15,9 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Manage pods, services, configmaps, secrets for MongoDB clusters
+  # Manage pods, services, configmaps, secrets, serviceaccounts for MongoDB clusters
   - apiGroups: [""]
-    resources: ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims"]
+    resources: ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "serviceaccounts"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Manage deployments, statefulsets for MongoDB
   - apiGroups: ["apps"]
@@ -26,6 +26,14 @@ rules:
   # Manage MongoDB Community resources
   - apiGroups: ["mongodbcommunity.mongodb.com"]
     resources: ["mongodbcommunity"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Manage NetworkPolicies for cluster security
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Manage Roles and RoleBindings for MongoDB service accounts
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -40,4 +48,5 @@ roleRef:
   kind: ClusterRole
   name: eutlas-backend-role
   apiGroup: rbac.authorization.k8s.io
+
 

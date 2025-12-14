@@ -299,3 +299,4 @@ Write-Host ""
 Write-Host "📋 Check status:" -ForegroundColor Cyan
 Write-Host "   kubectl get pods -n $Namespace" -ForegroundColor White
 
+

@@ -242,3 +242,4 @@ export class AdminStatsDto {
   newTenantsLast30Days: number;
 }
 
+

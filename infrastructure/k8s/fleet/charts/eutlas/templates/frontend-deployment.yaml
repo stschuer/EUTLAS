@@ -67,3 +67,4 @@ spec:
     app.kubernetes.io/component: frontend
 
 
+

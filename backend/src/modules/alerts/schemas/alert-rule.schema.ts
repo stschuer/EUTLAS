@@ -91,3 +91,4 @@ AlertRuleSchema.index({ metricType: 1 });
 
 
 
+

@@ -404,7 +404,7 @@ export class KubernetesService implements OnModuleInit {
       },
       spec: {
         members: params.resources.replicas,
-        type: params.resources.replicas > 1 ? 'ReplicaSet' : 'Standalone',
+        type: 'ReplicaSet', // MongoDB Community Operator only supports ReplicaSet
         version: params.mongoVersion || '7.0.5',
         security: {
           authentication: {

@@ -339,3 +339,4 @@ export function ScalingRecommendations({ projectId, clusterId }: ScalingRecommen
 
 
 
+
