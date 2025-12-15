@@ -87,3 +87,4 @@ AlertHistorySchema.index({ firedAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 90
 
 
 
+

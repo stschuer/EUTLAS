@@ -316,3 +316,4 @@ export function QueryResultChart({ data, onClose }: QueryResultChartProps) {
 
 
 
+

@@ -26,6 +26,7 @@ export class ClustersService {
     projectId: string,
     orgId: string,
     createClusterDto: CreateClusterDto,
+    createdBy?: string,
   ): Promise<Cluster> {
     // Check if name exists in project
     const existing = await this.clusterModel.findOne({
@@ -66,6 +67,8 @@ export class ClustersService {
         plan: createClusterDto.plan,
         mongoVersion: cluster.mongoVersion,
         credentials: credentials.raw,
+        clusterName: createClusterDto.name,
+        createdBy,
       },
     });
 

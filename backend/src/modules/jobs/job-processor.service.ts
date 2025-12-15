@@ -5,6 +5,9 @@ import { ClustersService } from '../clusters/clusters.service';
 import { KubernetesService } from '../kubernetes/kubernetes.service';
 import { EventsService } from '../events/events.service';
 import { BackupsService } from '../backups/backups.service';
+import { EmailService } from '../email/email.service';
+import { UsersService } from '../users/users.service';
+import { ProjectsService } from '../projects/projects.service';
 import { JobDocument } from './schemas/job.schema';
 
 @Injectable()
@@ -20,6 +23,10 @@ export class JobProcessorService implements OnModuleInit {
     private readonly eventsService: EventsService,
     @Inject(forwardRef(() => BackupsService))
     private readonly backupsService: BackupsService,
+    private readonly emailService: EmailService,
+    private readonly usersService: UsersService,
+    @Inject(forwardRef(() => ProjectsService))
+    private readonly projectsService: ProjectsService,
   ) {}
 
   onModuleInit() {
@@ -102,7 +109,7 @@ export class JobProcessorService implements OnModuleInit {
   }
 
   private async processCreateCluster(job: JobDocument) {
-    const { plan, mongoVersion, credentials, clusterName } = job.payload as any;
+    const { plan, mongoVersion, credentials, clusterName, createdBy } = job.payload as any;
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
     const orgId = job.targetOrgId!.toString();
@@ -133,6 +140,26 @@ export class JobProcessorService implements OnModuleInit {
       severity: 'info',
       message: 'Cluster is ready for connections',
     });
+
+    // Send cluster ready email to creator
+    try {
+      if (createdBy) {
+        const user = await this.usersService.findById(createdBy);
+        const project = await this.projectsService.findById(projectId);
+        if (user?.email) {
+          const connectionString = `mongodb://${credentials?.username || 'admin'}:****@${result.host}:${result.port}`;
+          await this.emailService.sendClusterReady(
+            user.email,
+            clusterName || clusterId,
+            connectionString,
+            project?.name || projectId,
+          );
+          this.logger.log(`Sent cluster ready email to ${user.email}`);
+        }
+      }
+    } catch (emailError) {
+      this.logger.warn(`Failed to send cluster ready email: ${emailError}`);
+    }
   }
 
   private async processResizeCluster(job: JobDocument) {

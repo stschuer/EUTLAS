@@ -47,6 +47,7 @@ export class ClustersController {
       projectId,
       orgId,
       createClusterDto,
+      user.userId, // Pass userId for email notification
     );
     
     return {

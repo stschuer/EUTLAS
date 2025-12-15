@@ -380,4 +380,228 @@ export class EmailService {
       </a>
     `);
   }
+
+  // ===== Cluster Lifecycle Emails =====
+
+  async sendClusterReady(
+    email: string,
+    clusterName: string,
+    connectionString: string,
+    projectName: string,
+  ): Promise<boolean> {
+    const result = await this.send({
+      to: email,
+      subject: `Your MongoDB Cluster "${clusterName}" is Ready!`,
+      html: this.getClusterReadyTemplate(clusterName, connectionString, projectName),
+    });
+    return result.success;
+  }
+
+  async sendClusterPaused(
+    email: string,
+    clusterName: string,
+    reason: string,
+    resumeUrl: string,
+  ): Promise<boolean> {
+    const result = await this.send({
+      to: email,
+      subject: `Action Required: Cluster "${clusterName}" Has Been Paused`,
+      html: this.getClusterPausedTemplate(clusterName, reason, resumeUrl),
+    });
+    return result.success;
+  }
+
+  async sendUsageWarning(
+    email: string,
+    clusterName: string,
+    usagePercent: number,
+    resourceType: string,
+    upgradeUrl: string,
+  ): Promise<boolean> {
+    const result = await this.send({
+      to: email,
+      subject: `Usage Alert: ${clusterName} at ${usagePercent}% ${resourceType}`,
+      html: this.getUsageWarningTemplate(clusterName, usagePercent, resourceType, upgradeUrl),
+    });
+    return result.success;
+  }
+
+  // ===== Payment Emails =====
+
+  async sendPaymentFailed(
+    email: string,
+    amount: string,
+    updatePaymentUrl: string,
+  ): Promise<boolean> {
+    const result = await this.send({
+      to: email,
+      subject: 'Payment Failed - Action Required',
+      html: this.getPaymentFailedTemplate(amount, updatePaymentUrl),
+    });
+    return result.success;
+  }
+
+  async sendPaymentSuccess(
+    email: string,
+    amount: string,
+    invoiceUrl: string,
+  ): Promise<boolean> {
+    const result = await this.send({
+      to: email,
+      subject: 'Payment Received - Thank You!',
+      html: this.getPaymentSuccessTemplate(amount, invoiceUrl),
+    });
+    return result.success;
+  }
+
+  async sendSubscriptionUpgraded(
+    email: string,
+    oldPlan: string,
+    newPlan: string,
+    effectiveDate: string,
+  ): Promise<boolean> {
+    const result = await this.send({
+      to: email,
+      subject: `Plan Upgraded to ${newPlan}`,
+      html: this.getSubscriptionUpgradedTemplate(oldPlan, newPlan, effectiveDate),
+    });
+    return result.success;
+  }
+
+  // ===== Additional Templates =====
+
+  private getClusterReadyTemplate(clusterName: string, connectionString: string, projectName: string): string {
+    return this.getBaseTemplate(`
+      <div style="padding: 16px; background-color: #dcfce7; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+        <span style="font-size: 48px;">🚀</span>
+        <h2 style="margin: 16px 0 0; font-size: 20px; color: #166534;">
+          Your Cluster is Ready!
+        </h2>
+      </div>
+      <p style="margin: 0 0 16px; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+        Great news! Your MongoDB cluster <strong>${clusterName}</strong> in project <strong>${projectName}</strong> is now ready to use.
+      </p>
+      <h3 style="margin: 24px 0 12px; font-size: 16px; color: #18181b;">Connection String:</h3>
+      <div style="padding: 16px; background-color: #f4f4f5; border-radius: 8px; font-family: monospace; font-size: 13px; word-break: break-all; margin-bottom: 24px;">
+        ${connectionString}
+      </div>
+      <h3 style="margin: 0 0 12px; font-size: 16px; color: #18181b;">Next Steps:</h3>
+      <ul style="margin: 0 0 24px; padding-left: 20px; font-size: 15px; color: #3f3f46; line-height: 1.8;">
+        <li>Add your IP address to the network access list</li>
+        <li>Create database users with appropriate roles</li>
+        <li>Connect your application using the connection string</li>
+      </ul>
+      <a href="${this.configService.get('FRONTEND_URL')}/dashboard/clusters" style="display: inline-block; padding: 12px 32px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+        View Cluster
+      </a>
+    `);
+  }
+
+  private getClusterPausedTemplate(clusterName: string, reason: string, resumeUrl: string): string {
+    return this.getBaseTemplate(`
+      <div style="padding: 16px; background-color: #fef2f2; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+        <span style="font-size: 48px;">⏸️</span>
+        <h2 style="margin: 16px 0 0; font-size: 20px; color: #dc2626;">
+          Cluster Paused
+        </h2>
+      </div>
+      <p style="margin: 0 0 16px; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+        Your MongoDB cluster <strong>${clusterName}</strong> has been paused.
+      </p>
+      <p style="margin: 0 0 24px; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+        <strong>Reason:</strong> ${reason}
+      </p>
+      <p style="margin: 0 0 24px; font-size: 14px; color: #71717a; line-height: 1.6;">
+        Your data is safe, but the cluster is not accessible. Please take action to resume your cluster.
+      </p>
+      <a href="${resumeUrl}" style="display: inline-block; padding: 12px 32px; background-color: #dc2626; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+        Resume Cluster
+      </a>
+    `);
+  }
+
+  private getUsageWarningTemplate(clusterName: string, usagePercent: number, resourceType: string, upgradeUrl: string): string {
+    const color = usagePercent >= 90 ? '#dc2626' : '#f59e0b';
+    return this.getBaseTemplate(`
+      <div style="padding: 16px; background-color: ${color}10; border-left: 4px solid ${color}; border-radius: 4px; margin-bottom: 24px;">
+        <p style="margin: 0; font-size: 12px; color: ${color}; font-weight: 600; text-transform: uppercase;">
+          Usage Warning
+        </p>
+        <h2 style="margin: 8px 0 0; font-size: 18px; color: #18181b;">
+          ${resourceType} at ${usagePercent}%
+        </h2>
+      </div>
+      <p style="margin: 0 0 16px; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+        Your cluster <strong>${clusterName}</strong> is approaching its ${resourceType.toLowerCase()} limit.
+      </p>
+      <p style="margin: 0 0 24px; font-size: 14px; color: #71717a; line-height: 1.6;">
+        ${usagePercent >= 90 
+          ? 'Critical: Your cluster may become unavailable if usage exceeds 100%.'
+          : 'Consider upgrading your plan to ensure uninterrupted service.'}
+      </p>
+      <a href="${upgradeUrl}" style="display: inline-block; padding: 12px 32px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+        Upgrade Plan
+      </a>
+    `);
+  }
+
+  private getPaymentFailedTemplate(amount: string, updatePaymentUrl: string): string {
+    return this.getBaseTemplate(`
+      <div style="padding: 16px; background-color: #fef2f2; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+        <span style="font-size: 48px;">❌</span>
+        <h2 style="margin: 16px 0 0; font-size: 20px; color: #dc2626;">
+          Payment Failed
+        </h2>
+      </div>
+      <p style="margin: 0 0 16px; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+        We were unable to process your payment of <strong>${amount}</strong>.
+      </p>
+      <p style="margin: 0 0 24px; font-size: 14px; color: #71717a; line-height: 1.6;">
+        Please update your payment method to avoid service interruption. If payment is not received within 7 days, your clusters may be paused.
+      </p>
+      <a href="${updatePaymentUrl}" style="display: inline-block; padding: 12px 32px; background-color: #dc2626; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+        Update Payment Method
+      </a>
+    `);
+  }
+
+  private getPaymentSuccessTemplate(amount: string, invoiceUrl: string): string {
+    return this.getBaseTemplate(`
+      <div style="padding: 16px; background-color: #dcfce7; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+        <span style="font-size: 48px;">✅</span>
+        <h2 style="margin: 16px 0 0; font-size: 20px; color: #166534;">
+          Payment Received
+        </h2>
+      </div>
+      <p style="margin: 0 0 16px; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+        Thank you! Your payment of <strong>${amount}</strong> has been processed successfully.
+      </p>
+      <a href="${invoiceUrl}" style="display: inline-block; padding: 12px 32px; background-color: #18181b; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+        View Invoice
+      </a>
+    `);
+  }
+
+  private getSubscriptionUpgradedTemplate(oldPlan: string, newPlan: string, effectiveDate: string): string {
+    return this.getBaseTemplate(`
+      <div style="padding: 16px; background-color: #dbeafe; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+        <span style="font-size: 48px;">🎉</span>
+        <h2 style="margin: 16px 0 0; font-size: 20px; color: #1e40af;">
+          Plan Upgraded!
+        </h2>
+      </div>
+      <p style="margin: 0 0 16px; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+        Your subscription has been upgraded from <strong>${oldPlan}</strong> to <strong>${newPlan}</strong>.
+      </p>
+      <p style="margin: 0 0 24px; font-size: 14px; color: #71717a; line-height: 1.6;">
+        Effective: ${effectiveDate}
+      </p>
+      <p style="margin: 0 0 24px; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+        You now have access to additional resources and features. Thank you for choosing EUTLAS!
+      </p>
+      <a href="${this.configService.get('FRONTEND_URL')}/dashboard" style="display: inline-block; padding: 12px 32px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+        Go to Dashboard
+      </a>
+    `);
+  }
 }

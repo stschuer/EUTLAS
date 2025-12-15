@@ -92,3 +92,4 @@ IndexSuggestionSchema.index({ impact: 1, status: 1 });
 
 
 
+
