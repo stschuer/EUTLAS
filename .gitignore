@@ -1,5 +1,11 @@
 # Dependencies
 node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
 .pnpm-store/
 
 # Build outputs
@@ -7,38 +13,88 @@ dist/
 build/
 .next/
 out/
+.turbo/
 
 # Environment files
 .env
 .env.local
 .env.*.local
 !.env.example
+!.env.development
+!.env.production
 
 # IDE
 .idea/
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 *.swp
 *.swo
+*~
 .DS_Store
+Thumbs.db
+desktop.ini
 
 # Logs
 logs/
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
 # Testing
 coverage/
 .nyc_output/
+*.lcov
+junit.xml
 
-# Misc
-*.tgz
-.turbo/
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
 
 # Playwright
 playwright-report/
 playwright/.cache/
 test-results/
+
+# Docker
+.dockerignore.bak
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
+.kube/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+*.tfvars
+!terraform.tfvars.example
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.parcel-cache/
+
+# Misc
+*.tgz
+*.bak
+*.backup
+*.old
+*.pid
+*.seed
+*.pid.lock
+.npm
+.eslintcache
+.stylelintcache
 
 # Secrets (never commit)
 *.pem
