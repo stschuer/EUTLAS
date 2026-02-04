@@ -145,7 +145,7 @@ export default function AlertsPage() {
     queryKey: ['alert-rules', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/alerts/rules`);
-      return (response.data?.data ?? []) as AlertRule[];
+      return (response.data ?? []) as AlertRule[];
     },
   });
 
@@ -154,7 +154,7 @@ export default function AlertsPage() {
     queryKey: ['alert-history', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/alerts/history?limit=50`);
-      return (response.data?.data ?? []) as AlertHistory[];
+      return (response.data ?? []) as AlertHistory[];
     },
     refetchInterval: 30000,
   });
@@ -164,7 +164,7 @@ export default function AlertsPage() {
     queryKey: ['alert-stats', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/alerts/history/stats`);
-      return response.data?.data as AlertStats | undefined;
+      return response.data as AlertStats | undefined;
     },
     refetchInterval: 30000,
   });

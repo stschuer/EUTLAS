@@ -101,7 +101,7 @@ export default function TeamPage() {
     queryKey: ['org-members', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/members`);
-      return (response.data?.data ?? []) as Member[];
+      return (response.data ?? []) as Member[];
     },
   });
 
@@ -110,7 +110,7 @@ export default function TeamPage() {
     queryKey: ['org-invitations', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/invitations/pending`);
-      return (response.data?.data ?? []) as Invitation[];
+      return (response.data ?? []) as Invitation[];
     },
   });
 

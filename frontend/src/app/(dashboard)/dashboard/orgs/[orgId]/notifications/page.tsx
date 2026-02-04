@@ -97,7 +97,7 @@ export default function NotificationsPage() {
     queryKey: ['notification-channels', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/notification-channels`);
-      return (response.data?.data ?? []) as NotificationChannel[];
+      return (response.data ?? []) as NotificationChannel[];
     },
   });
 
