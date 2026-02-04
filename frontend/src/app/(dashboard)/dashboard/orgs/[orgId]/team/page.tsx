@@ -53,12 +53,11 @@ interface Member {
   id: string;
   userId: { 
     id: string; 
-    firstName: string; 
-    lastName: string; 
+    name?: string;
     email: string;
   };
   role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'READONLY';
-  joinedAt: string;
+  createdAt: string;
 }
 
 interface Invitation {
@@ -68,7 +67,7 @@ interface Invitation {
   status: string;
   expiresAt: string;
   createdAt: string;
-  invitedBy?: { firstName: string; lastName: string; email: string };
+  invitedBy?: { name?: string; email: string };
 }
 
 const roleColors: Record<string, string> = {
@@ -323,13 +322,15 @@ export default function TeamPage() {
                         <Crown className="h-5 w-5 text-yellow-500" />
                       ) : (
                         <span className="text-sm font-medium">
-                          {member.userId.firstName?.[0]}{member.userId.lastName?.[0]}
+                          {member.userId.name 
+                            ? member.userId.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+                            : member.userId.email?.[0]?.toUpperCase()}
                         </span>
                       )}
                     </div>
                     <div>
                       <div className="font-medium">
-                        {member.userId.firstName} {member.userId.lastName}
+                        {member.userId.name || member.userId.email}
                       </div>
                       <div className="text-sm text-muted-foreground">
                         {member.userId.email}

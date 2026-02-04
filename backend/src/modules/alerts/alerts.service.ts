@@ -219,7 +219,7 @@ export class AlertsService {
     return this.alertHistoryModel
       .find(query)
       .populate('alertRuleId', 'name')
-      .populate('acknowledgedBy', 'firstName lastName email')
+      .populate('acknowledgedBy', 'name email')
       .sort({ firedAt: -1 })
       .limit(options?.limit || 100)
       .exec();

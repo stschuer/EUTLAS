@@ -89,7 +89,7 @@ export class InvitationsService {
       const inviterData = inviter as any;
       await this.emailService.sendInvitationEmail({
         to: email,
-        inviterName: inviter ? `${inviterData.firstName || ''} ${inviterData.lastName || ''}`.trim() || 'A team member' : 'A team member',
+        inviterName: inviter ? (inviterData.name || inviterData.email || 'A team member') : 'A team member',
         orgName: org?.name || 'an organization',
         role: createDto.role,
         token,
@@ -121,7 +121,7 @@ export class InvitationsService {
     }
     return this.invitationModel
       .find(query)
-      .populate('invitedBy', 'firstName lastName email')
+      .populate('invitedBy', 'name email')
       .sort({ createdAt: -1 })
       .exec();
   }
@@ -279,7 +279,7 @@ export class InvitationsService {
       const resenderData = resender as any;
       await this.emailService.sendInvitationEmail({
         to: invitation.email,
-        inviterName: resender ? `${resenderData.firstName || ''} ${resenderData.lastName || ''}`.trim() || 'A team member' : 'A team member',
+        inviterName: resender ? (resenderData.name || resenderData.email || 'A team member') : 'A team member',
         orgName: org?.name || 'an organization',
         role: invitation.role,
         token,

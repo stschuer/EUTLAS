@@ -74,7 +74,7 @@ export class ApiKeysService {
   async findByOrg(orgId: string): Promise<ApiKey[]> {
     return this.apiKeyModel
       .find({ orgId })
-      .populate('createdBy', 'firstName lastName email')
+      .populate('createdBy', 'name email')
       .sort({ createdAt: -1 })
       .exec();
   }

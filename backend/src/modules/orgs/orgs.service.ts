@@ -94,7 +94,7 @@ export class OrgsService {
   async getMembers(orgId: string): Promise<OrgMember[]> {
     return this.memberModel
       .find({ orgId })
-      .populate('userId', 'firstName lastName email')
+      .populate('userId', 'name email')
       .exec();
   }
 
