@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { orgsApi } from "@/lib/api-client";
 
 interface Organization {
   id: string;
@@ -52,20 +53,11 @@ export default function OrganizationPage() {
   useEffect(() => {
     const fetchOrg = async () => {
       try {
-        const token = localStorage.getItem("accessToken");
-        if (!token) {
-          router.push("/login");
-          return;
-        }
+        const response = await orgsApi.get(orgId);
 
-        const response = await fetch(`/api/v1/orgs/${orgId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setOrg(data.data || data);
-        } else if (response.status === 404) {
+        if (response.success && response.data) {
+          setOrg(response.data as Organization);
+        } else if (response.error?.code === "NOT_FOUND") {
           setError("Organization not found");
         } else {
           setError("Failed to load organization");
@@ -78,7 +70,7 @@ export default function OrganizationPage() {
     };
 
     fetchOrg();
-  }, [orgId, router]);
+  }, [orgId]);
 
   if (loading) {
     return (
