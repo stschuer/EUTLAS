@@ -46,6 +46,11 @@ async function bootstrap() {
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:3002',
+    // Production domains
+    'https://mongo.eutlas.eu',
+    'http://mongo.eutlas.eu',
+    'https://app.eutlas.eu',
+    'http://app.eutlas.eu',
     // Production nip.io domains
     'https://eutlas.46.224.42.63.nip.io',
     'https://staging.46.224.42.63.nip.io',
@@ -59,8 +64,12 @@ async function bootstrap() {
         callback(null, true);
         return;
       }
-      // Check if origin is in allowed list or matches nip.io pattern
-      if (allowedOrigins.includes(origin) || origin.endsWith('.nip.io')) {
+      // Check if origin is in allowed list or matches allowed patterns
+      if (
+        allowedOrigins.includes(origin) || 
+        origin.endsWith('.nip.io') ||
+        origin.endsWith('.eutlas.eu')
+      ) {
         callback(null, true);
       } else {
         logger.warn(`CORS blocked origin: ${origin}`);
