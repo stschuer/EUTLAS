@@ -54,6 +54,27 @@ export default function DashboardLayout({
     }
   }, [mounted, isAuthenticated, token, router]);
 
+  useEffect(() => {
+    if (!mounted || !isAuthenticated) return;
+
+    // Set up unauthorized handler
+    const handleUnauthorized = () => {
+      apiClient.setToken(null);
+      logout();
+      router.push("/login");
+    };
+
+    apiClient.setOnUnauthorized(handleUnauthorized);
+
+    // Listen for unauthorized events (fallback)
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+
+    return () => {
+      window.removeEventListener("auth:unauthorized", handleUnauthorized);
+      apiClient.setOnUnauthorized(null);
+    };
+  }, [mounted, isAuthenticated, logout, router]);
+
   const handleLogout = () => {
     apiClient.setToken(null);
     logout();

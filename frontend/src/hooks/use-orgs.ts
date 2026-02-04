@@ -16,7 +16,20 @@ export function useOrgs() {
       if (response.success && response.data) {
         return response.data as any[];
       }
+      // Don't throw on 401 - let the API client handle logout
+      // The API client will trigger logout via the unauthorized handler
+      if (response.error?.code === "UNAUTHORIZED") {
+        // Return empty array to prevent error state, logout will be handled by API client
+        return [];
+      }
       throw new Error(response.error?.message || "Failed to load organizations");
+    },
+    retry: (failureCount, error: any) => {
+      // Don't retry on 401/UNAUTHORIZED errors - they indicate auth failure
+      if (error?.message?.includes("UNAUTHORIZED") || failureCount >= 1) {
+        return false;
+      }
+      return true;
     },
   });
 }

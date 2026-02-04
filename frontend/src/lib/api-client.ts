@@ -27,6 +27,7 @@ interface ApiResponse<T> {
 class ApiClient {
   private baseUrl: string;
   private token: string | null = null;
+  private onUnauthorized: (() => void) | null = null;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
@@ -44,9 +45,42 @@ class ApiClient {
   getToken(): string | null {
     if (this.token) return this.token;
     if (typeof window !== "undefined") {
+      // Try to get token from localStorage
       this.token = localStorage.getItem("auth_token");
+      // Also check zustand persist storage as fallback
+      if (!this.token) {
+        try {
+          const authData = localStorage.getItem("eutlas-auth");
+          if (authData) {
+            const parsed = JSON.parse(authData);
+            if (parsed?.state?.token) {
+              this.token = parsed.state.token;
+              // Sync to auth_token for consistency
+              localStorage.setItem("auth_token", this.token);
+            }
+          }
+        } catch (e) {
+          // Ignore parse errors
+        }
+      }
     }
     return this.token;
+  }
+
+  setOnUnauthorized(callback: () => void) {
+    this.onUnauthorized = callback;
+  }
+
+  private handleUnauthorized() {
+    // Clear token
+    this.setToken(null);
+    // Notify auth store to logout
+    if (this.onUnauthorized) {
+      this.onUnauthorized();
+    } else if (typeof window !== "undefined") {
+      // Fallback: dispatch custom event
+      window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+    }
   }
 
   private async request<T>(
@@ -72,13 +106,31 @@ class ApiClient {
         body: data ? JSON.stringify(data) : undefined,
       });
 
-      const json = await response.json();
+      let json;
+      try {
+        json = await response.json();
+      } catch (e) {
+        // If response is not JSON, create a basic error
+        json = {
+          error: {
+            code: response.status === 401 ? "UNAUTHORIZED" : "UNKNOWN_ERROR",
+            message: "An error occurred",
+          },
+        };
+      }
 
       if (!response.ok) {
+        // Handle 401 Unauthorized globally
+        if (response.status === 401) {
+          // Only handle unauthorized if we had a token (avoid false positives)
+          if (token) {
+            this.handleUnauthorized();
+          }
+        }
         return {
           success: false,
           error: json.error || {
-            code: "UNKNOWN_ERROR",
+            code: response.status === 401 ? "UNAUTHORIZED" : "UNKNOWN_ERROR",
             message: "An error occurred",
           },
         };
