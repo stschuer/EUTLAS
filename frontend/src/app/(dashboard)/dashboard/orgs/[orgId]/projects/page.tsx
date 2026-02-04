@@ -39,7 +39,7 @@ export default function OrgProjectsPage() {
       <PageHeader
         title="Projects"
         description="Organize your clusters into projects for better management"
-        action={
+        actions={
           <Link href={`/dashboard/projects/new?orgId=${orgId}`}>
             <Button>
               <Plus className="mr-2 h-4 w-4" />

@@ -241,7 +241,7 @@ export default function TeamPage() {
       <PageHeader
         title="Team"
         description="Manage organization members and invitations"
-        action={
+        actions={
           <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
             <DialogTrigger asChild>
               <Button>

@@ -231,7 +231,7 @@ export default function NotificationsPage() {
       <PageHeader
         title="Notification Channels"
         description="Configure how you receive alert notifications"
-        action={
+        actions={
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button>

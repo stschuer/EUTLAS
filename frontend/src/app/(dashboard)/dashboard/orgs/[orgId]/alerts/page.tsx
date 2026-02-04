@@ -259,7 +259,7 @@ export default function AlertsPage() {
       <PageHeader
         title="Alerts"
         description="Monitor and manage alert rules and notifications"
-        action={
+        actions={
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button>
