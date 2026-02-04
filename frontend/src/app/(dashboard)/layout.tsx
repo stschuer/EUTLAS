@@ -28,6 +28,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { apiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
@@ -99,6 +105,7 @@ export default function DashboardLayout({
   // Note: Dashboards are accessible from org pages at /dashboard/orgs/[orgId]/dashboards
 
   return (
+    <TooltipProvider>
     <div className="min-h-screen bg-background flex">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
@@ -122,14 +129,19 @@ export default function DashboardLayout({
               EUTLAS
             </span>
           </Link>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          >
-            <X className="h-5 w-5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="lg:hidden"
+                onClick={() => setSidebarOpen(false)}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Close sidebar</TooltipContent>
+          </Tooltip>
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
@@ -174,13 +186,18 @@ export default function DashboardLayout({
       <div className="flex-1 flex flex-col min-h-screen">
         {/* Mobile header */}
         <header className="lg:hidden sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur p-4 flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Open menu</TooltipContent>
+          </Tooltip>
           <Link href="/dashboard" className="flex items-center gap-2">
             <Database className="h-6 w-6 text-primary" />
             <span className="font-bold text-primary">EUTLAS</span>
@@ -192,6 +209,7 @@ export default function DashboardLayout({
         </main>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
 

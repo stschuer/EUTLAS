@@ -17,6 +17,11 @@ import { useToast } from '@/components/ui/use-toast';
 import { archiveApi } from '@/lib/api-client';
 import { formatBytes, formatDate } from '@/lib/utils';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Archive,
   Plus,
   ArrowLeft,
@@ -157,11 +162,16 @@ export default function OnlineArchivePage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href={`/dashboard/clusters/${clusterId}?projectId=${projectId}`}>
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" asChild>
+              <Link href={`/dashboard/clusters/${clusterId}?projectId=${projectId}`}>
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Back to cluster</TooltipContent>
+        </Tooltip>
         <PageHeader
           title="Online Archive"
           description={`Automatically tier cold data to cheaper storage for ${clusterName}`}
@@ -312,17 +322,32 @@ export default function OnlineArchivePage() {
                           <span className="ml-1">Run Now</span>
                         </Button>
                         {rule.status === 'active' ? (
-                          <Button variant="ghost" size="icon" onClick={() => pauseMutation.mutate(rule.id)}>
-                            <Pause className="h-4 w-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" onClick={() => pauseMutation.mutate(rule.id)}>
+                                <Pause className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Pause rule</TooltipContent>
+                          </Tooltip>
                         ) : (
-                          <Button variant="ghost" size="icon" onClick={() => resumeMutation.mutate(rule.id)}>
-                            <Play className="h-4 w-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" onClick={() => resumeMutation.mutate(rule.id)}>
+                                <Play className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Resume rule</TooltipContent>
+                          </Tooltip>
                         )}
-                        <Button variant="ghost" size="icon" onClick={() => setDeleteRule({ id: rule.id, name: rule.name })}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => setDeleteRule({ id: rule.id, name: rule.name })}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete rule</TooltipContent>
+                        </Tooltip>
                       </div>
                     </div>
                   </CardContent>

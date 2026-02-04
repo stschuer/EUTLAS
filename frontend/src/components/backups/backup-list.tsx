@@ -4,6 +4,11 @@ import { Archive, Clock, CheckCircle2, XCircle, Loader2, Download } from "lucide
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { formatDateTime, formatBytes } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 
@@ -120,9 +125,14 @@ function BackupItem({ backup }: { backup: Backup }) {
 
       {/* Actions - only for completed backups */}
       {backup.status === "success" && (
-        <Button variant="ghost" size="sm" disabled>
-          <Download className="h-4 w-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="sm" disabled>
+              <Download className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Download backup</TooltipContent>
+        </Tooltip>
       )}
     </div>
   );

@@ -14,6 +14,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { cn, formatDate, formatBytes } from '@/lib/utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { 
   Search, 
   Filter, 
@@ -224,19 +229,29 @@ export function ActivityFeed({ orgId, projectId, clusterId }: ActivityFeedProps)
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <Button 
-                variant={showFilters ? 'secondary' : 'outline'} 
-                size="icon"
-                onClick={() => setShowFilters(!showFilters)}
-              >
-                <Filter className="h-4 w-4" />
-              </Button>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="icon">
-                    <Download className="h-4 w-4" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant={showFilters ? 'secondary' : 'outline'} 
+                    size="icon"
+                    onClick={() => setShowFilters(!showFilters)}
+                  >
+                    <Filter className="h-4 w-4" />
                   </Button>
-                </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{showFilters ? 'Hide filters' : 'Show filters'}</TooltipContent>
+              </Tooltip>
+              <Popover>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="icon">
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Export</TooltipContent>
+                </Tooltip>
                 <PopoverContent className="w-40" align="end">
                   <div className="space-y-2">
                     <Button 
@@ -256,9 +271,14 @@ export function ActivityFeed({ orgId, projectId, clusterId }: ActivityFeedProps)
                   </div>
                 </PopoverContent>
               </Popover>
-              <Button variant="outline" size="icon" onClick={() => refetch()}>
-                <RefreshCw className="h-4 w-4" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="icon" onClick={() => refetch()}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Refresh</TooltipContent>
+              </Tooltip>
             </div>
           </div>
 

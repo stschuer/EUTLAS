@@ -6,6 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Compass,
@@ -93,17 +98,22 @@ export function CompassConnection({ cluster, credentials }: CompassConnectionPro
               readOnly 
               className="font-mono text-sm"
             />
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => copyToClipboard(connectionString, 'Connection string')}
-            >
-              {copied === 'Connection string' ? (
-                <CheckCircle className="h-4 w-4 text-green-600" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => copyToClipboard(connectionString, 'Connection string')}
+                >
+                  {copied === 'Connection string' ? (
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{copied === 'Connection string' ? 'Copied!' : 'Copy'}</TooltipContent>
+            </Tooltip>
           </div>
           <p className="text-xs text-muted-foreground">
             Replace &lt;username&gt; and &lt;password&gt; with your database user credentials

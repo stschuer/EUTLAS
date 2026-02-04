@@ -14,6 +14,11 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api-client';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { 
   Plus, 
   User, 
@@ -207,25 +212,35 @@ export default function DatabaseUsersPage() {
                         className="pr-20"
                       />
                       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => setShowPassword(!showPassword)}
-                        >
-                          {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => setShowPassword(!showPassword)}
+                            >
+                              {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{showPassword ? 'Hide password' : 'Show password'}</TooltipContent>
+                        </Tooltip>
                         {newUser.password && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={copyPassword}
-                          >
-                            {copiedPassword ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={copyPassword}
+                              >
+                                {copiedPassword ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>{copiedPassword ? 'Copied!' : 'Copy password'}</TooltipContent>
+                          </Tooltip>
                         )}
                       </div>
                     </div>
@@ -334,15 +349,20 @@ export default function DatabaseUsersPage() {
                       ))}
                     </div>
 
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => setDeleteUserId(user.id)}
-                      disabled={user.username === 'admin'}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setDeleteUserId(user.id)}
+                          disabled={user.username === 'admin'}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Delete user</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               </CardContent>

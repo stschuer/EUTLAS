@@ -24,6 +24,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   LayoutDashboard,
   Plus,
   Trash2,
@@ -227,23 +232,33 @@ export default function DashboardsPage() {
                     View
                   </Button>
                   <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        setDuplicateDashboard({ id: dashboard.id, name: dashboard.name });
-                        setDuplicateName(`${dashboard.name} (Copy)`);
-                      }}
-                    >
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDeleteDashboard({ id: dashboard.id, name: dashboard.name })}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setDuplicateDashboard({ id: dashboard.id, name: dashboard.name });
+                            setDuplicateName(`${dashboard.name} (Copy)`);
+                          }}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Duplicate</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteDashboard({ id: dashboard.id, name: dashboard.name })}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Delete</TooltipContent>
+                    </Tooltip>
                   </div>
                 </CardFooter>
               </Card>

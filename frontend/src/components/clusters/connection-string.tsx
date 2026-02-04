@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -161,20 +166,25 @@ export function ConnectionStringDisplay({
                     isPending && "text-muted-foreground"
                   )}
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full"
-                  onClick={() => setShowPassword(!showPassword)}
-                  disabled={isPending}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full"
+                      onClick={() => setShowPassword(!showPassword)}
+                      disabled={isPending}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{showPassword ? 'Hide password' : 'Show password'}</TooltipContent>
+                </Tooltip>
               </div>
               <CopyButton
                 onClick={() => copyToClipboard(password, "Password")}
@@ -212,20 +222,25 @@ function CopyButton({
   disabled?: boolean;
 }) {
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="icon"
-      onClick={onClick}
-      disabled={disabled}
-      className="shrink-0"
-    >
-      {copied ? (
-        <Check className="h-4 w-4 text-primary" />
-      ) : (
-        <Copy className="h-4 w-4" />
-      )}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={onClick}
+          disabled={disabled}
+          className="shrink-0"
+        >
+          {copied ? (
+            <Check className="h-4 w-4 text-primary" />
+          ) : (
+            <Copy className="h-4 w-4" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{copied ? 'Copied!' : 'Copy'}</TooltipContent>
+    </Tooltip>
   );
 }
 

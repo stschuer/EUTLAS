@@ -35,6 +35,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { 
   UserPlus, 
   Users, 
@@ -47,6 +52,7 @@ import {
   CheckCircle2,
   XCircle,
   Crown,
+  Pencil,
 } from 'lucide-react';
 
 interface Member {
@@ -95,6 +101,11 @@ export default function TeamPage() {
   const [inviteRole, setInviteRole] = useState<'ADMIN' | 'MEMBER' | 'READONLY'>('MEMBER');
   const [removeMemberId, setRemoveMemberId] = useState<string | null>(null);
   const [revokeInvitationId, setRevokeInvitationId] = useState<string | null>(null);
+  
+  // Edit member state
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
 
   // Fetch members
   const { data: members, isLoading: loadingMembers, error: membersError } = useQuery({
@@ -211,6 +222,45 @@ export default function TeamPage() {
       });
     },
   });
+
+  // Update member profile mutation
+  const updateMemberMutation = useMutation({
+    mutationFn: async ({ userId, name, email }: { userId: string; name?: string; email?: string }) => {
+      const response = await apiClient.patch(`/orgs/${orgId}/members/${userId}/profile`, { name, email });
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to update member');
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-members', orgId] });
+      setEditingMember(null);
+      toast({ title: 'Member updated successfully' });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update member',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const openEditMember = (member: Member) => {
+    setEditingMember(member);
+    setEditName(member.userId.name || '');
+    setEditEmail(member.userId.email);
+  };
+
+  const handleUpdateMember = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMember) return;
+    updateMemberMutation.mutate({
+      userId: editingMember.userId.id,
+      name: editName || undefined,
+      email: editEmail,
+    });
+  };
 
   if (loadingMembers || loadingInvitations) {
     return (
@@ -343,42 +393,48 @@ export default function TeamPage() {
                       {roleLabels[member.role]}
                     </Badge>
                     
-                    {member.role !== 'OWNER' && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => updateRoleMutation.mutate({ userId: member.userId.id, role: 'ADMIN' })}
-                          >
-                            <Shield className="h-4 w-4 mr-2" />
-                            Make Admin
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => updateRoleMutation.mutate({ userId: member.userId.id, role: 'MEMBER' })}
-                          >
-                            <Users className="h-4 w-4 mr-2" />
-                            Make Member
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => updateRoleMutation.mutate({ userId: member.userId.id, role: 'READONLY' })}
-                          >
-                            <Shield className="h-4 w-4 mr-2" />
-                            Make Read Only
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => setRemoveMemberId(member.userId.id)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Remove
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openEditMember(member)}>
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Edit Profile
+                        </DropdownMenuItem>
+                        {member.role !== 'OWNER' && (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() => updateRoleMutation.mutate({ userId: member.userId.id, role: 'ADMIN' })}
+                            >
+                              <Shield className="h-4 w-4 mr-2" />
+                              Make Admin
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => updateRoleMutation.mutate({ userId: member.userId.id, role: 'MEMBER' })}
+                            >
+                              <Users className="h-4 w-4 mr-2" />
+                              Make Member
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => updateRoleMutation.mutate({ userId: member.userId.id, role: 'READONLY' })}
+                            >
+                              <Shield className="h-4 w-4 mr-2" />
+                              Make Read Only
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => setRemoveMemberId(member.userId.id)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Remove
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               ))}
@@ -423,23 +479,33 @@ export default function TeamPage() {
                       {roleLabels[invitation.role]}
                     </Badge>
                     
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => resendMutation.mutate(invitation.id)}
-                      disabled={resendMutation.isPending}
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => resendMutation.mutate(invitation.id)}
+                          disabled={resendMutation.isPending}
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Resend invitation</TooltipContent>
+                    </Tooltip>
                     
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive"
-                      onClick={() => setRevokeInvitationId(invitation.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          onClick={() => setRevokeInvitationId(invitation.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Revoke invitation</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               ))}
@@ -473,6 +539,48 @@ export default function TeamPage() {
         isDestructive
         isLoading={revokeMutation.isPending}
       />
+
+      {/* Edit Member Dialog */}
+      <Dialog open={!!editingMember} onOpenChange={(open) => !open && setEditingMember(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Member</DialogTitle>
+            <DialogDescription>
+              Update the profile information for this team member.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateMember} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="editName">Name</Label>
+              <Input
+                id="editName"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Enter name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editEmail">Email Address</Label>
+              <Input
+                id="editEmail"
+                type="email"
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+                placeholder="Enter email"
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditingMember(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={updateMemberMutation.isPending}>
+                {updateMemberMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -14,6 +14,11 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api-client';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { 
   Plus, 
   Trash2, 
@@ -452,14 +457,19 @@ export default function NetworkAccessPage() {
                     </div>
                   </div>
 
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => setDeleteEntryId(entry.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeleteEntryId(entry.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Remove IP</TooltipContent>
+                  </Tooltip>
                 </div>
               </CardContent>
             </Card>

@@ -12,6 +12,11 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { formatBytes, formatDate } from '@/lib/utils';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Search,
   Plus,
   Trash2,
@@ -190,14 +195,19 @@ export function SearchIndexList({ projectId, clusterId, onCreateClick, onTestCli
                           Test
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setDeleteIndex({ id: index.id, name: index.name })}
-                        disabled={index.status === 'deleting'}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeleteIndex({ id: index.id, name: index.name })}
+                            disabled={index.status === 'deleting'}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete index</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 </CardContent>

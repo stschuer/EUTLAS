@@ -11,6 +11,11 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RealtimeMetricsDashboard } from '@/components/metrics/realtime-metrics-dashboard';
 import { apiClient } from '@/lib/api-client';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { 
   Cpu, 
   MemoryStick, 
@@ -237,9 +242,14 @@ export default function MetricsPage() {
                   </Button>
                 ))}
               </div>
-              <Button variant="outline" size="sm" onClick={handleRefresh}>
-                <RefreshCw className="h-4 w-4" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" onClick={handleRefresh}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Refresh metrics</TooltipContent>
+              </Tooltip>
             </div>
           )}
         </div>

@@ -6,6 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   BarChart3,
   LineChart,
   PieChart,
@@ -104,38 +109,63 @@ export function QueryResultChart({ data, onClose }: QueryResultChartProps) {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">Visualization</CardTitle>
           <div className="flex items-center gap-2">
-            <Button
-              variant={chartType === 'table' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setChartType('table')}
-            >
-              <TableIcon className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={chartType === 'bar' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setChartType('bar')}
-            >
-              <BarChart3 className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={chartType === 'line' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setChartType('line')}
-            >
-              <LineChart className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={chartType === 'pie' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setChartType('pie')}
-            >
-              <PieChart className="h-4 w-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={chartType === 'table' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setChartType('table')}
+                >
+                  <TableIcon className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Table view</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={chartType === 'bar' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setChartType('bar')}
+                >
+                  <BarChart3 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Bar chart</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={chartType === 'line' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setChartType('line')}
+                >
+                  <LineChart className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Line chart</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={chartType === 'pie' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setChartType('pie')}
+                >
+                  <PieChart className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Pie chart</TooltipContent>
+            </Tooltip>
             {onClose && (
-              <Button variant="ghost" size="sm" onClick={onClose}>
-                <X className="h-4 w-4" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" onClick={onClose}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Close</TooltipContent>
+              </Tooltip>
             )}
           </div>
         </div>

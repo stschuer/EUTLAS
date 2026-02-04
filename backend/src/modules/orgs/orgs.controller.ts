@@ -14,15 +14,20 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser, CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { OrgsService } from './orgs.service';
+import { UsersService } from '../users/users.service';
 import { CreateOrgDto } from './dto/create-org.dto';
 import { UpdateOrgDto } from './dto/update-org.dto';
+import { UpdateMemberDto } from './dto/update-member.dto';
 
 @ApiTags('Organizations')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('orgs')
 export class OrgsController {
-  constructor(private readonly orgsService: OrgsService) {}
+  constructor(
+    private readonly orgsService: OrgsService,
+    private readonly usersService: UsersService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new organization' })
@@ -139,6 +144,38 @@ export class OrgsController {
     return {
       success: true,
       data: updated,
+    };
+  }
+
+  @Patch(':orgId/members/:userId/profile')
+  @ApiOperation({ summary: 'Update member profile (name, email)' })
+  async updateMemberProfile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('orgId') orgId: string,
+    @Param('userId') targetUserId: string,
+    @Body() updateMemberDto: UpdateMemberDto,
+  ) {
+    await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN']);
+    
+    // Check target member exists in this org
+    const member = await this.orgsService.getMemberByUserId(orgId, targetUserId);
+    if (!member) {
+      throw new NotFoundException('Member not found in this organization');
+    }
+
+    // Update the user profile
+    const updatedUser = await this.usersService.adminUpdateUser(targetUserId, {
+      name: updateMemberDto.name,
+      email: updateMemberDto.email,
+    });
+
+    return {
+      success: true,
+      data: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        name: updatedUser.name,
+      },
     };
   }
 

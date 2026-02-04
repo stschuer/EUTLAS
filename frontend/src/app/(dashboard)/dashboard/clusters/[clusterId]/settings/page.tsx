@@ -16,6 +16,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { clusterSettingsApi } from '@/lib/api-client';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   ArrowLeft,
   Tag,
   Network,
@@ -142,11 +147,16 @@ export default function ClusterSettingsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href={`/dashboard/clusters/${clusterId}?projectId=${projectId}`}>
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" asChild>
+              <Link href={`/dashboard/clusters/${clusterId}?projectId=${projectId}`}>
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Back to cluster</TooltipContent>
+        </Tooltip>
         <PageHeader
           title="Cluster Settings"
           description={`Configure settings for ${clusterName}`}
@@ -176,9 +186,14 @@ export default function ClusterSettingsPage() {
                 {Object.entries(tags).map(([key, value]) => (
                   <Badge key={key} variant="secondary" className="flex items-center gap-1 py-1 px-2">
                     <span className="font-medium">{key}:</span> {value as string}
-                    <button onClick={() => removeTagMutation.mutate(key)} className="ml-1 hover:text-destructive">
-                      <X className="h-3 w-3" />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button onClick={() => removeTagMutation.mutate(key)} className="ml-1 hover:text-destructive">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Remove tag</TooltipContent>
+                    </Tooltip>
                   </Badge>
                 ))}
                 {Object.keys(tags).length === 0 && (
@@ -321,9 +336,14 @@ export default function ClusterSettingsPage() {
                         <Badge variant={schedule.enabled ? 'default' : 'secondary'}>
                           {schedule.enabled ? 'Active' : 'Disabled'}
                         </Badge>
-                        <Button variant="ghost" size="icon" onClick={() => deleteScheduledScalingMutation.mutate(schedule.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => deleteScheduledScalingMutation.mutate(schedule.id)}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete schedule</TooltipContent>
+                        </Tooltip>
                       </div>
                     </div>
                   ))}

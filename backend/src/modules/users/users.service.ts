@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectModel, InjectConnection } from '@nestjs/mongoose';
 import { Model, Connection } from 'mongoose';
 import { User, UserDocument } from './schemas/user.schema';
@@ -91,6 +91,51 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  /**
+   * Admin update user profile (for org admins updating member details)
+   */
+  async adminUpdateUser(
+    userId: string,
+    data: { name?: string; email?: string },
+  ): Promise<UserDocument> {
+    const user = await this.userModel.findById(userId).exec();
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const updateData: { name?: string; email?: string } = {};
+
+    if (data.name !== undefined) {
+      updateData.name = data.name;
+    }
+
+    if (data.email !== undefined && data.email.toLowerCase() !== user.email) {
+      // Check if email is already taken
+      const existingUser = await this.findByEmail(data.email);
+      if (existingUser) {
+        throw new ConflictException({
+          code: 'EMAIL_IN_USE',
+          message: 'This email address is already in use by another account',
+        });
+      }
+      updateData.email = data.email.toLowerCase();
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return user;
+    }
+
+    const updatedUser = await this.userModel.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true },
+    ).exec();
+
+    this.logger.log(`Admin updated user ${userId}: ${JSON.stringify(updateData)}`);
+
+    return updatedUser!;
   }
 
   /**

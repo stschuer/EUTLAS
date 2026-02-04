@@ -11,6 +11,11 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Cloud,
   Plus,
   Trash2,
@@ -165,17 +170,29 @@ export function LogForwardingList({ projectId, clusterId, onCreateClick }: LogFo
                   )}
                   <span className="ml-1">Test</span>
                 </Button>
-                <Switch
-                  checked={config.enabled}
-                  onCheckedChange={(checked) => handleToggle(config.id, checked)}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setDeleteConfig({ id: config.id, name: config.name })}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <Switch
+                        checked={config.enabled}
+                        onCheckedChange={(checked) => handleToggle(config.id, checked)}
+                      />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>{config.enabled ? 'Disable forwarding' : 'Enable forwarding'}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeleteConfig({ id: config.id, name: config.name })}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete</TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </CardContent>
