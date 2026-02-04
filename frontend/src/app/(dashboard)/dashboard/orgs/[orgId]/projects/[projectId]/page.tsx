@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { apiClient } from '@/lib/api-client';
+import { projectsApi, clustersApi, privateNetworksApi } from '@/lib/api-client';
 import { formatDate } from '@/lib/utils';
 import {
   Server,
@@ -42,18 +42,18 @@ export default function ProjectDetailPage() {
   const projectId = params.projectId as string;
 
   const { data: project, isLoading: loadingProject } = useQuery({
-    queryKey: ['project', projectId],
+    queryKey: ['project', orgId, projectId],
     queryFn: async () => {
-      const res = await apiClient.get(`/projects/${projectId}`);
+      const res = await projectsApi.get(orgId, projectId);
       return res.success ? res.data : null;
     },
-    enabled: !!projectId,
+    enabled: !!orgId && !!projectId,
   });
 
   const { data: clusters, isLoading: loadingClusters } = useQuery({
     queryKey: ['clusters', projectId],
     queryFn: async () => {
-      const res = await apiClient.get(`/projects/${projectId}/clusters`);
+      const res = await clustersApi.list(projectId);
       return res.success ? res.data : [];
     },
     enabled: !!projectId,
@@ -62,7 +62,7 @@ export default function ProjectDetailPage() {
   const { data: networks } = useQuery({
     queryKey: ['private-networks', projectId],
     queryFn: async () => {
-      const res = await apiClient.get(`/projects/${projectId}/networks`);
+      const res = await privateNetworksApi.list(projectId);
       return res.success ? res.data : [];
     },
     enabled: !!projectId,
