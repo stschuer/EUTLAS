@@ -98,20 +98,20 @@ export default function TeamPage() {
   const [revokeInvitationId, setRevokeInvitationId] = useState<string | null>(null);
 
   // Fetch members
-  const { data: members, isLoading: loadingMembers } = useQuery({
+  const { data: members, isLoading: loadingMembers, error: membersError } = useQuery({
     queryKey: ['org-members', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/members`);
-      return response.data.data as Member[];
+      return (response.data?.data ?? []) as Member[];
     },
   });
 
   // Fetch invitations
-  const { data: invitations, isLoading: loadingInvitations } = useQuery({
+  const { data: invitations, isLoading: loadingInvitations, error: invitationsError } = useQuery({
     queryKey: ['org-invitations', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/invitations/pending`);
-      return response.data.data as Invitation[];
+      return (response.data?.data ?? []) as Invitation[];
     },
   });
 
@@ -217,6 +217,21 @@ export default function TeamPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (membersError || invitationsError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <Users className="h-16 w-16 text-muted-foreground opacity-50" />
+        <h2 className="text-xl font-semibold">Failed to load team data</h2>
+        <p className="text-muted-foreground">
+          {(membersError as Error)?.message || (invitationsError as Error)?.message || 'An error occurred'}
+        </p>
+        <Button variant="outline" onClick={() => window.location.reload()}>
+          Try Again
+        </Button>
       </div>
     );
   }

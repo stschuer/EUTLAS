@@ -141,20 +141,20 @@ export default function AlertsPage() {
   });
 
   // Fetch alert rules
-  const { data: rules, isLoading: loadingRules } = useQuery({
+  const { data: rules, isLoading: loadingRules, error: rulesError } = useQuery({
     queryKey: ['alert-rules', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/alerts/rules`);
-      return response.data.data as AlertRule[];
+      return (response.data?.data ?? []) as AlertRule[];
     },
   });
 
   // Fetch alert history
-  const { data: history, isLoading: loadingHistory } = useQuery({
+  const { data: history, isLoading: loadingHistory, error: historyError } = useQuery({
     queryKey: ['alert-history', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/alerts/history?limit=50`);
-      return response.data.data as AlertHistory[];
+      return (response.data?.data ?? []) as AlertHistory[];
     },
     refetchInterval: 30000,
   });
@@ -164,7 +164,7 @@ export default function AlertsPage() {
     queryKey: ['alert-stats', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/alerts/history/stats`);
-      return response.data.data as AlertStats;
+      return response.data?.data as AlertStats | undefined;
     },
     refetchInterval: 30000,
   });
@@ -233,6 +233,21 @@ export default function AlertsPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (rulesError || historyError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <Bell className="h-16 w-16 text-muted-foreground opacity-50" />
+        <h2 className="text-xl font-semibold">Failed to load alerts</h2>
+        <p className="text-muted-foreground">
+          {(rulesError as Error)?.message || (historyError as Error)?.message || 'An error occurred'}
+        </p>
+        <Button variant="outline" onClick={() => window.location.reload()}>
+          Try Again
+        </Button>
       </div>
     );
   }
