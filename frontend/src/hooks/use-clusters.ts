@@ -147,32 +147,59 @@ export function useAllClusters() {
     queryFn: async () => {
       // First get all orgs
       const orgsResponse = await import("@/lib/api-client").then(m => m.orgsApi.list());
-      if (!orgsResponse.success || !orgsResponse.data) {
+      
+      // Handle error responses properly
+      if (!orgsResponse.success) {
+        // If it's a "not found" or empty case, return empty array
+        if (orgsResponse.error?.code === "NOT_FOUND") {
+          return [];
+        }
+        throw new Error(orgsResponse.error?.message || "Failed to load organizations");
+      }
+      
+      // Handle case where data is null/undefined
+      if (!orgsResponse.data) {
         return [];
       }
 
       const orgs = orgsResponse.data as any[];
+      
+      // If no orgs, return empty array (not an error)
+      if (orgs.length === 0) {
+        return [];
+      }
+      
       const allClusters: any[] = [];
 
       // Get projects for each org, then clusters for each project
       for (const org of orgs) {
-        const projResponse = await import("@/lib/api-client").then(m => m.projectsApi.list(org.id));
-        if (projResponse.success && projResponse.data) {
-          const projects = projResponse.data as any[];
-          
-          for (const project of projects) {
-            const clustersResponse = await clustersApi.list(project.id);
-            if (clustersResponse.success && clustersResponse.data) {
-              const clusters = (clustersResponse.data as any[]).map(c => ({
-                ...c,
-                projectId: project.id,
-                projectName: project.name,
-                orgId: org.id,
-                orgName: org.name,
-              }));
-              allClusters.push(...clusters);
+        try {
+          const projResponse = await import("@/lib/api-client").then(m => m.projectsApi.list(org.id));
+          if (projResponse.success && projResponse.data) {
+            const projects = projResponse.data as any[];
+            
+            for (const project of projects) {
+              try {
+                const clustersResponse = await clustersApi.list(project.id);
+                if (clustersResponse.success && clustersResponse.data) {
+                  const clusters = (clustersResponse.data as any[]).map(c => ({
+                    ...c,
+                    projectId: project.id,
+                    projectName: project.name,
+                    orgId: org.id,
+                    orgName: org.name,
+                  }));
+                  allClusters.push(...clusters);
+                }
+              } catch (clusterErr) {
+                // Log but continue with other projects
+                console.warn(`Failed to load clusters for project ${project.id}:`, clusterErr);
+              }
             }
           }
+        } catch (projErr) {
+          // Log but continue with other orgs
+          console.warn(`Failed to load projects for org ${org.id}:`, projErr);
         }
       }
 

@@ -21,7 +21,8 @@ type StatusType =
   | "pending"
   | "success"
   | "running"
-  | "scheduled";
+  | "scheduled"
+  | "unknown";
 
 interface StatusBadgeProps {
   status: StatusType;
@@ -46,6 +47,7 @@ const statusConfig: Record<StatusType, {
   success: { label: "Completed", variant: "success", isAnimated: false },
   running: { label: "Running", variant: "info", isAnimated: true },
   scheduled: { label: "Scheduled", variant: "secondary", isAnimated: false },
+  unknown: { label: "Unknown", variant: "secondary", isAnimated: false },
 };
 
 export function StatusBadge({
@@ -95,12 +97,13 @@ export function ClusterStatusBadge({
   status: StatusType;
   className?: string;
 }) {
-  const config = statusConfig[status];
+  // Provide a default config for unknown statuses
+  const config = statusConfig[status] || { label: status || 'Unknown', variant: 'secondary', isAnimated: false };
   
   return (
     <div className={cn("flex items-center gap-2", className)}>
       {/* Animated dot for in-progress states */}
-      {config?.isAnimated ? (
+      {config.isAnimated ? (
         <span className="relative flex h-3 w-3">
           <span
             className={cn(
@@ -122,15 +125,15 @@ export function ClusterStatusBadge({
       ) : (
         <span
           className={cn(
-            "h-3 w-3 rounded-full",
-            config?.variant === "success" && "bg-emerald-500",
-            config?.variant === "warning" && "bg-yellow-500",
-            config?.variant === "destructive" && "bg-red-500",
-            config?.variant === "secondary" && "bg-gray-500"
+            "h-3 w-3 rounded-full bg-gray-500",
+            config.variant === "success" && "bg-emerald-500",
+            config.variant === "warning" && "bg-yellow-500",
+            config.variant === "destructive" && "bg-red-500",
+            config.variant === "secondary" && "bg-gray-500"
           )}
         />
       )}
-      <span className="text-sm font-medium">{config?.label || status}</span>
+      <span className="text-sm font-medium">{config.label}</span>
     </div>
   );
 }

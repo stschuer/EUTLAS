@@ -310,14 +310,14 @@ export function ActivityFeed({ orgId, projectId, clusterId }: ActivityFeedProps)
               <div>
                 <Label className="mb-2 block">Event Types</Label>
                 <Select
-                  value={selectedTypes[0] || ''}
-                  onValueChange={(value) => setSelectedTypes(value ? [value] : [])}
+                  value={selectedTypes[0] || 'all'}
+                  onValueChange={(value) => setSelectedTypes(value && value !== 'all' ? [value] : [])}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="All types" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All types</SelectItem>
+                    <SelectItem value="all">All types</SelectItem>
                     {Object.entries(groupedTypes).map(([category, types]) => (
                       types.map((type: any) => (
                         <SelectItem key={type.value} value={type.value}>

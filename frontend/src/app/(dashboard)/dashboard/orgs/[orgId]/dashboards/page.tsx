@@ -66,7 +66,7 @@ export default function DashboardsPage() {
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [selectedTemplate, setSelectedTemplate] = useState('blank');
 
   const { data: dashboards, isLoading } = useQuery({
     queryKey: ['dashboards', orgId],
@@ -133,11 +133,11 @@ export default function DashboardsPage() {
   const resetForm = () => {
     setName('');
     setDescription('');
-    setSelectedTemplate('');
+    setSelectedTemplate('blank');
   };
 
   const handleCreate = () => {
-    if (selectedTemplate) {
+    if (selectedTemplate && selectedTemplate !== 'blank') {
       createMutation.mutate({ name: '', templateId: selectedTemplate });
     } else if (name) {
       createMutation.mutate({ name, description });
@@ -284,7 +284,7 @@ export default function DashboardsPage() {
                   <SelectValue placeholder="Choose a template..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Blank Dashboard</SelectItem>
+                  <SelectItem value="blank">Blank Dashboard</SelectItem>
                   {templates?.map((t: any) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.name} - {t.description}
@@ -294,7 +294,7 @@ export default function DashboardsPage() {
               </Select>
             </div>
 
-            {!selectedTemplate && (
+            {(!selectedTemplate || selectedTemplate === 'blank') && (
               <>
                 <div className="space-y-2">
                   <Label>Dashboard Name *</Label>
@@ -321,7 +321,7 @@ export default function DashboardsPage() {
               </Button>
               <Button
                 onClick={handleCreate}
-                disabled={createMutation.isPending || (!selectedTemplate && !name)}
+                disabled={createMutation.isPending || ((!selectedTemplate || selectedTemplate === 'blank') && !name)}
               >
                 {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Create

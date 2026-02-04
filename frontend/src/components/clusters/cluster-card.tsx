@@ -55,7 +55,14 @@ export function ClusterCard({
   onResize,
 }: ClusterCardProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const canModify = cluster.status === "ready" || cluster.status === "degraded";
+  
+  // Safely access cluster properties with defaults
+  const status = cluster?.status || "unknown";
+  const name = cluster?.name || "Unknown Cluster";
+  const mongoVersion = cluster?.mongoVersion || "N/A";
+  const plan = cluster?.plan || "UNKNOWN";
+  
+  const canModify = status === "ready" || status === "degraded";
 
   return (
     <Card className="group hover:border-primary/50 transition-all duration-200">
@@ -65,34 +72,34 @@ export function ClusterCard({
           <div
             className={cn(
               "rounded-lg p-2 transition-colors",
-              cluster.status === "ready" && "bg-emerald-500/10",
-              cluster.status === "creating" && "bg-yellow-500/10",
-              cluster.status === "updating" && "bg-blue-500/10",
-              cluster.status === "failed" && "bg-red-500/10",
-              cluster.status === "deleting" && "bg-red-500/10",
-              cluster.status === "degraded" && "bg-orange-500/10",
-              cluster.status === "stopped" && "bg-gray-500/10"
+              status === "ready" && "bg-emerald-500/10",
+              status === "creating" && "bg-yellow-500/10",
+              status === "updating" && "bg-blue-500/10",
+              status === "failed" && "bg-red-500/10",
+              status === "deleting" && "bg-red-500/10",
+              status === "degraded" && "bg-orange-500/10",
+              status === "stopped" && "bg-gray-500/10"
             )}
           >
             <Server
               className={cn(
                 "h-5 w-5",
-                cluster.status === "ready" && "text-emerald-500",
-                cluster.status === "creating" && "text-yellow-500",
-                cluster.status === "updating" && "text-blue-500",
-                cluster.status === "failed" && "text-red-500",
-                cluster.status === "deleting" && "text-red-500",
-                cluster.status === "degraded" && "text-orange-500",
-                cluster.status === "stopped" && "text-gray-500"
+                status === "ready" && "text-emerald-500",
+                status === "creating" && "text-yellow-500",
+                status === "updating" && "text-blue-500",
+                status === "failed" && "text-red-500",
+                status === "deleting" && "text-red-500",
+                status === "degraded" && "text-orange-500",
+                status === "stopped" && "text-gray-500"
               )}
             />
           </div>
           <div>
             <CardTitle className="text-base font-semibold">
-              {cluster.name}
+              {name}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              MongoDB {cluster.mongoVersion}
+              MongoDB {mongoVersion}
             </p>
           </div>
         </div>
@@ -141,12 +148,12 @@ export function ClusterCard({
       <CardContent>
         {/* Status and Plan - high visibility */}
         <div className="flex items-center justify-between mb-4">
-          <ClusterStatusBadge status={cluster.status as any} />
-          <Badge variant="outline">{planLabels[cluster.plan] || cluster.plan}</Badge>
+          <ClusterStatusBadge status={status as any} />
+          <Badge variant="outline">{planLabels[plan] || plan}</Badge>
         </div>
 
         {/* Quick action - prominent when cluster is ready */}
-        {cluster.status === "ready" && (
+        {status === "ready" && cluster?.id && (
           <Link href={`/dashboard/clusters/${cluster.id}/credentials`}>
             <Button variant="outline" size="sm" className="w-full">
               <ExternalLink className="mr-2 h-4 w-4" />
@@ -156,12 +163,12 @@ export function ClusterCard({
         )}
 
         {/* Feedback for non-ready states */}
-        {cluster.status === "creating" && (
+        {status === "creating" && (
           <p className="text-sm text-muted-foreground text-center py-2">
             Your cluster is being provisioned...
           </p>
         )}
-        {cluster.status === "failed" && (
+        {status === "failed" && (
           <p className="text-sm text-destructive text-center py-2">
             Cluster provisioning failed. Contact support.
           </p>

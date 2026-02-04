@@ -42,19 +42,26 @@ export default function AuditLogsPage() {
   const orgId = params.orgId as string;
 
   const [search, setSearch] = useState('');
-  const [actionFilter, setActionFilter] = useState<string>('');
-  const [resourceFilter, setResourceFilter] = useState<string>('');
+  const [actionFilter, setActionFilter] = useState<string>('all');
+  const [resourceFilter, setResourceFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
 
-  const { data: logs, isLoading } = useQuery({
+  const { data: logs, isLoading, error: logsError } = useQuery({
     queryKey: ['audit-logs', orgId, search, actionFilter, resourceFilter, page],
     queryFn: async () => {
       const params: Record<string, any> = { page, limit: 25 };
       if (search) params.search = search;
-      if (actionFilter) params.actions = actionFilter;
-      if (resourceFilter) params.resourceTypes = resourceFilter;
+      if (actionFilter && actionFilter !== 'all') params.actions = actionFilter;
+      if (resourceFilter && resourceFilter !== 'all') params.resourceTypes = resourceFilter;
       const res = await auditApi.query(orgId, params);
-      return res.success ? res : null;
+      if (!res.success) {
+        // Return null for not found/empty cases, throw for real errors
+        if (res.error?.code === 'NOT_FOUND') {
+          return { data: [], page: 1, totalPages: 1, total: 0 };
+        }
+        throw new Error(res.error?.message || 'Failed to load audit logs');
+      }
+      return res;
     },
     enabled: !!orgId,
   });
@@ -63,7 +70,11 @@ export default function AuditLogsPage() {
     queryKey: ['audit-stats', orgId],
     queryFn: async () => {
       const res = await auditApi.getStats(orgId);
-      return res.success ? res.data : null;
+      // Return default stats if not successful
+      if (!res.success) {
+        return { totalEvents: 0, byAction: {} };
+      }
+      return res.data || { totalEvents: 0, byAction: {} };
     },
     enabled: !!orgId,
   });
@@ -93,6 +104,28 @@ export default function AuditLogsPage() {
     const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     window.open(auditApi.exportUrl(orgId, startDate, endDate, format), '_blank');
   };
+
+  // Show error state if loading failed
+  if (logsError) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Audit Logs"
+          description="Track all actions and changes in your organization"
+        />
+        <div className="flex flex-col items-center justify-center py-12 gap-4">
+          <FileText className="h-16 w-16 text-muted-foreground opacity-50" />
+          <h2 className="text-xl font-semibold">Failed to load audit logs</h2>
+          <p className="text-muted-foreground">
+            {(logsError as Error)?.message || 'An error occurred while loading audit logs.'}
+          </p>
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -161,7 +194,7 @@ export default function AuditLogsPage() {
                 <SelectValue placeholder="All Actions" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Actions</SelectItem>
+                <SelectItem value="all">All Actions</SelectItem>
                 {(actions || []).map((action: string) => (
                   <SelectItem key={action} value={action}>{action}</SelectItem>
                 ))}
@@ -172,7 +205,7 @@ export default function AuditLogsPage() {
                 <SelectValue placeholder="All Resources" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Resources</SelectItem>
+                <SelectItem value="all">All Resources</SelectItem>
                 {(resourceTypes || []).map((type: string) => (
                   <SelectItem key={type} value={type}>{type}</SelectItem>
                 ))}
