@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { auditApi } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Search,
   Download,
@@ -23,6 +24,7 @@ import {
   Settings,
   Shield,
   Clock,
+  FileText,
 } from 'lucide-react';
 
 const actionColors: Record<string, string> = {
@@ -116,25 +118,25 @@ export default function AuditLogsPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold">{stats.totalEvents.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{(stats.totalEvents ?? 0).toLocaleString()}</div>
               <p className="text-sm text-muted-foreground">Total Events (30d)</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-green-600">{stats.byAction?.CREATE || 0}</div>
+              <div className="text-2xl font-bold text-green-600">{stats.byAction?.CREATE ?? 0}</div>
               <p className="text-sm text-muted-foreground">Creates</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-blue-600">{stats.byAction?.UPDATE || 0}</div>
+              <div className="text-2xl font-bold text-blue-600">{stats.byAction?.UPDATE ?? 0}</div>
               <p className="text-sm text-muted-foreground">Updates</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-red-600">{stats.byAction?.DELETE || 0}</div>
+              <div className="text-2xl font-bold text-red-600">{stats.byAction?.DELETE ?? 0}</div>
               <p className="text-sm text-muted-foreground">Deletes</p>
             </CardContent>
           </Card>
@@ -185,15 +187,15 @@ export default function AuditLogsPage() {
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
         </div>
-      ) : logs?.data?.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No audit logs found
-          </CardContent>
-        </Card>
+      ) : !logs?.data || logs.data.length === 0 ? (
+        <EmptyState
+          icon={<FileText className="h-12 w-12" />}
+          title="No audit logs yet"
+          description="Actions in your organization will be recorded here for security and compliance."
+        />
       ) : (
         <div className="space-y-2">
-          {logs?.data?.map((log: any) => (
+          {logs.data.map((log: any) => (
             <Card key={log.id} className="hover:bg-muted/30 transition-colors">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between">
@@ -240,10 +242,10 @@ export default function AuditLogsPage() {
           ))}
 
           {/* Pagination */}
-          {logs && logs.totalPages > 1 && (
+          {logs && (logs.totalPages ?? 0) > 1 && (
             <div className="flex items-center justify-between pt-4">
               <div className="text-sm text-muted-foreground">
-                Page {logs.page} of {logs.totalPages} ({logs.total} total)
+                Page {logs.page ?? 1} of {logs.totalPages ?? 1} ({logs.total ?? 0} total)
               </div>
               <div className="flex gap-2">
                 <Button
@@ -257,8 +259,8 @@ export default function AuditLogsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setPage(p => Math.min(logs.totalPages, p + 1))}
-                  disabled={page >= logs.totalPages}
+                  onClick={() => setPage(p => Math.min(logs.totalPages ?? 1, p + 1))}
+                  disabled={page >= (logs.totalPages ?? 1)}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
