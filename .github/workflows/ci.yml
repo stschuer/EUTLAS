@@ -167,8 +167,8 @@ jobs:
           labels: ${{ steps.meta-frontend.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            NEXT_PUBLIC_API_URL=${{ needs.set-env.outputs.environment == 'production' && 'https://eutlas.46.224.42.63.nip.io/api/v1' || needs.set-env.outputs.environment == 'staging' && 'https://staging.46.224.42.63.nip.io/api/v1' || 'https://test.46.224.42.63.nip.io/api/v1' }}
+          # Don't set NEXT_PUBLIC_API_URL - frontend will use relative URLs (/api/v1)
+          # This allows the same image to work with any domain through the ingress
 
   # Deploy to Kubernetes (requires KUBECONFIG secret to be set)
   # To enable auto-deploy:
