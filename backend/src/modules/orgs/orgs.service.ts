@@ -3,18 +3,23 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  Logger,
+  BadRequestException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel, InjectConnection } from '@nestjs/mongoose';
+import { Model, Connection } from 'mongoose';
 import { Organization, OrganizationDocument } from './schemas/org.schema';
 import { OrgMember, OrgMemberDocument, OrgRole } from './schemas/org-member.schema';
 import { CreateOrgDto } from './dto/create-org.dto';
 
 @Injectable()
 export class OrgsService {
+  private readonly logger = new Logger(OrgsService.name);
+
   constructor(
     @InjectModel(Organization.name) private orgModel: Model<OrganizationDocument>,
     @InjectModel(OrgMember.name) private memberModel: Model<OrgMemberDocument>,
+    @InjectConnection() private connection: Connection,
   ) {}
 
   async create(userId: string, createOrgDto: CreateOrgDto): Promise<Organization> {
@@ -187,10 +192,147 @@ export class OrgsService {
     return org;
   }
 
-  async delete(orgId: string): Promise<void> {
-    // TODO: Check for active clusters before deletion
-    await this.memberModel.deleteMany({ orgId }).exec();
+  /**
+   * Delete organization and ALL related data (cascade delete)
+   * This is a destructive operation that cannot be undone.
+   */
+  async delete(orgId: string, force: boolean = false): Promise<{ deletedCounts: Record<string, number> }> {
+    const org = await this.findById(orgId);
+    if (!org) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    // Check for active clusters unless force=true
+    if (!force) {
+      const activeClusters = await this.connection.collection('clusters').countDocuments({
+        orgId: org._id,
+        status: { $nin: ['deleting', 'failed'] },
+      });
+      
+      if (activeClusters > 0) {
+        throw new BadRequestException({
+          code: 'ACTIVE_CLUSTERS_EXIST',
+          message: `Cannot delete organization with ${activeClusters} active cluster(s). Delete clusters first or use force=true.`,
+        });
+      }
+    }
+
+    this.logger.log(`Starting cascade delete for org ${orgId} (${org.name})`);
+    const deletedCounts: Record<string, number> = {};
+
+    // Collections that reference orgId directly
+    const orgIdCollections = [
+      'orgmembers',
+      'projects',
+      'clusters',
+      'invitations',
+      'apikeys',
+      'alertrules',
+      'alerthistories',
+      'notificationchannels',
+      'billingaccounts',
+      'invoices',
+      'usagerecords',
+      'ssoconfigs',
+      'events',
+      'auditlogs',
+      'dashboards',
+      'scalingrecommendations',
+    ];
+
+    // Get all project IDs and cluster IDs for this org first
+    const projects = await this.connection.collection('projects').find({ orgId: org._id }).toArray();
+    const projectIds = projects.map(p => p._id);
+    
+    const clusters = await this.connection.collection('clusters').find({ orgId: org._id }).toArray();
+    const clusterIds = clusters.map(c => c._id);
+
+    this.logger.log(`Found ${projectIds.length} projects and ${clusterIds.length} clusters to delete`);
+
+    // Collections that reference clusterId
+    const clusterIdCollections = [
+      'backups',
+      'backuppolicies',
+      'databaseusers',
+      'ipwhitelists',
+      'searchindexes',
+      'vectorindexes',
+      'pitrconfigs',
+      'pitrrestores',
+      'oplogentries',
+      'metrics',
+      'slowqueries',
+      'indexsuggestions',
+      'maintenancewindows',
+      'logforwardings',
+      'archiverules',
+      'clusterendpoints',
+      'clustersettings',
+      'collectionschemas',
+    ];
+
+    // Collections that reference projectId
+    const projectIdCollections = [
+      'privatenetworks',
+    ];
+
+    // Delete cluster-related data first
+    if (clusterIds.length > 0) {
+      for (const collection of clusterIdCollections) {
+        try {
+          const result = await this.connection.collection(collection).deleteMany({
+            clusterId: { $in: clusterIds },
+          });
+          if (result.deletedCount > 0) {
+            deletedCounts[collection] = result.deletedCount;
+            this.logger.debug(`Deleted ${result.deletedCount} documents from ${collection}`);
+          }
+        } catch (err) {
+          // Collection might not exist, that's OK
+          this.logger.debug(`Collection ${collection} not found or error: ${err.message}`);
+        }
+      }
+    }
+
+    // Delete project-related data
+    if (projectIds.length > 0) {
+      for (const collection of projectIdCollections) {
+        try {
+          const result = await this.connection.collection(collection).deleteMany({
+            projectId: { $in: projectIds },
+          });
+          if (result.deletedCount > 0) {
+            deletedCounts[collection] = result.deletedCount;
+            this.logger.debug(`Deleted ${result.deletedCount} documents from ${collection}`);
+          }
+        } catch (err) {
+          this.logger.debug(`Collection ${collection} not found or error: ${err.message}`);
+        }
+      }
+    }
+
+    // Delete org-level data
+    for (const collection of orgIdCollections) {
+      try {
+        const result = await this.connection.collection(collection).deleteMany({
+          orgId: org._id,
+        });
+        if (result.deletedCount > 0) {
+          deletedCounts[collection] = result.deletedCount;
+          this.logger.debug(`Deleted ${result.deletedCount} documents from ${collection}`);
+        }
+      } catch (err) {
+        this.logger.debug(`Collection ${collection} not found or error: ${err.message}`);
+      }
+    }
+
+    // Finally delete the organization itself
     await this.orgModel.findByIdAndDelete(orgId).exec();
+    deletedCounts['organizations'] = 1;
+
+    this.logger.log(`Cascade delete complete for org ${orgId}. Summary: ${JSON.stringify(deletedCounts)}`);
+    
+    return { deletedCounts };
   }
 
   private generateSlug(name: string): string {

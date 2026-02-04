@@ -1,7 +1,9 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
+  Delete,
   Body,
   UseGuards,
 } from '@nestjs/common';
@@ -10,6 +12,8 @@ import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser, CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -52,6 +56,40 @@ export class UsersController {
         name: userData.name,
         verified: userData.verified,
       },
+    };
+  }
+
+  @Post('me/password')
+  @ApiOperation({ summary: 'Change password (requires current password)' })
+  async changePassword(
+    @CurrentUser() user: CurrentUserData,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    await this.usersService.changePassword(
+      user.userId,
+      changePasswordDto.currentPassword,
+      changePasswordDto.newPassword,
+    );
+    return {
+      success: true,
+      message: 'Password changed successfully',
+    };
+  }
+
+  @Delete('me')
+  @ApiOperation({ summary: 'Delete account (requires password confirmation)' })
+  async deleteAccount(
+    @CurrentUser() user: CurrentUserData,
+    @Body() deleteAccountDto: DeleteAccountDto,
+  ) {
+    const result = await this.usersService.deleteAccount(
+      user.userId,
+      deleteAccountDto.password,
+    );
+    return {
+      success: true,
+      message: 'Account deleted successfully',
+      data: result,
     };
   }
 }

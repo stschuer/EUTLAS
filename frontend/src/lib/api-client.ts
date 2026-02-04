@@ -164,8 +164,8 @@ class ApiClient {
     return this.request<T>("PUT", path, data);
   }
 
-  async delete<T>(path: string): Promise<ApiResponse<T>> {
-    return this.request<T>("DELETE", path);
+  async delete<T>(path: string, data?: unknown): Promise<ApiResponse<T>> {
+    return this.request<T>("DELETE", path, data);
   }
 }
 
@@ -191,6 +191,31 @@ export const authApi = {
 
   resetPassword: (token: string, password: string) =>
     apiClient.post("/auth/reset-password", { token, password }),
+};
+
+// Users API
+export const usersApi = {
+  getProfile: () => apiClient.get<{
+    id: string;
+    email: string;
+    name?: string;
+    verified: boolean;
+    createdAt: string;
+  }>("/users/me"),
+
+  updateProfile: (data: { name?: string }) =>
+    apiClient.patch<{
+      id: string;
+      email: string;
+      name?: string;
+      verified: boolean;
+    }>("/users/me", data),
+
+  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+    apiClient.post("/users/me/password", data),
+
+  deleteAccount: (password: string) =>
+    apiClient.delete("/users/me", { password }),
 };
 
 // Organizations API

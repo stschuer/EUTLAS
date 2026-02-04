@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   NotFoundException,
 } from '@nestjs/common';
@@ -81,16 +82,18 @@ export class OrgsController {
   }
 
   @Delete(':orgId')
-  @ApiOperation({ summary: 'Delete organization' })
+  @ApiOperation({ summary: 'Delete organization and all related data (cascade delete)' })
   async remove(
     @CurrentUser() user: CurrentUserData,
     @Param('orgId') orgId: string,
+    @Query('force') force?: string,
   ) {
     await this.orgsService.checkAccess(orgId, user.userId, ['OWNER']);
-    await this.orgsService.delete(orgId);
+    const result = await this.orgsService.delete(orgId, force === 'true');
     return {
       success: true,
-      message: 'Organization deleted successfully',
+      message: 'Organization and all related data deleted successfully',
+      data: result,
     };
   }
 

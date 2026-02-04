@@ -5,21 +5,26 @@ import {
   BadRequestException,
   Inject,
   forwardRef,
+  Logger,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel, InjectConnection } from '@nestjs/mongoose';
+import { Model, Connection } from 'mongoose';
 import { Cluster, ClusterDocument, ClusterStatus, ClusterPlan } from './schemas/cluster.schema';
 import { CreateClusterDto } from './dto/create-cluster.dto';
 import { ResizeClusterDto } from './dto/resize-cluster.dto';
+import { UpdateClusterDto } from './dto/update-cluster.dto';
 import { JobsService } from '../jobs/jobs.service';
 import { CredentialsService } from '../credentials/credentials.service';
 
 @Injectable()
 export class ClustersService {
+  private readonly logger = new Logger(ClustersService.name);
+
   constructor(
     @InjectModel(Cluster.name) private clusterModel: Model<ClusterDocument>,
     @Inject(forwardRef(() => JobsService)) private jobsService: JobsService,
     private credentialsService: CredentialsService,
+    @InjectConnection() private connection: Connection,
   ) {}
 
   async create(
@@ -214,8 +219,113 @@ export class ClustersService {
     return cluster;
   }
 
-  async hardDelete(clusterId: string): Promise<void> {
+  /**
+   * Hard delete cluster and ALL related data (cascade delete)
+   * Called after Kubernetes resources are cleaned up
+   */
+  async hardDelete(clusterId: string): Promise<{ deletedCounts: Record<string, number> }> {
+    const cluster = await this.findById(clusterId);
+    if (!cluster) {
+      // Already deleted, that's OK
+      return { deletedCounts: {} };
+    }
+
+    this.logger.log(`Starting cascade delete for cluster ${clusterId} (${cluster.name})`);
+    const deletedCounts: Record<string, number> = {};
+
+    // Collections that reference clusterId
+    const clusterIdCollections = [
+      'backups',
+      'backuppolicies',
+      'databaseusers',
+      'ipwhitelists',
+      'searchindexes',
+      'vectorindexes',
+      'pitrconfigs',
+      'pitrrestores',
+      'oplogentries',
+      'metrics',
+      'slowqueries',
+      'indexsuggestions',
+      'maintenancewindows',
+      'logforwardings',
+      'archiverules',
+      'clusterendpoints',
+      'clustersettings',
+      'collectionschemas',
+      'alertrules',
+      'alerthistories',
+      'events',
+      'dashboards',
+    ];
+
+    // Delete all cluster-related data
+    for (const collection of clusterIdCollections) {
+      try {
+        const result = await this.connection.collection(collection).deleteMany({
+          clusterId: cluster._id,
+        });
+        if (result.deletedCount > 0) {
+          deletedCounts[collection] = result.deletedCount;
+          this.logger.debug(`Deleted ${result.deletedCount} documents from ${collection}`);
+        }
+      } catch (err) {
+        this.logger.debug(`Collection ${collection} not found or error: ${err.message}`);
+      }
+    }
+
+    // Finally delete the cluster
     await this.clusterModel.findByIdAndDelete(clusterId).exec();
+    deletedCounts['clusters'] = 1;
+
+    this.logger.log(`Cascade delete complete for cluster ${clusterId}. Summary: ${JSON.stringify(deletedCounts)}`);
+    
+    return { deletedCounts };
+  }
+
+  /**
+   * Update cluster properties (name, etc.)
+   */
+  async update(clusterId: string, updateClusterDto: UpdateClusterDto): Promise<ClusterDocument> {
+    const cluster = await this.findById(clusterId);
+    if (!cluster) {
+      throw new NotFoundException('Cluster not found');
+    }
+
+    if (!this.canModifyCluster(cluster.status)) {
+      throw new BadRequestException({
+        code: 'CLUSTER_NOT_READY',
+        message: `Cannot update cluster in ${cluster.status} state`,
+      });
+    }
+
+    // Check for name conflict if name is being changed
+    if (updateClusterDto.name && updateClusterDto.name !== cluster.name) {
+      const existing = await this.clusterModel.findOne({
+        projectId: cluster.projectId,
+        name: updateClusterDto.name,
+        _id: { $ne: cluster._id },
+      }).exec();
+      
+      if (existing) {
+        throw new ConflictException({
+          code: 'CLUSTER_NAME_EXISTS',
+          message: 'A cluster with this name already exists in this project',
+        });
+      }
+    }
+
+    const updated = await this.clusterModel.findByIdAndUpdate(
+      clusterId,
+      { $set: updateClusterDto },
+      { new: true },
+    ).exec();
+
+    if (!updated) {
+      throw new NotFoundException('Cluster not found');
+    }
+
+    return updated;
   }
 
   async pause(clusterId: string, reason?: string): Promise<Cluster> {

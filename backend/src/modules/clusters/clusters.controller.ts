@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -16,6 +17,7 @@ import { ProjectsService } from '../projects/projects.service';
 import { OrgsService } from '../orgs/orgs.service';
 import { CreateClusterDto } from './dto/create-cluster.dto';
 import { ResizeClusterDto } from './dto/resize-cluster.dto';
+import { UpdateClusterDto } from './dto/update-cluster.dto';
 import { PauseClusterDto, ResumeClusterDto } from './dto/pause-cluster.dto';
 
 @ApiTags('Clusters')
@@ -244,8 +246,35 @@ export class ClustersController {
     };
   }
 
+  @Patch(':clusterId')
+  @ApiOperation({ summary: 'Update cluster properties (e.g., rename)' })
+  async update(
+    @CurrentUser() user: CurrentUserData,
+    @Param('projectId') projectId: string,
+    @Param('clusterId') clusterId: string,
+    @Body() updateClusterDto: UpdateClusterDto,
+  ) {
+    const orgId = await this.projectsService.getOrgIdForProject(projectId);
+    if (!orgId) {
+      throw new NotFoundException('Project not found');
+    }
+
+    await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN']);
+    
+    const cluster = await this.clustersService.findById(clusterId);
+    if (!cluster || cluster.projectId.toString() !== projectId) {
+      throw new NotFoundException('Cluster not found');
+    }
+
+    const updated = await this.clustersService.update(clusterId, updateClusterDto);
+    return {
+      success: true,
+      data: updated,
+    };
+  }
+
   @Delete(':clusterId')
-  @ApiOperation({ summary: 'Delete cluster' })
+  @ApiOperation({ summary: 'Delete cluster and all related data' })
   async remove(
     @CurrentUser() user: CurrentUserData,
     @Param('projectId') projectId: string,
@@ -266,7 +295,7 @@ export class ClustersController {
     await this.clustersService.delete(clusterId);
     return {
       success: true,
-      message: 'Cluster deletion initiated',
+      message: 'Cluster deletion initiated. Related data will be removed.',
     };
   }
 }

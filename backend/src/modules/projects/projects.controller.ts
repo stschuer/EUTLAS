@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   NotFoundException,
 } from '@nestjs/common';
@@ -99,11 +100,12 @@ export class ProjectsController {
   }
 
   @Delete(':projectId')
-  @ApiOperation({ summary: 'Delete project' })
+  @ApiOperation({ summary: 'Delete project and all related data (cascade delete)' })
   async remove(
     @CurrentUser() user: CurrentUserData,
     @Param('orgId') orgId: string,
     @Param('projectId') projectId: string,
+    @Query('force') force?: string,
   ) {
     await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN']);
     
@@ -112,10 +114,11 @@ export class ProjectsController {
       throw new NotFoundException('Project not found');
     }
 
-    await this.projectsService.delete(projectId);
+    const result = await this.projectsService.delete(projectId, force === 'true');
     return {
       success: true,
-      message: 'Project deleted successfully',
+      message: 'Project and all related data deleted successfully',
+      data: result,
     };
   }
 }
