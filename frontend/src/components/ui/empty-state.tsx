@@ -32,12 +32,26 @@ export function EmptyState({
   action,
   className,
 }: EmptyStateProps) {
-  // Determine if icon is a component reference or a React element
-  const isIconComponent = typeof icon === 'function';
-  const IconComponent = isIconComponent ? (icon as LucideIcon) : null;
-  
   // Determine if action is an object or a React element
   const isActionObject = action && typeof action === 'object' && 'label' in action && 'onClick' in action;
+  
+  // Render the icon - handle both component references and React elements
+  const renderIcon = () => {
+    // If it's already a valid React element (e.g., <Server className="..." />), render it directly
+    if (React.isValidElement(icon)) {
+      return icon;
+    }
+    
+    // If it's a component (function or forwardRef object), render it as a component
+    // LucideIcons are forwardRef components which are objects with $$typeof
+    if (typeof icon === 'function' || (typeof icon === 'object' && icon !== null && '$$typeof' in icon)) {
+      const IconComponent = icon as LucideIcon;
+      return <IconComponent className="h-8 w-8 text-primary" aria-hidden="true" />;
+    }
+    
+    // Fallback - shouldn't happen but return null to be safe
+    return null;
+  };
   
   return (
     <div
@@ -48,11 +62,7 @@ export function EmptyState({
     >
       {/* Icon with subtle background */}
       <div className="mb-4 rounded-full bg-primary/10 p-4">
-        {IconComponent ? (
-          <IconComponent className="h-8 w-8 text-primary" aria-hidden="true" />
-        ) : (
-          icon
-        )}
+        {renderIcon()}
       </div>
       
       {/* Title - prominent */}
