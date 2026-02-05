@@ -56,11 +56,17 @@ export function ClusterCard({
 }: ClusterCardProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
+  // Guard against null/undefined cluster
+  if (!cluster) {
+    return null;
+  }
+  
   // Safely access cluster properties with defaults
-  const status = cluster?.status || "unknown";
-  const name = cluster?.name || "Unknown Cluster";
-  const mongoVersion = cluster?.mongoVersion || "N/A";
-  const plan = cluster?.plan || "UNKNOWN";
+  const clusterId = cluster.id || '';
+  const status = cluster.status || "unknown";
+  const name = cluster.name || "Unknown Cluster";
+  const mongoVersion = cluster.mongoVersion || "N/A";
+  const plan = cluster.plan || "UNKNOWN";
   
   const canModify = status === "ready" || status === "degraded";
 
@@ -118,7 +124,7 @@ export function ClusterCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem asChild>
-              <Link href={`/dashboard/clusters/${cluster.id}`}>
+              <Link href={`/dashboard/clusters/${clusterId}`}>
                 <ExternalLink className="mr-2 h-4 w-4" />
                 View Details
               </Link>
@@ -126,7 +132,7 @@ export function ClusterCard({
             {/* Constraints: Disabled when not modifiable */}
             <DropdownMenuItem
               disabled={!canModify}
-              onClick={() => onResize?.(cluster.id)}
+              onClick={() => onResize?.(clusterId)}
             >
               <Scale className="mr-2 h-4 w-4" />
               Resize Cluster
@@ -136,7 +142,7 @@ export function ClusterCard({
             <DropdownMenuItem
               disabled={!canModify}
               className="text-destructive focus:text-destructive"
-              onClick={() => onDelete?.(cluster.id)}
+              onClick={() => onDelete?.(clusterId)}
             >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete Cluster
@@ -153,8 +159,8 @@ export function ClusterCard({
         </div>
 
         {/* Quick action - prominent when cluster is ready */}
-        {status === "ready" && cluster?.id && (
-          <Link href={`/dashboard/clusters/${cluster.id}/credentials`}>
+        {status === "ready" && clusterId && (
+          <Link href={`/dashboard/clusters/${clusterId}/credentials`}>
             <Button variant="outline" size="sm" className="w-full">
               <ExternalLink className="mr-2 h-4 w-4" />
               View Connection String

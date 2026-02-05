@@ -179,7 +179,7 @@ export default function ProjectDetailPage() {
             </div>
           ) : clusters && clusters.length > 0 ? (
             <div className="space-y-3">
-              {clusters.map((cluster: any) => {
+              {clusters.filter((c: any) => c && c.id).map((cluster: any) => {
                 const status = statusConfig[cluster.status] || statusConfig.creating;
                 return (
                   <Link
@@ -193,16 +193,16 @@ export default function ProjectDetailPage() {
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-medium">{cluster.name}</span>
+                            <span className="font-medium">{cluster.name || 'Unknown'}</span>
                             <Badge className={status.color}>
                               {status.icon}
-                              <span className="ml-1 capitalize">{cluster.status}</span>
+                              <span className="ml-1 capitalize">{cluster.status || 'unknown'}</span>
                             </Badge>
                           </div>
                           <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                            <span>{cluster.plan}</span>
+                            <span>{cluster.plan || 'N/A'}</span>
                             <span>•</span>
-                            <span>v{cluster.mongoVersion}</span>
+                            <span>v{cluster.mongoVersion || 'N/A'}</span>
                             <span>•</span>
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />

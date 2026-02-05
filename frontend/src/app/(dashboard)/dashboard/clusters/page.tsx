@@ -86,12 +86,12 @@ export default function ClustersPage() {
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {clusters.map((cluster: any, index: number) => (
+          {clusters.filter((c: any) => c && c.id).map((cluster: any) => (
             <ClusterCard
-              key={cluster?.id || `cluster-${index}`}
+              key={cluster.id}
               cluster={cluster}
-              projectId={cluster?.projectId || ''}
-              onDelete={(id) => cluster?.projectId && setDeleteCluster({ id, projectId: cluster.projectId })}
+              projectId={cluster.projectId || ''}
+              onDelete={(id) => cluster.projectId && setDeleteCluster({ id, projectId: cluster.projectId })}
             />
           ))}
         </div>

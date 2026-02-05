@@ -24,7 +24,7 @@ export default function DashboardPage() {
   const orgCount = orgs?.length || 0;
   const projectCount = projects?.length || 0;
   const clusterCount = clusters?.length || 0;
-  const readyClusters = clusters?.filter((c: any) => c.status === "ready").length || 0;
+  const readyClusters = clusters?.filter((c: any) => c && c.status === "ready").length || 0;
 
   return (
     <div className="space-y-8">
@@ -79,7 +79,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {clusters?.slice(0, 3).map((cluster: any) => (
+              {clusters?.filter((c: any) => c && c.id).slice(0, 3).map((cluster: any) => (
                 <div
                   key={cluster.id}
                   className="flex items-center justify-between p-3 rounded-lg border bg-card/50"
@@ -87,13 +87,13 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3">
                     <Server className="h-5 w-5 text-muted-foreground" />
                     <div>
-                      <p className="font-medium">{cluster.name}</p>
+                      <p className="font-medium">{cluster.name || 'Unknown'}</p>
                       <p className="text-sm text-muted-foreground">
-                        {cluster.projectName}
+                        {cluster.projectName || 'Unknown Project'}
                       </p>
                     </div>
                   </div>
-                  <ClusterStatusBadge status={cluster.status} />
+                  <ClusterStatusBadge status={cluster.status || 'unknown'} />
                 </div>
               ))}
             </div>
