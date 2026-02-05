@@ -50,142 +50,66 @@ export default function DashboardPage() {
           title="Projects"
           value={projectCount}
           icon={<FolderKanban className="h-5 w-5" />}
-          href="/dashboard/projects"
+          href="/dashboard/orgs"
         />
         <StatsCard
           title="Clusters"
           value={clusterCount}
           subtitle={readyClusters > 0 ? `${readyClusters} ready` : undefined}
           icon={<Server className="h-5 w-5" />}
-          href="/dashboard/clusters"
+          href="/dashboard/orgs"
         />
       </div>
 
-      {/* Quick Actions or Getting Started */}
-      {clusterCount > 0 ? (
-        // Show recent clusters if user has clusters
+      {/* Quick Actions */}
+      {orgCount === 0 ? (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>Recent Clusters</CardTitle>
-              <CardDescription>Your latest MongoDB clusters</CardDescription>
-            </div>
-            <Link href="/dashboard/clusters">
-              <Button variant="outline" size="sm">
-                View All
-                <ArrowRight className="ml-2 h-4 w-4" />
+          <CardHeader>
+            <CardTitle>Getting Started</CardTitle>
+            <CardDescription>
+              Create your first organization to get started
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/dashboard/orgs/new">
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Organization
               </Button>
             </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Your Organizations</CardTitle>
+            <CardDescription>
+              Select an organization to view projects and clusters
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {clusters?.filter((c: any) => c && c.id).slice(0, 3).map((cluster: any) => (
-                <div
-                  key={cluster.id}
-                  className="flex items-center justify-between p-3 rounded-lg border bg-card/50"
+              {orgs?.slice(0, 5).map((org: any) => (
+                <Link
+                  key={org.id}
+                  href={`/dashboard/orgs/${org.id}`}
+                  className="flex items-center justify-between p-3 rounded-lg border bg-card/50 hover:bg-accent/50 transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    <Server className="h-5 w-5 text-muted-foreground" />
+                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Building2 className="h-5 w-5 text-primary" />
+                    </div>
                     <div>
-                      <p className="font-medium">{cluster.name || 'Unknown'}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {cluster.projectName || 'Unknown Project'}
-                      </p>
+                      <p className="font-medium">{org.name}</p>
+                      <p className="text-sm text-muted-foreground">/{org.slug}</p>
                     </div>
                   </div>
-                  <ClusterStatusBadge status={cluster.status || 'unknown'} />
-                </div>
+                  <ArrowRight className="h-5 w-5 text-muted-foreground" />
+                </Link>
               ))}
             </div>
           </CardContent>
         </Card>
-      ) : (
-        // Show getting started if no clusters
-        <>
-          {/* Quick Actions */}
-          <div className="grid md:grid-cols-3 gap-6">
-            <QuickActionCard
-              icon={<Building2 className="h-8 w-8" />}
-              title="Create Organization"
-              description="Set up a new organization for your team"
-              href="/dashboard/orgs/new"
-            />
-            <QuickActionCard
-              icon={<FolderKanban className="h-8 w-8" />}
-              title="New Project"
-              description="Create a project to organize your clusters"
-              href="/dashboard/projects/new"
-            />
-            <QuickActionCard
-              icon={<Server className="h-8 w-8" />}
-              title="Deploy Cluster"
-              description="Launch a new MongoDB cluster"
-              href="/dashboard/clusters/new"
-            />
-          </div>
-
-          {/* Getting Started */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Getting Started</CardTitle>
-              <CardDescription>
-                Follow these steps to deploy your first cluster
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ol className="space-y-4">
-                <GettingStartedStep
-                  number={1}
-                  title="Create an Organization"
-                  description="Organizations help you manage billing and team access."
-                  completed={orgCount > 0}
-                  action={
-                    orgCount === 0 ? (
-                      <Link href="/dashboard/orgs/new">
-                        <Button size="sm" variant="outline">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Create Org
-                        </Button>
-                      </Link>
-                    ) : undefined
-                  }
-                />
-                <GettingStartedStep
-                  number={2}
-                  title="Set up a Project"
-                  description="Projects group clusters for different environments (dev, prod)."
-                  completed={projectCount > 0}
-                  action={
-                    orgCount > 0 && projectCount === 0 ? (
-                      <Link href="/dashboard/projects/new">
-                        <Button size="sm" variant="outline">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Create Project
-                        </Button>
-                      </Link>
-                    ) : undefined
-                  }
-                />
-                <GettingStartedStep
-                  number={3}
-                  title="Deploy a Cluster"
-                  description="Choose your plan and deploy a fully managed MongoDB cluster."
-                  completed={clusterCount > 0}
-                  action={
-                    projectCount > 0 && clusterCount === 0 ? (
-                      <Link href="/dashboard/clusters/new">
-                        <Button size="sm">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Deploy Cluster
-                        </Button>
-                      </Link>
-                    ) : undefined
-                  }
-                />
-              </ol>
-            </CardContent>
-          </Card>
-        </>
       )}
     </div>
   );

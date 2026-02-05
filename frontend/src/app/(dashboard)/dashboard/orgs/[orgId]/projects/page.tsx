@@ -29,7 +29,7 @@ export default function OrgProjectsPage() {
         title="Projects"
         description="Organize your clusters into projects for better management"
         actions={
-          <Link href={`/dashboard/projects/new?orgId=${orgId}`}>
+          <Link href={`/dashboard/orgs/${orgId}/projects/new`}>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
               New Project
@@ -46,7 +46,7 @@ export default function OrgProjectsPage() {
           description="Create a project to organize your clusters by environment or team."
           action={{
             label: "Create Project",
-            onClick: () => (window.location.href = `/dashboard/projects/new?orgId=${orgId}`),
+            onClick: () => (window.location.href = `/dashboard/orgs/${orgId}/projects/new`),
           }}
         />
       ) : (

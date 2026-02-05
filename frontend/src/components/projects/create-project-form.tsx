@@ -67,7 +67,7 @@ export function CreateProjectForm({ orgId, onSuccess }: CreateProjectFormProps) 
     try {
       await createProject.mutateAsync(data);
       onSuccess?.();
-      router.push(`/dashboard/projects`);
+      router.push(`/dashboard/orgs/${orgId}`);
     } catch (error) {
       // Error handling is done in the hook
     }

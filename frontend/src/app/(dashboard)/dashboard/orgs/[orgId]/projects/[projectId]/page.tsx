@@ -85,8 +85,8 @@ export default function ProjectDetailPage() {
         title="Project not found"
         description="The requested project could not be found."
         action={
-          <Button onClick={() => router.push('/dashboard/projects')}>
-            Back to Projects
+          <Button onClick={() => router.push(`/dashboard/orgs/${orgId}`)}>
+            Back to Organization
           </Button>
         }
       />
@@ -98,7 +98,7 @@ export default function ProjectDetailPage() {
       title: 'Private Networks',
       description: 'Configure VPC networks for secure connectivity',
       icon: <Network className="h-5 w-5" />,
-      href: `/dashboard/projects/${projectId}/networks`,
+      href: `/dashboard/orgs/${orgId}/projects/${projectId}/networks`,
       count: networks?.length || 0,
     },
     {
@@ -124,9 +124,9 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/projects')}>
+        <Button variant="ghost" size="sm" onClick={() => router.push(`/dashboard/orgs/${orgId}`)}>
           <ArrowLeft className="h-4 w-4 mr-1" />
-          Projects
+          Back to Organization
         </Button>
       </div>
 
@@ -164,7 +164,7 @@ export default function ProjectDetailPage() {
             <CardTitle>Clusters</CardTitle>
             <CardDescription>MongoDB clusters in this project</CardDescription>
           </div>
-          <Link href={`/dashboard/clusters/new?projectId=${projectId}`}>
+          <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/new`}>
             <Button size="sm">
               <Plus className="h-4 w-4 mr-2" />
               New Cluster
@@ -184,7 +184,7 @@ export default function ProjectDetailPage() {
                 return (
                   <Link
                     key={cluster.id}
-                    href={`/dashboard/clusters/${cluster.id}?projectId=${projectId}`}
+                    href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${cluster.id}`}
                   >
                     <div className="flex items-center justify-between p-4 rounded-lg border hover:border-primary/50 hover:bg-muted/30 transition-all cursor-pointer">
                       <div className="flex items-center gap-4">
@@ -223,7 +223,7 @@ export default function ProjectDetailPage() {
               title="No clusters yet"
               description="Create a cluster to start using MongoDB"
               action={
-                <Link href={`/dashboard/clusters/new?projectId=${projectId}`}>
+                <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/new`}>
                   <Button>
                     <Plus className="h-4 w-4 mr-2" />
                     Create Cluster

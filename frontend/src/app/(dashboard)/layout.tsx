@@ -92,15 +92,33 @@ export default function DashboardLayout({
     return null;
   }
 
-  const navItems = [
-    { href: "/dashboard", icon: Home, label: "Overview" },
-    { href: "/dashboard/orgs", icon: Building2, label: "Organizations" },
-    { href: "/dashboard/projects", icon: FolderKanban, label: "Projects" },
-    { href: "/dashboard/clusters", icon: Server, label: "Clusters" },
-    { href: "/dashboard/activity", icon: Activity, label: "Activity" },
-    { href: "/dashboard/billing", icon: CreditCard, label: "Billing" },
-    { href: "/dashboard/audit", icon: Shield, label: "Audit Logs" },
-  ];
+  // Context-aware navigation based on current route
+  const getNavItems = () => {
+    // Extract orgId from pathname if present
+    const orgMatch = pathname.match(/\/orgs\/([^\/]+)/);
+    const orgId = orgMatch ? orgMatch[1] : null;
+
+    // If we're in an org context, show org-specific nav
+    if (orgId) {
+      return [
+        { href: "/dashboard", icon: Home, label: "Dashboard" },
+        { href: "/dashboard/orgs", icon: Building2, label: "Organizations" },
+        { href: `/dashboard/orgs/${orgId}`, icon: LayoutDashboard, label: "Org Overview" },
+        { href: `/dashboard/orgs/${orgId}/projects`, icon: FolderKanban, label: "Projects" },
+        { href: `/dashboard/orgs/${orgId}/activity`, icon: Activity, label: "Activity" },
+        { href: `/dashboard/orgs/${orgId}/billing`, icon: CreditCard, label: "Billing" },
+        { href: `/dashboard/orgs/${orgId}/audit`, icon: Shield, label: "Audit Logs" },
+      ];
+    }
+
+    // Default top-level navigation
+    return [
+      { href: "/dashboard", icon: Home, label: "Dashboard" },
+      { href: "/dashboard/orgs", icon: Building2, label: "Organizations" },
+    ];
+  };
+
+  const navItems = getNavItems();
 
   // Note: Dashboards are accessible from org pages at /dashboard/orgs/[orgId]/dashboards
 

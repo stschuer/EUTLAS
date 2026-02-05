@@ -42,11 +42,13 @@ type CreateClusterForm = z.infer<typeof createClusterSchema>;
 
 interface CreateClusterWizardProps {
   projectId: string;
+  orgId?: string;
   onSuccess?: () => void;
 }
 
 export function CreateClusterWizard({
   projectId,
+  orgId,
   onSuccess,
 }: CreateClusterWizardProps) {
   const [step, setStep] = useState(1);
@@ -99,7 +101,12 @@ export function CreateClusterWizard({
     try {
       await createCluster.mutateAsync(data);
       onSuccess?.();
-      router.push(`/dashboard/clusters`);
+      // Navigate back to project page if orgId is available, otherwise to orgs list
+      if (orgId) {
+        router.push(`/dashboard/orgs/${orgId}/projects/${projectId}`);
+      } else {
+        router.push(`/dashboard/orgs`);
+      }
     } catch (error) {
       // Error handling is done in the hook
     }
