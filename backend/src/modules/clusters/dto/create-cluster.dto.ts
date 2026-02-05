@@ -16,9 +16,11 @@ export class CreateClusterDto {
   @IsEnum(['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE'], { message: 'Invalid plan selected' })
   plan: 'DEV' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'XLARGE';
 
-  @ApiPropertyOptional({ enum: ['6.0', '7.0'], example: '7.0' })
+  // MongoDB version is managed automatically - always uses latest stable (7.0.5)
+  // Field kept for API compatibility but not exposed to users
+  @ApiPropertyOptional({ description: 'MongoDB version (defaults to latest stable)' })
   @IsOptional()
-  @IsEnum(['6.0.0', '7.0.0', '7.0.5'], { message: 'Invalid MongoDB version' })
+  @IsString()
   mongoVersion?: string;
 
   @ApiPropertyOptional({ enum: ['fsn1', 'nbg1', 'hel1'], example: 'fsn1', description: 'Hetzner region' })

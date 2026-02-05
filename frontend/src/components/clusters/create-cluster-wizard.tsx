@@ -36,7 +36,6 @@ const createClusterSchema = z.object({
       "Name must start with a letter, contain only lowercase letters, numbers, and hyphens"
     ),
   plan: z.enum(["DEV", "SMALL", "MEDIUM", "LARGE", "XLARGE"]),
-  mongoVersion: z.enum(["6.0", "7.0"]).default("7.0"),
 });
 
 type CreateClusterForm = z.infer<typeof createClusterSchema>;
@@ -66,7 +65,6 @@ export function CreateClusterWizard({
     defaultValues: {
       name: "",
       plan: "MEDIUM",
-      mongoVersion: "7.0",
     },
     mode: "onChange",
   });
@@ -201,7 +199,7 @@ export function CreateClusterWizard({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">MongoDB Version</span>
-                  <span className="font-medium">7.0</span>
+                  <span className="font-medium">7.0 (Latest Stable)</span>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
