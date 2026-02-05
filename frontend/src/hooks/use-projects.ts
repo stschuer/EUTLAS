@@ -12,11 +12,17 @@ export function useProjects(orgId: string) {
   return useQuery({
     queryKey: ["projects", orgId],
     queryFn: async () => {
-      const response = await projectsApi.list(orgId);
-      if (response.success && response.data) {
-        return response.data as any[];
+      try {
+        const response = await projectsApi.list(orgId);
+        if (response.success && response.data) {
+          return response.data as any[];
+        }
+        // Return empty array so UI shows empty state instead of error
+        return [];
+      } catch (error) {
+        console.warn('Failed to load projects:', error);
+        return [];
       }
-      throw new Error(response.error?.message || "Failed to load projects");
     },
     enabled: !!orgId,
   });
@@ -95,30 +101,44 @@ export function useDeleteProject(orgId: string) {
 
 /**
  * Get all projects across all orgs
+ * Returns empty array for all "no data" cases so the UI shows a friendly
+ * empty state instead of an error.
  */
 export function useAllProjects() {
   return useQuery({
     queryKey: ["allProjects"],
     queryFn: async () => {
-      // First get all orgs
-      const orgsResponse = await import("@/lib/api-client").then(m => m.orgsApi.list());
-      if (!orgsResponse.success || !orgsResponse.data) {
-        throw new Error("Failed to load organizations");
-      }
-
-      const orgs = orgsResponse.data as any[];
-      
-      // Then get projects for each org
-      const projectPromises = orgs.map(async (org) => {
-        const projResponse = await projectsApi.list(org.id);
-        if (projResponse.success && projResponse.data) {
-          return (projResponse.data as any[]).map(p => ({ ...p, orgId: org.id, orgName: org.name }));
+      try {
+        // First get all orgs
+        const orgsResponse = await import("@/lib/api-client").then(m => m.orgsApi.list());
+        if (!orgsResponse.success || !orgsResponse.data || !Array.isArray(orgsResponse.data)) {
+          return [];
         }
-        return [];
-      });
 
-      const projectArrays = await Promise.all(projectPromises);
-      return projectArrays.flat();
+        const orgs = orgsResponse.data as any[];
+        if (orgs.length === 0) {
+          return [];
+        }
+        
+        // Then get projects for each org
+        const projectPromises = orgs.map(async (org) => {
+          try {
+            const projResponse = await projectsApi.list(org.id);
+            if (projResponse.success && projResponse.data) {
+              return (projResponse.data as any[]).map(p => ({ ...p, orgId: org.id, orgName: org.name }));
+            }
+            return [];
+          } catch {
+            return [];
+          }
+        });
+
+        const projectArrays = await Promise.all(projectPromises);
+        return projectArrays.flat();
+      } catch (error) {
+        console.warn('Failed to load projects:', error);
+        return [];
+      }
     },
   });
 }

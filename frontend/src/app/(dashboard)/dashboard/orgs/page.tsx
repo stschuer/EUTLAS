@@ -13,21 +13,10 @@ import { useOrgs } from "@/hooks/use-orgs";
  */
 
 export default function OrgsPage() {
-  const { data: orgs, isLoading, error } = useOrgs();
+  const { data: orgs, isLoading } = useOrgs();
 
   if (isLoading) {
     return <PageLoading message="Loading organizations..." />;
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-destructive">Failed to load organizations</p>
-        <Button variant="outline" className="mt-4" onClick={() => window.location.reload()}>
-          Retry
-        </Button>
-      </div>
-    );
   }
 
   return (

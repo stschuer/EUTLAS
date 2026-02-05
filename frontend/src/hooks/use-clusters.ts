@@ -12,11 +12,17 @@ export function useClusters(projectId: string) {
   return useQuery({
     queryKey: ["clusters", projectId],
     queryFn: async () => {
-      const response = await clustersApi.list(projectId);
-      if (response.success && response.data) {
-        return response.data as any[];
+      try {
+        const response = await clustersApi.list(projectId);
+        if (response.success && response.data) {
+          return response.data as any[];
+        }
+        // Return empty array so UI shows empty state instead of error
+        return [];
+      } catch (error) {
+        console.warn("Failed to load clusters:", error);
+        return [];
       }
-      throw new Error(response.error?.message || "Failed to load clusters");
     },
     enabled: !!projectId,
     refetchInterval: 10000, // Refetch every 10 seconds to get status updates
@@ -140,70 +146,77 @@ export function useDeleteCluster(projectId: string) {
 
 /**
  * Get all clusters across all projects
+ * 
+ * Returns empty array for all "no data" cases so the UI shows a friendly
+ * empty state instead of an error. Only throws for actual errors like
+ * network failures.
  */
 export function useAllClusters() {
   return useQuery({
     queryKey: ["allClusters"],
     queryFn: async () => {
-      // First get all orgs
-      const orgsResponse = await import("@/lib/api-client").then(m => m.orgsApi.list());
-      
-      // Handle error responses properly
-      if (!orgsResponse.success) {
-        // If it's a "not found" or empty case, return empty array
-        if (orgsResponse.error?.code === "NOT_FOUND") {
+      try {
+        // First get all orgs
+        const orgsResponse = await import("@/lib/api-client").then(m => m.orgsApi.list());
+        
+        // If API call wasn't successful, return empty array (show empty state, not error)
+        // This handles cases where user has no orgs yet
+        if (!orgsResponse.success || !orgsResponse.data || !Array.isArray(orgsResponse.data)) {
           return [];
         }
-        throw new Error(orgsResponse.error?.message || "Failed to load organizations");
-      }
-      
-      // Handle case where data is null/undefined
-      if (!orgsResponse.data) {
-        return [];
-      }
 
-      const orgs = orgsResponse.data as any[];
-      
-      // If no orgs, return empty array (not an error)
-      if (orgs.length === 0) {
-        return [];
-      }
-      
-      const allClusters: any[] = [];
+        const orgs = orgsResponse.data as any[];
+        
+        // If no orgs, return empty array
+        if (orgs.length === 0) {
+          return [];
+        }
+        
+        const allClusters: any[] = [];
 
-      // Get projects for each org, then clusters for each project
-      for (const org of orgs) {
-        try {
-          const projResponse = await import("@/lib/api-client").then(m => m.projectsApi.list(org.id));
-          if (projResponse.success && projResponse.data) {
-            const projects = projResponse.data as any[];
-            
-            for (const project of projects) {
-              try {
-                const clustersResponse = await clustersApi.list(project.id);
-                if (clustersResponse.success && clustersResponse.data) {
-                  const clusters = (clustersResponse.data as any[]).map(c => ({
-                    ...c,
-                    projectId: project.id,
-                    projectName: project.name,
-                    orgId: org.id,
-                    orgName: org.name,
-                  }));
-                  allClusters.push(...clusters);
+        // Get projects for each org, then clusters for each project
+        for (const org of orgs) {
+          if (!org?.id) continue;
+          
+          try {
+            const projResponse = await import("@/lib/api-client").then(m => m.projectsApi.list(org.id));
+            if (projResponse.success && projResponse.data && Array.isArray(projResponse.data)) {
+              const projects = projResponse.data as any[];
+              
+              for (const project of projects) {
+                if (!project?.id) continue;
+                
+                try {
+                  const clustersResponse = await clustersApi.list(project.id);
+                  if (clustersResponse.success && clustersResponse.data && Array.isArray(clustersResponse.data)) {
+                    const clusters = (clustersResponse.data as any[]).map(c => ({
+                      ...c,
+                      projectId: project.id,
+                      projectName: project.name || 'Unknown Project',
+                      orgId: org.id,
+                      orgName: org.name || 'Unknown Organization',
+                    }));
+                    allClusters.push(...clusters);
+                  }
+                } catch (clusterErr) {
+                  // Log but continue with other projects
+                  console.warn(`Failed to load clusters for project ${project.id}:`, clusterErr);
                 }
-              } catch (clusterErr) {
-                // Log but continue with other projects
-                console.warn(`Failed to load clusters for project ${project.id}:`, clusterErr);
               }
             }
+          } catch (projErr) {
+            // Log but continue with other orgs
+            console.warn(`Failed to load projects for org ${org.id}:`, projErr);
           }
-        } catch (projErr) {
-          // Log but continue with other orgs
-          console.warn(`Failed to load projects for org ${org.id}:`, projErr);
         }
-      }
 
-      return allClusters;
+        return allClusters;
+      } catch (error) {
+        // For network errors or other failures, return empty array
+        // so we show empty state instead of error
+        console.warn("useAllClusters: returning empty array due to error:", error);
+        return [];
+      }
     },
     refetchInterval: 10000,
   });

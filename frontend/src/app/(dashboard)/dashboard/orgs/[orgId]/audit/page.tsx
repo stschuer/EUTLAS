@@ -46,22 +46,25 @@ export default function AuditLogsPage() {
   const [resourceFilter, setResourceFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
 
-  const { data: logs, isLoading, error: logsError } = useQuery({
+  const { data: logs, isLoading } = useQuery({
     queryKey: ['audit-logs', orgId, search, actionFilter, resourceFilter, page],
     queryFn: async () => {
       const params: Record<string, any> = { page, limit: 25 };
       if (search) params.search = search;
       if (actionFilter && actionFilter !== 'all') params.actions = actionFilter;
       if (resourceFilter && resourceFilter !== 'all') params.resourceTypes = resourceFilter;
-      const res = await auditApi.query(orgId, params);
-      if (!res.success) {
-        // Return null for not found/empty cases, throw for real errors
-        if (res.error?.code === 'NOT_FOUND') {
+      try {
+        const res = await auditApi.query(orgId, params);
+        // Return empty data structure if API call wasn't successful
+        if (!res.success) {
           return { data: [], page: 1, totalPages: 1, total: 0 };
         }
-        throw new Error(res.error?.message || 'Failed to load audit logs');
+        return res;
+      } catch (error) {
+        // Return empty data on error so empty state shows instead of error
+        console.warn('Failed to load audit logs:', error);
+        return { data: [], page: 1, totalPages: 1, total: 0 };
       }
-      return res;
     },
     enabled: !!orgId,
   });
@@ -104,28 +107,6 @@ export default function AuditLogsPage() {
     const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     window.open(auditApi.exportUrl(orgId, startDate, endDate, format), '_blank');
   };
-
-  // Show error state if loading failed
-  if (logsError) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Audit Logs"
-          description="Track all actions and changes in your organization"
-        />
-        <div className="flex flex-col items-center justify-center py-12 gap-4">
-          <FileText className="h-16 w-16 text-muted-foreground opacity-50" />
-          <h2 className="text-xl font-semibold">Failed to load audit logs</h2>
-          <p className="text-muted-foreground">
-            {(logsError as Error)?.message || 'An error occurred while loading audit logs.'}
-          </p>
-          <Button variant="outline" onClick={() => window.location.reload()}>
-            Try Again
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">

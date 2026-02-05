@@ -18,7 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
  */
 
 export default function ClustersPage() {
-  const { data: clusters, isLoading, error } = useAllClusters();
+  const { data: clusters, isLoading } = useAllClusters();
   const [deleteCluster, setDeleteCluster] = useState<{ id: string; projectId: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
@@ -53,17 +53,6 @@ export default function ClustersPage() {
 
   if (isLoading) {
     return <PageLoading message="Loading clusters..." />;
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-destructive">Failed to load clusters</p>
-        <Button variant="outline" className="mt-4" onClick={() => window.location.reload()}>
-          Retry
-        </Button>
-      </div>
-    );
   }
 
   return (

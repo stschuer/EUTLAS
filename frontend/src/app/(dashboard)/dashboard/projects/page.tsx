@@ -13,21 +13,10 @@ import { useAllProjects } from "@/hooks/use-projects";
  */
 
 export default function ProjectsPage() {
-  const { data: projects, isLoading, error } = useAllProjects();
+  const { data: projects, isLoading } = useAllProjects();
 
   if (isLoading) {
     return <PageLoading message="Loading projects..." />;
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-destructive">Failed to load projects</p>
-        <Button variant="outline" className="mt-4" onClick={() => window.location.reload()}>
-          Retry
-        </Button>
-      </div>
-    );
   }
 
   return (

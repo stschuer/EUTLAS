@@ -7,10 +7,15 @@ export function useLogForwardingConfigs(projectId: string | undefined, clusterId
   return useQuery({
     queryKey: ['log-forwarding', projectId, clusterId],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('IDs required');
-      const response = await logForwardingApi.list(projectId, clusterId);
-      if (!response.success) throw new Error(response.error?.message || 'Failed to fetch configs');
-      return response.data;
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await logForwardingApi.list(projectId, clusterId);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch log forwarding configs:', error);
+        return [];
+      }
     },
     enabled: !!projectId && !!clusterId,
   });
@@ -20,10 +25,15 @@ export function useLogForwardingDestinations(projectId: string | undefined, clus
   return useQuery({
     queryKey: ['log-forwarding-destinations', projectId, clusterId],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('IDs required');
-      const response = await logForwardingApi.getDestinations(projectId, clusterId);
-      if (!response.success) throw new Error(response.error?.message || 'Failed to fetch destinations');
-      return response.data;
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await logForwardingApi.getDestinations(projectId, clusterId);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch log forwarding destinations:', error);
+        return [];
+      }
     },
     enabled: !!projectId && !!clusterId,
     staleTime: Infinity,

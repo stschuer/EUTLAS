@@ -7,12 +7,15 @@ export function usePitrConfig(projectId: string | undefined, clusterId: string |
   return useQuery({
     queryKey: ['pitr-config', projectId, clusterId],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('Project and Cluster ID required');
-      const response = await pitrApi.getConfig(projectId, clusterId);
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to fetch PITR config');
+      if (!projectId || !clusterId) return null;
+      try {
+        const response = await pitrApi.getConfig(projectId, clusterId);
+        if (!response.success) return null;
+        return response.data ?? null;
+      } catch (error) {
+        console.warn('Failed to fetch PITR config:', error);
+        return null;
       }
-      return response.data;
     },
     enabled: !!projectId && !!clusterId,
   });
@@ -68,12 +71,15 @@ export function usePitrRestoreWindow(projectId: string | undefined, clusterId: s
   return useQuery({
     queryKey: ['pitr-window', projectId, clusterId],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('Project and Cluster ID required');
-      const response = await pitrApi.getRestoreWindow(projectId, clusterId);
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to fetch restore window');
+      if (!projectId || !clusterId) return null;
+      try {
+        const response = await pitrApi.getRestoreWindow(projectId, clusterId);
+        if (!response.success) return null;
+        return response.data ?? null;
+      } catch (error) {
+        console.warn('Failed to fetch PITR restore window:', error);
+        return null;
       }
-      return response.data;
     },
     enabled: !!projectId && !!clusterId,
     refetchInterval: 60000, // Refresh every minute
@@ -84,12 +90,15 @@ export function useOplogStats(projectId: string | undefined, clusterId: string |
   return useQuery({
     queryKey: ['oplog-stats', projectId, clusterId],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('Project and Cluster ID required');
-      const response = await pitrApi.getOplogStats(projectId, clusterId);
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to fetch oplog stats');
+      if (!projectId || !clusterId) return null;
+      try {
+        const response = await pitrApi.getOplogStats(projectId, clusterId);
+        if (!response.success) return null;
+        return response.data ?? null;
+      } catch (error) {
+        console.warn('Failed to fetch oplog stats:', error);
+        return null;
       }
-      return response.data;
     },
     enabled: !!projectId && !!clusterId,
     refetchInterval: 30000, // Refresh every 30 seconds
@@ -127,12 +136,15 @@ export function usePitrRestoreHistory(projectId: string | undefined, clusterId: 
   return useQuery({
     queryKey: ['pitr-restore-history', projectId, clusterId],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('Project and Cluster ID required');
-      const response = await pitrApi.getRestoreHistory(projectId, clusterId);
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to fetch restore history');
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await pitrApi.getRestoreHistory(projectId, clusterId);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch PITR restore history:', error);
+        return [];
       }
-      return response.data;
     },
     enabled: !!projectId && !!clusterId,
   });

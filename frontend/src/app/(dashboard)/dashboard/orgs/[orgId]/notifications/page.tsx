@@ -93,11 +93,16 @@ export default function NotificationsPage() {
   });
 
   // Fetch channels
-  const { data: channels, isLoading, error: channelsError } = useQuery({
+  const { data: channels, isLoading } = useQuery({
     queryKey: ['notification-channels', orgId],
     queryFn: async () => {
-      const response = await apiClient.get(`/orgs/${orgId}/notification-channels`);
-      return (response.data ?? []) as NotificationChannel[];
+      try {
+        const response = await apiClient.get(`/orgs/${orgId}/notification-channels`);
+        return (response.data ?? []) as NotificationChannel[];
+      } catch {
+        console.warn('Failed to load notification channels');
+        return [] as NotificationChannel[];
+      }
     },
   });
 
@@ -207,21 +212,6 @@ export default function NotificationsPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <LoadingSpinner />
-      </div>
-    );
-  }
-
-  if (channelsError) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <Bell className="h-16 w-16 text-muted-foreground opacity-50" />
-        <h2 className="text-xl font-semibold">Failed to load notification channels</h2>
-        <p className="text-muted-foreground">
-          {(channelsError as Error)?.message || 'An error occurred'}
-        </p>
-        <Button variant="outline" onClick={() => window.location.reload()}>
-          Try Again
-        </Button>
       </div>
     );
   }

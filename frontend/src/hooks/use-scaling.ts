@@ -7,10 +7,15 @@ export function useScalingRecommendations(projectId: string | undefined, cluster
   return useQuery({
     queryKey: ['scaling-recommendations', projectId, clusterId],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('IDs required');
-      const response = await scalingApi.getRecommendations(projectId, clusterId);
-      if (!response.success) throw new Error(response.error?.message || 'Failed to fetch recommendations');
-      return response.data;
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await scalingApi.getRecommendations(projectId, clusterId);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch scaling recommendations:', error);
+        return [];
+      }
     },
     enabled: !!projectId && !!clusterId,
     refetchInterval: 60000, // Refresh every minute
@@ -21,10 +26,15 @@ export function useScalingHistory(projectId: string | undefined, clusterId: stri
   return useQuery({
     queryKey: ['scaling-history', projectId, clusterId, limit],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('IDs required');
-      const response = await scalingApi.getHistory(projectId, clusterId, limit);
-      if (!response.success) throw new Error(response.error?.message || 'Failed to fetch history');
-      return response.data;
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await scalingApi.getHistory(projectId, clusterId, limit);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch scaling history:', error);
+        return [];
+      }
     },
     enabled: !!projectId && !!clusterId,
   });

@@ -12,12 +12,15 @@ export function useSearchIndexes(
   return useQuery({
     queryKey: ['search-indexes', projectId, clusterId, database, collection],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('Project and Cluster ID required');
-      const response = await searchIndexesApi.list(projectId, clusterId, database, collection);
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to fetch search indexes');
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await searchIndexesApi.list(projectId, clusterId, database, collection);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch search indexes:', error);
+        return [];
       }
-      return response.data;
     },
     enabled: !!projectId && !!clusterId,
     refetchInterval: 10000, // Refresh every 10 seconds to check build status
@@ -57,12 +60,15 @@ export function useSearchIndexStats(
   return useQuery({
     queryKey: ['search-index-stats', projectId, clusterId],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('Project and Cluster ID required');
-      const response = await searchIndexesApi.getStats(projectId, clusterId);
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to fetch stats');
+      if (!projectId || !clusterId) return null;
+      try {
+        const response = await searchIndexesApi.getStats(projectId, clusterId);
+        if (!response.success) return null;
+        return response.data ?? null;
+      } catch (error) {
+        console.warn('Failed to fetch search index stats:', error);
+        return null;
       }
-      return response.data;
     },
     enabled: !!projectId && !!clusterId,
   });
@@ -75,12 +81,15 @@ export function useSearchIndexAnalyzers(
   return useQuery({
     queryKey: ['search-index-analyzers', projectId, clusterId],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('Project and Cluster ID required');
-      const response = await searchIndexesApi.getAnalyzers(projectId, clusterId);
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to fetch analyzers');
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await searchIndexesApi.getAnalyzers(projectId, clusterId);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch search analyzers:', error);
+        return [];
       }
-      return response.data;
     },
     enabled: !!projectId && !!clusterId,
     staleTime: Infinity,

@@ -17,21 +17,10 @@ import { useProjects } from '@/hooks/use-projects';
 export default function OrgProjectsPage() {
   const params = useParams();
   const orgId = params.orgId as string;
-  const { data: projects, isLoading, error } = useProjects(orgId);
+  const { data: projects, isLoading } = useProjects(orgId);
 
   if (isLoading) {
     return <PageLoading message="Loading projects..." />;
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-destructive">Failed to load projects</p>
-        <Button variant="outline" className="mt-4" onClick={() => window.location.reload()}>
-          Retry
-        </Button>
-      </div>
-    );
   }
 
   return (

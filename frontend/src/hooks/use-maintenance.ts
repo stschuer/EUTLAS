@@ -7,10 +7,15 @@ export function useMaintenanceWindows(projectId: string | undefined, clusterId: 
   return useQuery({
     queryKey: ['maintenance-windows', projectId, clusterId, includeHistory],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('IDs required');
-      const response = await maintenanceApi.list(projectId, clusterId, includeHistory);
-      if (!response.success) throw new Error(response.error?.message || 'Failed to fetch');
-      return response.data;
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await maintenanceApi.list(projectId, clusterId, includeHistory);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch maintenance windows:', error);
+        return [];
+      }
     },
     enabled: !!projectId && !!clusterId,
     refetchInterval: 60000, // Check every minute for status changes
@@ -21,10 +26,15 @@ export function useUpcomingMaintenance(projectId: string | undefined, clusterId:
   return useQuery({
     queryKey: ['maintenance-upcoming', projectId, clusterId, days],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('IDs required');
-      const response = await maintenanceApi.getUpcoming(projectId, clusterId, days);
-      if (!response.success) throw new Error(response.error?.message || 'Failed to fetch');
-      return response.data;
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await maintenanceApi.getUpcoming(projectId, clusterId, days);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch upcoming maintenance:', error);
+        return [];
+      }
     },
     enabled: !!projectId && !!clusterId,
   });
@@ -34,10 +44,15 @@ export function useMaintenanceHistory(projectId: string | undefined, clusterId: 
   return useQuery({
     queryKey: ['maintenance-history', projectId, clusterId, limit],
     queryFn: async () => {
-      if (!projectId || !clusterId) throw new Error('IDs required');
-      const response = await maintenanceApi.getHistory(projectId, clusterId, limit);
-      if (!response.success) throw new Error(response.error?.message || 'Failed to fetch');
-      return response.data;
+      if (!projectId || !clusterId) return [];
+      try {
+        const response = await maintenanceApi.getHistory(projectId, clusterId, limit);
+        if (!response.success) return [];
+        return response.data ?? [];
+      } catch (error) {
+        console.warn('Failed to fetch maintenance history:', error);
+        return [];
+      }
     },
     enabled: !!projectId && !!clusterId,
   });
