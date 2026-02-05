@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCluster, useClusterCredentials } from "@/hooks/use-clusters";
 import { PageLoading } from "@/components/ui/loading-spinner";
 import { ClusterStatusBadge } from "@/components/ui/status-badge";
@@ -8,8 +8,9 @@ import { ConnectionStringBuilder } from "@/components/clusters/connection-string
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PageHeader } from "@/components/layout/page-header";
-import { Server, Clock, Database, HardDrive, Users, Network, Pause, Play, Settings, Archive, Activity, FileJson, Gauge, History, Search, TrendingUp, Cloud, Calendar, Cog, FileCheck, Shield, Compass } from "lucide-react";
+import { Server, Clock, Database, HardDrive, Users, Network, Pause, Play, Settings, Archive, Activity, FileJson, Gauge, History, Search, TrendingUp, Cloud, Calendar, Cog, FileCheck, Shield, Compass, Trash2 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -30,12 +31,12 @@ const planDetails: Record<string, { ram: string; storage: string; price: number 
 
 export default function ClusterDetailsPage() {
   const params = useParams();
-  const searchParams = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const orgId = params.orgId as string;
+  const projectId = params.projectId as string;
   const clusterId = params.clusterId as string;
-  const projectId = searchParams.get("projectId") || "";
 
   // If no projectId provided, we'd need to look it up
   // For now, this will show an error state
@@ -70,6 +71,21 @@ export default function ClusterDetailsPage() {
     },
   });
 
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      await apiClient.delete(`/projects/${projectId}/clusters/${clusterId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clusters', projectId] });
+      toast({ title: 'Cluster deleted', description: 'Cluster has been deleted successfully.' });
+      router.push(`/dashboard/orgs/${orgId}/projects/${projectId}/clusters`);
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to delete cluster', variant: 'destructive' });
+    },
+  });
+
   if (clusterLoading) {
     return <PageLoading message="Loading cluster details..." />;
   }
@@ -77,10 +93,8 @@ export default function ClusterDetailsPage() {
   if (clusterError || !cluster) {
     return (
       <div className="text-center py-12">
-        <p className="text-destructive mb-4">
-          {!projectId ? "Project ID is required" : "Failed to load cluster"}
-        </p>
-        <Link href="/dashboard/clusters">
+        <p className="text-destructive mb-4">Failed to load cluster</p>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters`}>
           <Button variant="outline">Back to Clusters</Button>
         </Link>
       </div>
@@ -94,12 +108,25 @@ export default function ClusterDetailsPage() {
       <PageHeader
         title={(cluster as any).name}
         breadcrumbs={[
-          { label: "Clusters", href: "/dashboard/clusters" },
+          { label: "Clusters", href: `/dashboard/orgs/${orgId}/projects/${projectId}/clusters` },
           { label: (cluster as any).name },
         ]}
         actions={
           <div className="flex items-center gap-2">
             <ClusterStatusBadge status={(cluster as any).status} />
+            <ConfirmDialog
+              title="Delete Cluster"
+              description={`Are you sure you want to delete "${(cluster as any).name}"? This action cannot be undone and all data will be permanently lost.`}
+              confirmText="Delete"
+              variant="destructive"
+              onConfirm={() => deleteMutation.mutate()}
+              loading={deleteMutation.isPending}
+            >
+              <Button variant="destructive" size="sm">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+            </ConfirmDialog>
           </div>
         }
       />
@@ -156,7 +183,7 @@ export default function ClusterDetailsPage() {
 
       {/* Quick Actions */}
       <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <Link href={`/dashboard/clusters/${clusterId}/database-users?projectId=${projectId}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/database-users`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -172,7 +199,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/network?projectId=${projectId}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/network`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -188,7 +215,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/backups?projectId=${projectId}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/backups`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -204,7 +231,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/metrics?projectId=${projectId}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/metrics`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -220,7 +247,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/explorer?projectId=${projectId}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/explorer`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -236,7 +263,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/performance?projectId=${projectId}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/performance`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -252,7 +279,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/pitr?projectId=${projectId}&clusterName=${encodeURIComponent((cluster as any).name)}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/pitr?clusterName=${encodeURIComponent((cluster as any).name)}`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -268,7 +295,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/search-indexes?projectId=${projectId}&clusterName=${encodeURIComponent((cluster as any).name)}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/search-indexes?clusterName=${encodeURIComponent((cluster as any).name)}`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -284,7 +311,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/scaling?projectId=${projectId}&clusterName=${encodeURIComponent((cluster as any).name)}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/scaling?clusterName=${encodeURIComponent((cluster as any).name)}`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -300,7 +327,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/logs?projectId=${projectId}&clusterName=${encodeURIComponent((cluster as any).name)}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/logs?clusterName=${encodeURIComponent((cluster as any).name)}`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -316,7 +343,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/maintenance?projectId=${projectId}&clusterName=${encodeURIComponent((cluster as any).name)}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/maintenance?clusterName=${encodeURIComponent((cluster as any).name)}`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -332,7 +359,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/archive?projectId=${projectId}&clusterName=${encodeURIComponent((cluster as any).name)}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/archive?clusterName=${encodeURIComponent((cluster as any).name)}`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -348,7 +375,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/schemas?projectId=${projectId}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/schemas`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -364,7 +391,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/backups?projectId=${projectId}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/backups`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -380,7 +407,7 @@ export default function ClusterDetailsPage() {
           </Card>
         </Link>
 
-        <Link href={`/dashboard/clusters/${clusterId}/settings?projectId=${projectId}&clusterName=${encodeURIComponent((cluster as any).name)}`}>
+        <Link href={`/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}/settings?clusterName=${encodeURIComponent((cluster as any).name)}`}>
           <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
