@@ -29,6 +29,7 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
+import { StripePaymentForm } from '@/components/billing/stripe-payment-form';
 
 interface BillingDashboardProps {
   orgId: string;
@@ -129,6 +130,7 @@ export function BillingDashboard({ orgId }: BillingDashboardProps) {
   const queryClient = useQueryClient();
 
   const [showSetupDialog, setShowSetupDialog] = useState(false);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [billingEmail, setBillingEmail] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [vatId, setVatId] = useState('');
@@ -493,24 +495,28 @@ export function BillingDashboard({ orgId }: BillingDashboardProps) {
               </CardHeader>
               <CardContent>
                 {account.paymentMethodType !== 'none' && account.paymentMethod ? (
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
-                      <CreditCard className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="font-medium capitalize">{account.paymentMethod.brand || account.paymentMethodType}</div>
-                      <div className="text-sm text-muted-foreground">
-                        •••• {account.paymentMethod.last4}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
+                        <CreditCard className="h-5 w-5" />
                       </div>
+                      <div className="flex-1">
+                        <div className="font-medium capitalize">{account.paymentMethod.brand || account.paymentMethodType}</div>
+                        <div className="text-sm text-muted-foreground">
+                          •••• {account.paymentMethod.last4}
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => setShowPaymentDialog(true)}>
+                        Change
+                      </Button>
                     </div>
                   </div>
                 ) : (
                   <div className="text-center py-4">
                     <div className="text-muted-foreground mb-2">No payment method</div>
-                    <Button variant="outline" size="sm" disabled>
+                    <Button variant="outline" size="sm" onClick={() => setShowPaymentDialog(true)}>
                       <Plus className="h-4 w-4 mr-1" /> Add Payment Method
                     </Button>
-                    <p className="text-xs text-muted-foreground mt-2">Coming soon with Stripe integration</p>
                   </div>
                 )}
               </CardContent>
@@ -518,6 +524,28 @@ export function BillingDashboard({ orgId }: BillingDashboardProps) {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Payment Method Dialog */}
+      <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {account.paymentMethodType !== 'none' ? 'Update Payment Method' : 'Add Payment Method'}
+            </DialogTitle>
+            <DialogDescription>
+              Add a credit card or SEPA direct debit to pay for your EUTLAS services.
+            </DialogDescription>
+          </DialogHeader>
+          <StripePaymentForm
+            orgId={orgId}
+            onSuccess={() => {
+              setShowPaymentDialog(false);
+              queryClient.invalidateQueries({ queryKey: ['billing-account', orgId] });
+            }}
+            onCancel={() => setShowPaymentDialog(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

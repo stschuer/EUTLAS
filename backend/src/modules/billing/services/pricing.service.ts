@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Price, PriceDocument } from '../schemas/price.schema';
 import { UsageType } from '../schemas/usage-record.schema';
+import { StripeService } from './stripe.service';
 
 // Default prices (in cents, EUR)
 const DEFAULT_PRICES = [
@@ -31,10 +32,12 @@ export class PricingService implements OnModuleInit {
 
   constructor(
     @InjectModel(Price.name) private priceModel: Model<PriceDocument>,
+    private readonly stripeService: StripeService,
   ) {}
 
   async onModuleInit() {
     await this.seedDefaultPrices();
+    await this.syncStripePrices();
     await this.loadPriceCache();
   }
 
@@ -52,6 +55,82 @@ export class PricingService implements OnModuleInit {
         this.logger.log(`Seeded price: ${priceData.priceCode}`);
       }
     }
+  }
+
+  /**
+   * Sync local prices with Stripe - create products and prices in Stripe
+   * for any that don't have a stripeProductId/stripePriceId yet.
+   */
+  private async syncStripePrices(): Promise<void> {
+    if (!this.stripeService.configured) {
+      this.logger.log('Stripe not configured - skipping price sync');
+      return;
+    }
+
+    const prices = await this.priceModel.find({ active: true }).exec();
+
+    for (const price of prices) {
+      try {
+        // Skip if already synced
+        if (price.stripeProductId && price.stripePriceId) {
+          continue;
+        }
+
+        // Create Stripe product if needed
+        if (!price.stripeProductId) {
+          const product = await this.stripeService.createProduct({
+            name: `EUTLAS - ${price.name}`,
+            description: price.description,
+            metadata: {
+              eutlas_price_code: price.priceCode,
+              category: price.category,
+            },
+          });
+
+          if (product) {
+            price.stripeProductId = product.id;
+            this.logger.log(`Created Stripe product for ${price.priceCode}: ${product.id}`);
+          }
+        }
+
+        // Create Stripe price if needed
+        if (price.stripeProductId && !price.stripePriceId) {
+          const unitAmount = price.unitAmountCents || price.perUnitAmountCents || 0;
+
+          // Only create a price in Stripe for items with an amount
+          if (unitAmount > 0) {
+            const isRecurring = price.interval === 'monthly' || price.interval === 'annual';
+            const stripePrice = await this.stripeService.createPrice({
+              productId: price.stripeProductId,
+              unitAmountCents: unitAmount,
+              currency: 'eur',
+              recurring: isRecurring
+                ? { interval: price.interval === 'annual' ? 'year' : 'month' }
+                : undefined,
+              metadata: {
+                eutlas_price_code: price.priceCode,
+                category: price.category,
+              },
+            });
+
+            if (stripePrice) {
+              price.stripePriceId = stripePrice.id;
+              this.logger.log(`Created Stripe price for ${price.priceCode}: ${stripePrice.id}`);
+            }
+          }
+        }
+
+        // Save updated price
+        if (price.isModified()) {
+          await price.save();
+        }
+      } catch (error: any) {
+        this.logger.error(`Failed to sync Stripe price for ${price.priceCode}: ${error.message}`);
+        // Continue with other prices even if one fails
+      }
+    }
+
+    this.logger.log('Stripe price sync completed');
   }
 
   private async loadPriceCache(): Promise<void> {
@@ -187,8 +266,3 @@ export class PricingService implements OnModuleInit {
     }).format(amount);
   }
 }
-
-
-
-
-

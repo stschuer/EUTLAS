@@ -79,6 +79,7 @@ K8S_NAMESPACE_PREFIX=eutlas-
 # Stripe (for billing)
 STRIPE_SECRET_KEY=sk_live_xxxxxxxxxxxxx
 STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxx
+STRIPE_PUBLISHABLE_KEY=pk_live_xxxxxxxxxxxxx
 ```
 
 ## Step 5: Deploy Backend

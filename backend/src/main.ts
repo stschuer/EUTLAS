@@ -11,6 +11,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     // Disable x-powered-by header
     logger: ['log', 'error', 'warn', 'debug', 'verbose'],
+    // Enable raw body for Stripe webhook signature verification
+    rawBody: true,
   });
   const configService = app.get(ConfigService);
 

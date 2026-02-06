@@ -1,6 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { BillingController } from './billing.controller';
+import { BillingController, StripeWebhookController } from './billing.controller';
 import { BillingAccountService } from './services/billing-account.service';
 import { InvoiceService } from './services/invoice.service';
 import { UsageService } from './services/usage.service';
@@ -12,6 +12,7 @@ import { BillingAccount, BillingAccountSchema } from './schemas/billing-account.
 import { Price, PriceSchema } from './schemas/price.schema';
 import { Cluster, ClusterSchema } from '../clusters/schemas/cluster.schema';
 import { OrgsModule } from '../orgs/orgs.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
@@ -23,8 +24,9 @@ import { OrgsModule } from '../orgs/orgs.module';
       { name: Cluster.name, schema: ClusterSchema },
     ]),
     forwardRef(() => OrgsModule),
+    EmailModule,
   ],
-  controllers: [BillingController],
+  controllers: [BillingController, StripeWebhookController],
   providers: [
     BillingAccountService,
     InvoiceService,
@@ -41,8 +43,3 @@ import { OrgsModule } from '../orgs/orgs.module';
   ],
 })
 export class BillingModule {}
-
-
-
-
-
