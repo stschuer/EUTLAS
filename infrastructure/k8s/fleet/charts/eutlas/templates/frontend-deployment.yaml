@@ -33,6 +33,8 @@ spec:
           env:
             - name: NEXT_PUBLIC_API_URL
               value: "https://{{ .Values.ingress.host }}/api/v1"
+            - name: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+              value: "{{ .Values.stripe.publishableKey }}"
           livenessProbe:
             httpGet:
               path: /

@@ -60,6 +60,9 @@ stringData:
   MONGODB_URI: "mongodb://eutlas-admin:EutlasSecure2025Prod!@eutlas-mongodb-0.eutlas-mongodb-svc.eutlas.svc.cluster.local:27017,eutlas-mongodb-1.eutlas-mongodb-svc.eutlas.svc.cluster.local:27017,eutlas-mongodb-2.eutlas-mongodb-svc.eutlas.svc.cluster.local:27017/eutlas?replicaSet=eutlas-mongodb&authSource=admin"
   RESEND_API_KEY: "re_e4RqM2Zz_UX8PyynNuB68WcJ8SUQN2aUW"
   EMAIL_FROM: "noreply@eutlas.eu"
+  STRIPE_SECRET_KEY: "PLACEHOLDER_STRIPE_SECRET_KEY"
+  STRIPE_WEBHOOK_SECRET: ""
+  STRIPE_PUBLISHABLE_KEY: "PLACEHOLDER_STRIPE_PUBLISHABLE_KEY"
 ---
 # Redis for caching/sessions
 apiVersion: apps/v1
@@ -131,6 +134,8 @@ spec:
               value: "4000"
             - name: REDIS_URL
               value: "redis://eutlas-redis:6379"
+            - name: FRONTEND_URL
+              value: "https://mongo.eutlas.eu"
           envFrom:
             - secretRef:
                 name: eutlas-secrets
@@ -192,7 +197,9 @@ spec:
             - name: NODE_ENV
               value: "production"
             - name: NEXT_PUBLIC_API_URL
-              value: "https://eutlas-api.prioniere.de"
+              value: "https://mongo.eutlas.eu/api/v1"
+            - name: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+              value: "pk_test_51SxmcXKnx0cXDf0xpJWlROztmN3XE5fbaYySIug0ihk3oezYgXP2nKIzoYGg9Sub0KctY3PN14C9Tfni29SifL1g00yJ8PmhSY"
           resources:
             limits:
               cpu: "250m"

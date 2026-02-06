@@ -68,6 +68,10 @@ ingress:
   host: app.eutlas.eu
   tls: true
 
+# Stripe configuration
+stripe:
+  publishableKey: ""  # Set via values override or secret
+
 # Secrets (referenced from external secrets or Rancher secrets)
 secrets:
   existingSecret: eutlas-secrets

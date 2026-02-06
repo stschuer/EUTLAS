@@ -26,6 +26,8 @@ spec:
               value: "4000"
             - name: REDIS_URL
               value: "redis://eutlas-redis:6379"
+            - name: FRONTEND_URL
+              value: "https://mongo.eutlas.eu"
           envFrom:
             - secretRef:
                 name: eutlas-secrets

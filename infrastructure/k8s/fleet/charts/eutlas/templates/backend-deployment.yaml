@@ -38,6 +38,8 @@ spec:
               value: {{ .Values.backend.env.NODE_ENV }}
             - name: PORT
               value: "{{ .Values.backend.port }}"
+            - name: FRONTEND_URL
+              value: "https://{{ .Values.ingress.host }}"
           livenessProbe:
             httpGet:
               path: /api/v1/health

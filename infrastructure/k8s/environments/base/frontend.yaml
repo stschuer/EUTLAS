@@ -21,6 +21,8 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
+            - name: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+              value: "pk_test_51SxmcXKnx0cXDf0xpJWlROztmN3XE5fbaYySIug0ihk3oezYgXP2nKIzoYGg9Sub0KctY3PN14C9Tfni29SifL1g00yJ8PmhSY"
           resources:
             limits:
               cpu: "250m"
