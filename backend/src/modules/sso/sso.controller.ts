@@ -87,6 +87,9 @@ export class SsoController {
         name: config.name,
         type: config.type,
         enabled: config.enabled,
+        emailDomains: config.emailDomains,
+        defaultRole: config.defaultRole,
+        allowJitProvisioning: config.allowJitProvisioning,
         // Include setup URLs
         callbackUrl: config.type === 'saml'
           ? this.ssoService.getSamlCallbackUrl((config as any)._id.toString())
@@ -180,7 +183,16 @@ export class SsoController {
 
     return {
       success: true,
-      data: { id: (updated as any)._id, enabled: updated.enabled },
+      data: {
+        id: (updated as any)._id,
+        name: updated.name,
+        type: updated.type,
+        enabled: updated.enabled,
+        enforced: updated.enforced,
+        emailDomains: updated.emailDomains,
+        defaultRole: updated.defaultRole,
+        allowJitProvisioning: updated.allowJitProvisioning,
+      },
       message: 'SSO configuration updated',
     };
   }

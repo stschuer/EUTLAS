@@ -7,6 +7,9 @@ param(
     [string]$ApiUrl = "http://localhost:4000/api/v1"
 )
 
+# Ensure TLS 1.2 is used (required for HTTPS endpoints)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 $ErrorActionPreference = "Continue"
 $passed = 0
 $failed = 0

@@ -8,7 +8,6 @@ test.describe('Security Features', () => {
       const headers = response.headers();
       
       // Check for common security headers
-      // Note: Some headers may be added by the API, not the frontend
       const securityHeaders = [
         'x-content-type-options',
         'x-frame-options',
@@ -24,17 +23,13 @@ test.describe('Security Features', () => {
         }
       }
       
-      // At least some security headers should be present
-      expect(foundHeaders).toBeGreaterThanOrEqual(0);
+      // At least x-content-type-options should be present in any framework
+      expect(foundHeaders).toBeGreaterThanOrEqual(1);
     }
   });
 
   test('should redirect HTTP to HTTPS in production', async ({ page }) => {
-    // This test is mostly relevant for production
     // In development, HTTP is typically allowed
-    const url = page.url();
-    
-    // Just verify page loads
     await page.goto('/');
     expect(page.url()).toBeTruthy();
   });
@@ -44,27 +39,28 @@ test.describe('Security Features', () => {
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
     
-    // Look for forms with CSRF tokens or proper security
+    // Look for forms with proper security attributes
     const forms = page.locator('form');
     const formCount = await forms.count();
     
-    // Forms should exist in the application
+    // Dashboard should have at least some interactive elements
     expect(formCount).toBeGreaterThanOrEqual(0);
   });
 
   test('should validate authentication on protected routes', async ({ page }) => {
+    // Clear any existing auth state
+    await page.context().clearCookies();
+    await page.evaluate(() => localStorage.clear());
+    
     // Try to access protected route without login
     await page.goto('/dashboard');
-    
-    // Should redirect to login or show auth error
     await page.waitForLoadState('networkidle');
     
     const currentUrl = page.url();
     const isRedirectedToLogin = currentUrl.includes('login') || currentUrl.includes('auth');
-    const showsAuthError = await page.locator('text=unauthorized, text=login required, text=sign in').count() > 0;
     
-    // Either redirected or shows auth message
-    expect(isRedirectedToLogin || showsAuthError || currentUrl.includes('dashboard')).toBe(true);
+    // Should redirect to login
+    expect(isRedirectedToLogin).toBe(true);
   });
 
   test('should sanitize user input display', async ({ page, login }) => {
@@ -82,16 +78,15 @@ test.describe('Security Features', () => {
       const xssPayload = '<script>alert("xss")</script>';
       await firstInput.fill(xssPayload);
       
-      // Verify the script tag is not executed
-      // The page should not have any alert dialogs
+      let xssTriggered = false;
       page.on('dialog', async dialog => {
-        // If we get here, XSS worked (bad!)
-        expect(dialog.type()).not.toBe('alert');
+        xssTriggered = true;
         await dialog.dismiss();
       });
       
-      // Wait a moment to see if any XSS triggers
+      // Wait briefly to see if any XSS triggers
       await page.waitForTimeout(500);
+      expect(xssTriggered).toBe(false);
     }
   });
 });
@@ -112,20 +107,6 @@ test.describe('Rate Limiting', () => {
     const validStatuses = responses.every(s => s === 200 || s === 429);
     expect(validStatuses).toBe(true);
   });
-
-  test('should show rate limit message when exceeded', async ({ page }) => {
-    // This test simulates what happens when rate limited
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    
-    // If rate limited, should show appropriate message
-    const rateLimitMessage = page.locator(
-      'text=rate limit, text=too many requests, text=slow down, text=try again'
-    );
-    
-    // May or may not be visible depending on rate limit status
-    expect(await rateLimitMessage.count()).toBeGreaterThanOrEqual(0);
-  });
 });
 
 test.describe('Session Security', () => {
@@ -137,9 +118,12 @@ test.describe('Session Security', () => {
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
     
-    // Check that we're logged in
+    // Check that we're on the dashboard
+    expect(page.url()).toContain('dashboard');
+    
+    // Check for user-related UI elements
     const userIndicator = page.locator(
-      '[data-testid="user-menu"], button:has-text("Account"), text=Profile, text=Logout'
+      '[data-testid="user-menu"], button:has-text("Account"), text=Profile, text=Logout, text=Sign out'
     );
     
     expect(await userIndicator.count()).toBeGreaterThan(0);
@@ -149,20 +133,17 @@ test.describe('Session Security', () => {
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
     
-    // Clear cookies to simulate session expiry
+    // Clear cookies and storage to simulate session expiry
     await context.clearCookies();
+    await page.evaluate(() => localStorage.clear());
     
     // Refresh the page
     await page.reload();
     await page.waitForLoadState('networkidle');
     
-    // Should be redirected to login or show session expired message
+    // Should be redirected to login
     const currentUrl = page.url();
-    const sessionExpiredUI = await page.locator(
-      'text=session expired, text=login, text=sign in'
-    ).count();
-    
-    expect(currentUrl.includes('login') || sessionExpiredUI > 0 || currentUrl.includes('dashboard')).toBe(true);
+    expect(currentUrl.includes('login') || currentUrl.includes('auth') || currentUrl === '/').toBe(true);
   });
 
   test('should have logout functionality', async ({ page }) => {
@@ -171,7 +152,7 @@ test.describe('Session Security', () => {
     
     // Find and click logout
     const logoutButton = page.locator(
-      'button:has-text("Logout"), button:has-text("Sign out"), a:has-text("Logout")'
+      'button:has-text("Logout"), button:has-text("Sign out"), a:has-text("Logout"), a:has-text("Sign out")'
     );
     
     if (await logoutButton.count() > 0) {
@@ -184,7 +165,3 @@ test.describe('Session Security', () => {
     }
   });
 });
-
-
-
-

@@ -8,8 +8,10 @@ import {
   Param,
   UseGuards,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Types } from 'mongoose';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser, CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { DatabaseUsersService } from './database-users.service';
@@ -31,6 +33,12 @@ export class DatabaseUsersController {
     private readonly orgsService: OrgsService,
   ) {}
 
+  private validateObjectId(id: string, name: string): void {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException(`Invalid ${name} ID format`);
+    }
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a database user for a cluster' })
   async create(
@@ -39,6 +47,9 @@ export class DatabaseUsersController {
     @Param('clusterId') clusterId: string,
     @Body() createDto: CreateDatabaseUserDto,
   ) {
+    this.validateObjectId(projectId, 'project');
+    this.validateObjectId(clusterId, 'cluster');
+
     // Verify access
     const orgId = await this.projectsService.getOrgIdForProject(projectId);
     if (!orgId) {
@@ -72,6 +83,9 @@ export class DatabaseUsersController {
     @Param('projectId') projectId: string,
     @Param('clusterId') clusterId: string,
   ) {
+    this.validateObjectId(projectId, 'project');
+    this.validateObjectId(clusterId, 'cluster');
+
     // Verify access
     const orgId = await this.projectsService.getOrgIdForProject(projectId);
     if (!orgId) {
@@ -101,6 +115,10 @@ export class DatabaseUsersController {
     @Param('clusterId') clusterId: string,
     @Param('userId') userId: string,
   ) {
+    this.validateObjectId(projectId, 'project');
+    this.validateObjectId(clusterId, 'cluster');
+    this.validateObjectId(userId, 'user');
+
     // Verify access
     const orgId = await this.projectsService.getOrgIdForProject(projectId);
     if (!orgId) {
@@ -128,6 +146,10 @@ export class DatabaseUsersController {
     @Param('userId') userId: string,
     @Body() updateDto: UpdateDatabaseUserDto,
   ) {
+    this.validateObjectId(projectId, 'project');
+    this.validateObjectId(clusterId, 'cluster');
+    this.validateObjectId(userId, 'user');
+
     // Verify access
     const orgId = await this.projectsService.getOrgIdForProject(projectId);
     if (!orgId) {
@@ -156,6 +178,10 @@ export class DatabaseUsersController {
     @Param('clusterId') clusterId: string,
     @Param('userId') userId: string,
   ) {
+    this.validateObjectId(projectId, 'project');
+    this.validateObjectId(clusterId, 'cluster');
+    this.validateObjectId(userId, 'user');
+
     // Verify access
     const orgId = await this.projectsService.getOrgIdForProject(projectId);
     if (!orgId) {

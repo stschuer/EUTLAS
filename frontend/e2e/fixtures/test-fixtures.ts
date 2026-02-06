@@ -29,6 +29,7 @@ export async function loginUser(page: Page, email: string = TEST_USER.email, pas
 export const test = base.extend<{
   authenticatedPage: Page;
   apiToken: string;
+  login: () => Promise<void>;
 }>({
   // Authenticated page fixture
   authenticatedPage: async ({ page }, use) => {
@@ -36,6 +37,14 @@ export const test = base.extend<{
     await use(page);
   },
   
+  // Login helper fixture (used by security, sso, vector-search specs)
+  login: async ({ page }, use) => {
+    const doLogin = async () => {
+      await loginUser(page);
+    };
+    await use(doLogin);
+  },
+
   // API token fixture
   apiToken: async ({ request }, use) => {
     const response = await request.post(`${API_URL}/auth/login`, {

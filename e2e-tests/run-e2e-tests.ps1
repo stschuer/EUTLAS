@@ -12,6 +12,9 @@ param(
     [switch]$SkipCleanup
 )
 
+# Ensure TLS 1.2 is used (required for HTTPS endpoints)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 $ErrorActionPreference = "Continue"
 
 # Test counters
@@ -349,6 +352,35 @@ Write-TestHeader "17. Search Indexes"
 
 Test-Endpoint -Name "List Search Indexes" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/search-indexes" -Headers $authHeaders
 
+$createSearchIndexBody = @{
+    name = "e2e_search_index"
+    database = "testdb"
+    collection = "articles"
+    type = "search"
+    definition = @{
+        mappings = @{
+            dynamic = $true
+            fields = @{
+                title = @{ type = "string"; analyzer = "lucene.standard" }
+                content = @{ type = "string"; analyzer = "lucene.standard" }
+            }
+        }
+    }
+} | ConvertTo-Json -Depth 5
+
+$searchIndex = Test-Endpoint -Name "Create Search Index" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/search-indexes" -Headers $authHeaders -Body $createSearchIndexBody -AllowFailure
+
+if ($searchIndex -and $searchIndex.data -and $searchIndex.data.id) {
+    $searchIndexId = $searchIndex.data.id
+    Test-Endpoint -Name "Get Search Index" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/search-indexes/$searchIndexId" -Headers $authHeaders
+    Test-Endpoint -Name "Get Search Index Stats" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/search-indexes/stats" -Headers $authHeaders
+    Test-Endpoint -Name "Get Available Analyzers" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/search-indexes/analyzers" -Headers $authHeaders
+} else {
+    Write-Skip "Get Search Index - No index created"
+    Test-Endpoint -Name "Get Search Index Stats" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/search-indexes/stats" -Headers $authHeaders
+    Test-Endpoint -Name "Get Available Analyzers" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/search-indexes/analyzers" -Headers $authHeaders
+}
+
 # ============================================
 # 18. Scaling
 # ============================================
@@ -502,13 +534,12 @@ Test-Endpoint -Name "List SSO Configs" -Method "GET" -Url "$ApiUrl/sso/orgs/$org
 
 $createSamlConfigBody = @{
     name = "Test SAML Provider"
-    type = "SAML"
+    type = "saml"
     enabled = $false
-    samlConfig = @{
-        entityId = "https://eutlas.example.com/saml"
-        ssoUrl = "https://idp.example.com/sso"
-        certificate = "-----BEGIN CERTIFICATE-----\nMIICpDCCAYwCCQDU+pQ5nzVHbDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls\n-----END CERTIFICATE-----"
-        signatureAlgorithm = "sha256"
+    saml = @{
+        entryPoint = "https://idp.example.com/sso/saml"
+        issuer = "urn:eutlas:sp"
+        cert = "MIICpDCCAYwCCQDU+pQ5nzVHbDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls"
     }
     defaultRole = "MEMBER"
     allowJitProvisioning = $true
@@ -518,16 +549,17 @@ $ssoConfig = Test-Endpoint -Name "Create SAML Config" -Method "POST" -Url "$ApiU
 
 $createOidcConfigBody = @{
     name = "Test OIDC Provider"
-    type = "OIDC"
+    type = "oidc"
     enabled = $false
-    oidcConfig = @{
+    oidc = @{
+        provider = "custom"
         clientId = "eutlas-test-client"
         clientSecret = "test-secret-12345"
         issuer = "https://idp.example.com"
-        authorizationUrl = "https://idp.example.com/authorize"
-        tokenUrl = "https://idp.example.com/token"
-        userInfoUrl = "https://idp.example.com/userinfo"
-        scopes = @("openid", "profile", "email")
+        authorizationURL = "https://idp.example.com/authorize"
+        tokenURL = "https://idp.example.com/token"
+        userInfoURL = "https://idp.example.com/userinfo"
+        scope = @("openid", "profile", "email")
     }
     defaultRole = "MEMBER"
     allowJitProvisioning = $true
@@ -555,10 +587,18 @@ $createVectorIndexBody = @{
     name = "e2e_vector_index"
     database = "testdb"
     collection = "products"
-    vectorField = "embedding"
-    dimensions = 768
-    similarity = "cosine"
-    filters = @("category", "price")
+    type = "vectorSearch"
+    vectorFields = @(
+        @{
+            path = "embedding"
+            dimensions = 768
+            similarity = "cosine"
+        }
+    )
+    filterFields = @(
+        @{ path = "category"; type = "string" },
+        @{ path = "price"; type = "number" }
+    )
 } | ConvertTo-Json -Depth 5
 
 $vectorIndex = Test-Endpoint -Name "Create Vector Index" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/indexes" -Headers $authHeaders -Body $createVectorIndexBody -AllowFailure
@@ -570,29 +610,19 @@ if ($vectorIndex -and $vectorIndex.data -and $vectorIndex.data.id) {
     Write-Skip "Get Vector Index - No index created"
 }
 
-# Test Custom Analyzers
-Test-Endpoint -Name "List Custom Analyzers" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/analyzers" -Headers $authHeaders
+# Test Analyzers (GET only - no POST endpoint for custom analyzers)
+Test-Endpoint -Name "List Available Analyzers" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/analyzers" -Headers $authHeaders
 
-$createAnalyzerBody = @{
-    name = "e2e_custom_analyzer"
-    tokenizer = "standard"
-    tokenFilters = @("lowercase", "snowball")
-    charFilters = @()
-} | ConvertTo-Json -Depth 5
+# Test Embedding Models
+Test-Endpoint -Name "List Embedding Models" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/embedding-models" -Headers $authHeaders
 
-Test-Endpoint -Name "Create Custom Analyzer" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/analyzers" -Headers $authHeaders -Body $createAnalyzerBody -AllowFailure
-
-# Test Semantic Search
+# Test Semantic Search (uses query params for index/database/collection, body for query)
 $semanticSearchBody = @{
     query = "sample search query"
-    database = "testdb"
-    collection = "products"
-    indexName = "e2e_vector_index"
     limit = 10
-    numCandidates = 100
 } | ConvertTo-Json -Depth 5
 
-Test-Endpoint -Name "Semantic Search" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/search" -Headers $authHeaders -Body $semanticSearchBody -AllowFailure
+Test-Endpoint -Name "Semantic Search" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/semantic-search?index=e2e_vector_index&database=testdb&collection=products" -Headers $authHeaders -Body $semanticSearchBody -AllowFailure
 
 # ============================================
 # 30. Rate Limiting and Security
@@ -602,7 +632,7 @@ Write-TestHeader "30. Rate Limiting and Security"
 # Test that rate limiting headers are present
 Write-TestStep "Checking rate limit headers"
 try {
-    $response = Invoke-WebRequest -Uri "$ApiUrl/health" -Method GET -ErrorAction Stop
+    $response = Invoke-WebRequest -Uri "$ApiUrl/health" -Method GET -UseBasicParsing -ErrorAction Stop
     $rateLimitHeaders = @("X-RateLimit-Limit", "X-RateLimit-Remaining", "RateLimit-Policy")
     $foundHeaders = 0
     foreach ($header in $rateLimitHeaders) {
@@ -622,7 +652,7 @@ try {
 # Test security headers
 Write-TestStep "Checking security headers"
 try {
-    $response = Invoke-WebRequest -Uri "$ApiUrl/health" -Method GET -ErrorAction Stop
+    $response = Invoke-WebRequest -Uri "$ApiUrl/health" -Method GET -UseBasicParsing -ErrorAction Stop
     $securityHeaders = @("X-Content-Type-Options", "X-Frame-Options", "X-XSS-Protection")
     $foundSecHeaders = 0
     foreach ($header in $securityHeaders) {

@@ -72,22 +72,29 @@ export class DatabaseUsersService {
         password: createDto.password,
         roles: createDto.roles as DatabaseRoleAssignment[],
       });
-    } catch (error) {
+    } catch (error: any) {
       // Rollback: delete the record if K8s creation fails
       await this.dbUserModel.findByIdAndDelete(dbUser.id).exec();
-      throw error;
+      this.logger.error(`Failed to create user in cluster: ${error.message}`, error.stack);
+      throw new BadRequestException(
+        `Failed to provision database user in cluster: ${error.message || 'Unknown error'}`,
+      );
     }
 
-    // Log event
-    await this.eventsService.createEvent({
-      orgId,
-      projectId,
-      clusterId,
-      type: 'CLUSTER_UPDATED',
-      severity: 'info',
-      message: `Database user "${createDto.username}" created`,
-      metadata: { username: createDto.username, roles: createDto.roles },
-    });
+    // Log event (non-critical, don't fail the request if event logging fails)
+    try {
+      await this.eventsService.createEvent({
+        orgId,
+        projectId,
+        clusterId,
+        type: 'CLUSTER_UPDATED',
+        severity: 'info',
+        message: `Database user "${createDto.username}" created`,
+        metadata: { username: createDto.username, roles: createDto.roles },
+      });
+    } catch (eventError: any) {
+      this.logger.warn(`Failed to log event for user creation: ${eventError.message}`);
+    }
 
     this.logger.log(`Created database user ${createDto.username} for cluster ${clusterId}`);
     return dbUser;
@@ -159,15 +166,19 @@ export class DatabaseUsersService {
       throw new NotFoundException('Database user not found');
     }
 
-    // Log event
-    await this.eventsService.createEvent({
-      orgId: dbUser.orgId.toString(),
-      projectId: dbUser.projectId.toString(),
-      clusterId: dbUser.clusterId.toString(),
-      type: 'CLUSTER_UPDATED',
-      severity: 'info',
-      message: `Database user "${dbUser.username}" updated`,
-    });
+    // Log event (non-critical)
+    try {
+      await this.eventsService.createEvent({
+        orgId: dbUser.orgId.toString(),
+        projectId: dbUser.projectId.toString(),
+        clusterId: dbUser.clusterId.toString(),
+        type: 'CLUSTER_UPDATED',
+        severity: 'info',
+        message: `Database user "${dbUser.username}" updated`,
+      });
+    } catch (eventError: any) {
+      this.logger.warn(`Failed to log event for user update: ${eventError.message}`);
+    }
 
     return updated;
   }
@@ -201,15 +212,19 @@ export class DatabaseUsersService {
     // Delete record
     await this.dbUserModel.findByIdAndDelete(userId).exec();
 
-    // Log event
-    await this.eventsService.createEvent({
-      orgId: dbUser.orgId.toString(),
-      projectId: dbUser.projectId.toString(),
-      clusterId: dbUser.clusterId.toString(),
-      type: 'CLUSTER_UPDATED',
-      severity: 'info',
-      message: `Database user "${dbUser.username}" deleted`,
-    });
+    // Log event (non-critical)
+    try {
+      await this.eventsService.createEvent({
+        orgId: dbUser.orgId.toString(),
+        projectId: dbUser.projectId.toString(),
+        clusterId: dbUser.clusterId.toString(),
+        type: 'CLUSTER_UPDATED',
+        severity: 'info',
+        message: `Database user "${dbUser.username}" deleted`,
+      });
+    } catch (eventError: any) {
+      this.logger.warn(`Failed to log event for user deletion: ${eventError.message}`);
+    }
 
     this.logger.log(`Deleted database user ${dbUser.username} from cluster ${dbUser.clusterId}`);
   }
