@@ -491,19 +491,21 @@ if ($clusterReady) {
     $pauseBody = @{ reason = "E2E test pause" } | ConvertTo-Json
     Test-Endpoint -Name "Pause Cluster" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/pause" -Headers $authHeaders -Body $pauseBody
     
-    # Wait for pause to complete
+    # Wait for pause to complete (async job, may take 10-20s)
     Write-Info "Waiting for pause to complete..."
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 3
     
-    # Check if paused
+    # Poll until paused or timeout
     $pausedStatus = $false
     $pauseWait = 0
-    while ($pauseWait -lt 10 -and -not $pausedStatus) {
+    while ($pauseWait -lt 30 -and -not $pausedStatus) {
         try {
             $clusterCheck = Invoke-RestMethod -Uri "$ApiUrl/projects/$projectId/clusters/$clusterId" -Headers $authHeaders -Method GET
             if ($clusterCheck.data.status -eq "paused") {
                 $pausedStatus = $true
+                Write-Info "Cluster paused after ${pauseWait}s"
             } else {
+                Write-Info "Cluster status: $($clusterCheck.data.status), waiting..."
                 Start-Sleep -Seconds 2
                 $pauseWait += 2
             }
@@ -591,7 +593,7 @@ $createVectorIndexBody = @{
     vectorFields = @(
         @{
             path = "embedding"
-            dimensions = 768
+            dimensions = 1536
             similarity = "cosine"
         }
     )
@@ -603,9 +605,32 @@ $createVectorIndexBody = @{
 
 $vectorIndex = Test-Endpoint -Name "Create Vector Index" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/indexes" -Headers $authHeaders -Body $createVectorIndexBody -AllowFailure
 
+$vectorIndexReady = $false
 if ($vectorIndex -and $vectorIndex.data -and $vectorIndex.data.id) {
     $vectorIndexId = $vectorIndex.data.id
     Test-Endpoint -Name "Get Vector Index" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/indexes/$vectorIndexId" -Headers $authHeaders
+
+    # Wait for index to reach 'ready' status (build takes 2-5 seconds)
+    Write-Info "Waiting for vector index to build..."
+    $indexWait = 0
+    while ($indexWait -lt 15) {
+        try {
+            $idxStatus = Invoke-RestMethod -Uri "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/indexes/$vectorIndexId" -Headers $authHeaders -Method GET
+            if ($idxStatus.data.status -eq "ready") {
+                $vectorIndexReady = $true
+                Write-Info "Vector index is ready"
+                break
+            }
+            Start-Sleep -Seconds 1
+            $indexWait++
+        } catch {
+            Start-Sleep -Seconds 1
+            $indexWait++
+        }
+    }
+    if (-not $vectorIndexReady) {
+        Write-Info "Vector index not ready after ${indexWait}s, search tests may fail"
+    }
 } else {
     Write-Skip "Get Vector Index - No index created"
 }
@@ -617,12 +642,16 @@ Test-Endpoint -Name "List Available Analyzers" -Method "GET" -Url "$ApiUrl/proje
 Test-Endpoint -Name "List Embedding Models" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/embedding-models" -Headers $authHeaders
 
 # Test Semantic Search (uses query params for index/database/collection, body for query)
-$semanticSearchBody = @{
-    query = "sample search query"
-    limit = 10
-} | ConvertTo-Json -Depth 5
+if ($vectorIndexReady) {
+    $semanticSearchBody = @{
+        query = "sample search query"
+        limit = 10
+    } | ConvertTo-Json -Depth 5
 
-Test-Endpoint -Name "Semantic Search" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/semantic-search?index=e2e_vector_index&database=testdb&collection=products" -Headers $authHeaders -Body $semanticSearchBody -AllowFailure
+    Test-Endpoint -Name "Semantic Search" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/vector-search/semantic-search?index=e2e_vector_index&database=testdb&collection=products" -Headers $authHeaders -Body $semanticSearchBody -AllowFailure
+} else {
+    Write-Skip "Semantic Search - Vector index not ready"
+}
 
 # ============================================
 # 30. Rate Limiting and Security
@@ -633,7 +662,8 @@ Write-TestHeader "30. Rate Limiting and Security"
 Write-TestStep "Checking rate limit headers"
 try {
     $response = Invoke-WebRequest -Uri "$ApiUrl/health" -Method GET -UseBasicParsing -ErrorAction Stop
-    $rateLimitHeaders = @("X-RateLimit-Limit", "X-RateLimit-Remaining", "RateLimit-Policy")
+    # Server uses tiered rate limiting with -short, -medium, -long suffixes
+    $rateLimitHeaders = @("X-RateLimit-Limit-short", "X-RateLimit-Remaining-short", "X-RateLimit-Limit-medium", "X-RateLimit-Remaining-medium", "X-RateLimit-Limit-long", "X-RateLimit-Remaining-long")
     $foundHeaders = 0
     foreach ($header in $rateLimitHeaders) {
         if ($response.Headers[$header]) {
@@ -641,7 +671,7 @@ try {
         }
     }
     if ($foundHeaders -gt 0) {
-        Write-Pass "Rate Limit Headers Present ($foundHeaders headers found)"
+        Write-Pass "Rate Limit Headers Present ($foundHeaders of $($rateLimitHeaders.Count) headers found)"
     } else {
         Write-Skip "Rate Limit Headers - Not detected (may be configured differently)"
     }

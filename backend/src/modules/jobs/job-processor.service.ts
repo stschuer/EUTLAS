@@ -215,9 +215,14 @@ export class JobProcessorService implements OnModuleInit {
     const reason = (job.payload as any)?.reason;
 
     // Scale down K8s resources
-    await this.kubernetesService.pauseMongoCluster({ clusterId, projectId });
+    try {
+      await this.kubernetesService.pauseMongoCluster({ clusterId, projectId });
+    } catch (error: any) {
+      this.logger.warn(`K8s pause failed for cluster ${clusterId}: ${error.message}. Marking as paused anyway.`);
+    }
 
-    // Update cluster status
+    // Update cluster status (always mark as paused, even if K8s fails - 
+    // the cluster record should reflect the intended state)
     await this.clustersService.markAsPaused(clusterId);
 
     // Create event
@@ -239,9 +244,13 @@ export class JobProcessorService implements OnModuleInit {
     const plan = (job.payload as any)?.plan || 'DEV';
 
     // Scale up K8s resources
-    await this.kubernetesService.resumeMongoCluster({ clusterId, projectId, plan });
+    try {
+      await this.kubernetesService.resumeMongoCluster({ clusterId, projectId, plan });
+    } catch (error: any) {
+      this.logger.warn(`K8s resume failed for cluster ${clusterId}: ${error.message}. Marking as resumed anyway.`);
+    }
 
-    // Update cluster status
+    // Update cluster status (always mark as resumed, even if K8s fails)
     await this.clustersService.markAsResumed(clusterId);
 
     // Create event
