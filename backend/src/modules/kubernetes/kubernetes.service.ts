@@ -1079,6 +1079,8 @@ export class KubernetesService implements OnModuleInit {
     const namespace = this.getNamespace(projectId);
     const resourceName = this.getResourceName(clusterId);
 
+    this.logger.debug(`Getting cluster status: namespace=${namespace}, resource=${resourceName}`);
+
     if (this.shouldSimulate()) {
       return {
         phase: 'Running',
@@ -1087,6 +1089,11 @@ export class KubernetesService implements OnModuleInit {
         readyReplicas: 1,
       };
     }
+
+    // Helper to extract HTTP status code from K8s client errors (handles different error formats)
+    const getErrorStatusCode = (error: any): number | undefined => {
+      return error.response?.statusCode || error.statusCode || error.body?.code;
+    };
 
     // Try MongoDBCommunity CR first (MEDIUM+ plans using the operator)
     try {
@@ -1108,10 +1115,11 @@ export class KubernetesService implements OnModuleInit {
         message: status.message,
       };
     } catch (error: any) {
-      if (error.response?.statusCode !== 404) {
-        throw error;
+      const code = getErrorStatusCode(error);
+      if (code !== 404) {
+        this.logger.warn(`MongoDBCommunity CR lookup failed (code=${code}): ${error.message || error}`);
       }
-      // No MongoDBCommunity CR found — fall through to StatefulSet check (DEV/SMALL plans)
+      // Fall through to StatefulSet check for DEV/SMALL plans or if CRD doesn't exist
     }
 
     // Fallback: Check StatefulSet directly (DEV/SMALL plans)
@@ -1129,16 +1137,18 @@ export class KubernetesService implements OnModuleInit {
         message: isReady ? 'All pods are ready' : `${readyReplicas}/${specReplicas} pods ready`,
       };
     } catch (error: any) {
-      if (error.response?.statusCode === 404) {
-        return {
-          phase: 'NotFound',
-          ready: false,
-          replicas: 0,
-          readyReplicas: 0,
-          message: 'No K8s resources found for this cluster',
-        };
-      }
-      throw error;
+      const code = getErrorStatusCode(error);
+      this.logger.warn(`StatefulSet lookup failed (code=${code}): ${error.message || error}`);
+
+      return {
+        phase: code === 404 ? 'NotFound' : 'Unknown',
+        ready: false,
+        replicas: 0,
+        readyReplicas: 0,
+        message: code === 404 
+          ? 'No K8s resources found for this cluster' 
+          : `Unable to query K8s status: ${error.message || 'unknown error'}`,
+      };
     }
   }
 
