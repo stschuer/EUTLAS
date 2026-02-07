@@ -50,7 +50,7 @@ jobs:
         run: cd shared && pnpm build
 
       - name: Run Unit Tests
-        run: cd backend && pnpm test -- --forceExit --ci
+        run: cd backend && npx jest --forceExit --ci
         env:
           NODE_ENV: test
 
@@ -112,7 +112,7 @@ jobs:
           NODE_ENV: test
           CREDENTIALS_ENCRYPTION_KEY: ci-test-encryption-key-32chars!!
           FRONTEND_URL: http://localhost:3000
-        run: cd backend && pnpm run test:e2e -- --forceExit --ci
+        run: cd backend && npx jest --config ./test/jest-e2e.json --forceExit --ci
         timeout-minutes: 15
 
   # ==================== Build ====================
