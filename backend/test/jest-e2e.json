@@ -5,6 +5,7 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": ["ts-jest", {
+      "diagnostics": false,
       "tsconfig": {
         "esModuleInterop": true,
         "allowSyntheticDefaultImports": true
