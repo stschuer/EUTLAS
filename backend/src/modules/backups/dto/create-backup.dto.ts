@@ -32,6 +32,16 @@ export class RestoreBackupDto {
   @IsOptional()
   @IsBoolean()
   restoreToSource?: boolean;
+
+  @ApiProperty({ required: false, description: 'Specific databases to restore (e.g. ["tenant_42"]). If omitted, restores all databases.' })
+  @IsOptional()
+  @IsString({ each: true })
+  databases?: string[];
+
+  @ApiProperty({ required: false, description: 'Specific collections to restore in format "db.collection"' })
+  @IsOptional()
+  @IsString({ each: true })
+  collections?: string[];
 }
 
 export class BackupScheduleDto {

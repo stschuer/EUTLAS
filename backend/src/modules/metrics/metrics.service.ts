@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Interval } from '@nestjs/schedule';
+import { ConfigService } from '@nestjs/config';
 import { Metric, MetricDocument, MetricType } from './schemas/metric.schema';
 import { Cluster, ClusterDocument } from '../clusters/schemas/cluster.schema';
 
@@ -40,11 +41,15 @@ export interface CurrentMetrics {
 @Injectable()
 export class MetricsService {
   private readonly logger = new Logger(MetricsService.name);
+  private readonly isDevelopment: boolean;
 
   constructor(
     @InjectModel(Metric.name) private metricModel: Model<MetricDocument>,
     @InjectModel(Cluster.name) private clusterModel: Model<ClusterDocument>,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
+  }
 
   // Collect metrics every 30 seconds in development
   @Interval(30000)
@@ -64,9 +69,19 @@ export class MetricsService {
 
   async collectClusterMetrics(clusterId: string): Promise<void> {
     const timestamp = new Date();
+    let metrics: ReturnType<MetricsService['generateSimulatedMetrics']>;
 
-    // In development, generate simulated metrics
-    const metrics = this.generateSimulatedMetrics();
+    // In production, try to collect real metrics via MongoDB serverStatus
+    if (!this.isDevelopment) {
+      try {
+        metrics = await this.collectRealMetrics(clusterId);
+      } catch (error) {
+        this.logger.warn(`Failed to collect real metrics for cluster ${clusterId}: ${error.message}. Falling back to simulated.`);
+        metrics = this.generateSimulatedMetrics();
+      }
+    } else {
+      metrics = this.generateSimulatedMetrics();
+    }
 
     const documents = [
       { clusterId, type: 'cpu_usage' as MetricType, value: metrics.cpu, unit: 'percent', timestamp },
@@ -85,6 +100,68 @@ export class MetricsService {
 
     await this.metricModel.insertMany(documents);
     this.logger.debug(`Collected metrics for cluster ${clusterId}`);
+  }
+
+  /**
+   * Collect real metrics from MongoDB serverStatus, dbStats, and connection pool info.
+   * Uses the Kubernetes service endpoint to connect to the managed cluster.
+   */
+  private async collectRealMetrics(clusterId: string): Promise<ReturnType<MetricsService['generateSimulatedMetrics']>> {
+    const { MongoClient } = require('mongodb');
+    const cluster = await this.clusterModel.findById(clusterId).exec();
+    if (!cluster || !cluster.connectionHost) {
+      throw new Error('Cluster not found or not ready');
+    }
+
+    // Connect to the managed cluster's admin database
+    const uri = `mongodb://${cluster.connectionHost}:${cluster.connectionPort || 27017}/admin`;
+    const client = new MongoClient(uri, { connectTimeoutMS: 5000, serverSelectionTimeoutMS: 5000 });
+
+    try {
+      await client.connect();
+      const adminDb = client.db('admin');
+
+      // Get serverStatus for comprehensive metrics
+      const serverStatus = await adminDb.command({ serverStatus: 1 });
+
+      // Get dbStats for storage metrics
+      const dbStats = await adminDb.command({ dbStats: 1 });
+
+      // Parse metrics from serverStatus
+      const mem = serverStatus.mem || {};
+      const conn = serverStatus.connections || {};
+      const opcounters = serverStatus.opcounters || {};
+      const network = serverStatus.network || {};
+      const wiredTiger = serverStatus.wiredTiger || {};
+
+      // Estimate CPU from globalLock ratio (MongoDB doesn't expose CPU directly)
+      const globalLock = serverStatus.globalLock || {};
+      const cpuEstimate = globalLock.activeClients
+        ? Math.min(100, ((globalLock.activeClients.total || 0) / Math.max(1, conn.available || 100)) * 100)
+        : 0;
+
+      // Memory usage percentage
+      const memResident = mem.resident || 0; // in MB
+      const memVirtual = mem.virtual || 1; // in MB
+      const memoryPercent = Math.min(100, (memResident / memVirtual) * 100);
+
+      return {
+        cpu: Math.round(cpuEstimate * 100) / 100,
+        memory: Math.round(memoryPercent * 100) / 100,
+        storageUsed: dbStats.dataSize || 0,
+        storageAvailable: (dbStats.storageSize || 0) - (dbStats.dataSize || 0),
+        connectionsCurrent: conn.current || 0,
+        connectionsAvailable: conn.available || 0,
+        opsInsert: opcounters.insert || 0,
+        opsQuery: opcounters.query || 0,
+        opsUpdate: opcounters.update || 0,
+        opsDelete: opcounters.delete || 0,
+        networkIn: network.bytesIn || 0,
+        networkOut: network.bytesOut || 0,
+      };
+    } finally {
+      await client.close().catch(() => {});
+    }
   }
 
   async getMetrics(

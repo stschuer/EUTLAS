@@ -9,6 +9,7 @@ import { EventsModule } from '../events/events.module';
 import { BackupsModule } from '../backups/backups.module';
 import { UsersModule } from '../users/users.module';
 import { ProjectsModule } from '../projects/projects.module';
+import { MigrationModule } from '../migration/migration.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ProjectsModule } from '../projects/projects.module';
     forwardRef(() => ClustersModule),
     forwardRef(() => BackupsModule),
     forwardRef(() => ProjectsModule),
+    forwardRef(() => MigrationModule),
     KubernetesModule,
     EventsModule,
     UsersModule,

@@ -36,49 +36,6 @@ export class ClusterSettingsService {
     }).exec();
   }
 
-  async update(
-    clusterId: string,
-    dto: UpdateClusterSettingsDto,
-    userId?: string,
-    orgId?: string,
-  ): Promise<ClusterSettingsDocument> {
-    const settings = await this.getOrCreate(clusterId);
-    const previousState = settings.toJSON();
-
-    if (dto.tags !== undefined) settings.tags = new Map(Object.entries(dto.tags));
-    if (dto.labels !== undefined) settings.labels = dto.labels;
-    if (dto.connectionPool) settings.connectionPool = { ...settings.connectionPool, ...dto.connectionPool };
-    if (dto.readPreference) settings.readPreference = dto.readPreference as any;
-    if (dto.readConcern) settings.readConcern = dto.readConcern as any;
-    if (dto.writeConcern) settings.writeConcern = dto.writeConcern;
-    if (dto.profilingLevel !== undefined) settings.profilingLevel = dto.profilingLevel;
-    if (dto.slowOpThresholdMs !== undefined) settings.slowOpThresholdMs = dto.slowOpThresholdMs;
-    if (dto.autoPauseEnabled !== undefined) settings.autoPauseEnabled = dto.autoPauseEnabled;
-    if (dto.autoPauseAfterDays !== undefined) settings.autoPauseAfterDays = dto.autoPauseAfterDays;
-    if (dto.backupSettings) settings.backupSettings = { ...settings.backupSettings, ...dto.backupSettings };
-    if (dto.alertThresholds) settings.alertThresholds = { ...settings.alertThresholds, ...dto.alertThresholds };
-    if (dto.maintenancePreferences) settings.maintenancePreferences = { ...settings.maintenancePreferences, ...dto.maintenancePreferences };
-
-    await settings.save();
-
-    // Audit log
-    if (userId && orgId) {
-      await this.auditService.log({
-        orgId,
-        clusterId,
-        action: 'SETTINGS_CHANGED',
-        resourceType: 'cluster',
-        resourceId: clusterId,
-        actorId: userId,
-        previousState,
-        newState: settings.toJSON(),
-        description: 'Cluster settings updated',
-      });
-    }
-
-    return settings;
-  }
-
   async updateTags(clusterId: string, tags: Record<string, string>): Promise<ClusterSettingsDocument> {
     const settings = await this.getOrCreate(clusterId);
     settings.tags = new Map(Object.entries(tags));
@@ -158,6 +115,7 @@ export class ClusterSettingsService {
 
     const params = new URLSearchParams();
     
+    // Connection pool settings
     if (settings.connectionPool.maxPoolSize) {
       params.set('maxPoolSize', settings.connectionPool.maxPoolSize.toString());
     }
@@ -167,11 +125,56 @@ export class ClusterSettingsService {
     if (settings.connectionPool.connectTimeoutMS) {
       params.set('connectTimeoutMS', settings.connectionPool.connectTimeoutMS.toString());
     }
+    if (settings.connectionPool.socketTimeoutMS) {
+      params.set('socketTimeoutMS', settings.connectionPool.socketTimeoutMS.toString());
+    }
+    if (settings.connectionPool.maxIdleTimeMS) {
+      params.set('maxIdleTimeMS', settings.connectionPool.maxIdleTimeMS.toString());
+    }
+    if (settings.connectionPool.waitQueueTimeoutMS) {
+      params.set('waitQueueTimeoutMS', settings.connectionPool.waitQueueTimeoutMS.toString());
+    }
+
+    // Retry settings (default to true)
+    const retryWrites = settings.connectionPool.retryWrites !== false;
+    params.set('retryWrites', retryWrites.toString());
+    const retryReads = settings.connectionPool.retryReads !== false;
+    params.set('retryReads', retryReads.toString());
+
+    // IPv4/IPv6 preference
+    if (settings.connectionPool.family) {
+      params.set('family', settings.connectionPool.family.toString());
+    }
+
+    // Compression
+    if (settings.connectionPool.compressors?.length) {
+      params.set('compressors', settings.connectionPool.compressors.join(','));
+    }
+
+    // Read preference
     if (settings.readPreference && settings.readPreference !== 'primary') {
       params.set('readPreference', settings.readPreference);
     }
+
+    // Read concern
+    if (settings.readConcern?.level) {
+      params.set('readConcernLevel', settings.readConcern.level);
+    }
+
+    // Write concern
     if (settings.writeConcern.w) {
       params.set('w', settings.writeConcern.w.toString());
+    }
+    if (settings.writeConcern.j !== undefined) {
+      params.set('journal', settings.writeConcern.j.toString());
+    }
+    if (settings.writeConcern.wtimeout) {
+      params.set('wtimeoutMS', settings.writeConcern.wtimeout.toString());
+    }
+
+    // Direct connection
+    if (settings.connectionPool.directConnection !== undefined) {
+      params.set('directConnection', settings.connectionPool.directConnection.toString());
     }
 
     const paramString = params.toString();
@@ -179,6 +182,52 @@ export class ClusterSettingsService {
 
     const separator = baseConnectionString.includes('?') ? '&' : '?';
     return `${baseConnectionString}${separator}${paramString}`;
+  }
+
+  async update(
+    clusterId: string,
+    dto: UpdateClusterSettingsDto,
+    userId?: string,
+    orgId?: string,
+  ): Promise<ClusterSettingsDocument> {
+    const settings = await this.getOrCreate(clusterId);
+    const previousState = settings.toJSON();
+
+    if (dto.tags !== undefined) settings.tags = new Map(Object.entries(dto.tags));
+    if (dto.labels !== undefined) settings.labels = dto.labels;
+    if (dto.connectionPool) settings.connectionPool = { ...settings.connectionPool, ...dto.connectionPool };
+    if (dto.readPreference) settings.readPreference = dto.readPreference as any;
+    if (dto.readConcern) settings.readConcern = dto.readConcern as any;
+    if (dto.writeConcern) settings.writeConcern = dto.writeConcern;
+    if (dto.profilingLevel !== undefined) settings.profilingLevel = dto.profilingLevel;
+    if (dto.slowOpThresholdMs !== undefined) settings.slowOpThresholdMs = dto.slowOpThresholdMs;
+    if (dto.autoPauseEnabled !== undefined) settings.autoPauseEnabled = dto.autoPauseEnabled;
+    if (dto.autoPauseAfterDays !== undefined) settings.autoPauseAfterDays = dto.autoPauseAfterDays;
+    if (dto.backupSettings) settings.backupSettings = { ...settings.backupSettings, ...dto.backupSettings };
+    if (dto.alertThresholds) settings.alertThresholds = { ...settings.alertThresholds, ...dto.alertThresholds };
+    if (dto.maintenancePreferences) settings.maintenancePreferences = { ...settings.maintenancePreferences, ...dto.maintenancePreferences };
+    if (dto.autoScaling) settings.autoScaling = { ...settings.autoScaling, ...dto.autoScaling };
+    if (dto.encryptionAtRest) settings.encryptionAtRest = { ...settings.encryptionAtRest, ...dto.encryptionAtRest };
+    if (dto.readReplicas) settings.readReplicas = { ...settings.readReplicas, ...dto.readReplicas };
+
+    await settings.save();
+
+    // Audit log
+    if (userId && orgId) {
+      await this.auditService.log({
+        orgId,
+        clusterId,
+        action: 'SETTINGS_CHANGED',
+        resourceType: 'cluster',
+        resourceId: clusterId,
+        actorId: userId,
+        previousState,
+        newState: settings.toJSON(),
+        description: 'Cluster settings updated',
+      });
+    }
+
+    return settings;
   }
 }
 

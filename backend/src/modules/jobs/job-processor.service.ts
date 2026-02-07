@@ -8,6 +8,7 @@ import { BackupsService } from '../backups/backups.service';
 import { EmailService } from '../email/email.service';
 import { UsersService } from '../users/users.service';
 import { ProjectsService } from '../projects/projects.service';
+import { MigrationService } from '../migration/migration.service';
 import { JobDocument } from './schemas/job.schema';
 
 @Injectable()
@@ -27,6 +28,8 @@ export class JobProcessorService implements OnModuleInit {
     private readonly usersService: UsersService,
     @Inject(forwardRef(() => ProjectsService))
     private readonly projectsService: ProjectsService,
+    @Inject(forwardRef(() => MigrationService))
+    private readonly migrationService: MigrationService,
   ) {}
 
   onModuleInit() {
@@ -82,6 +85,9 @@ export class JobProcessorService implements OnModuleInit {
           break;
         case 'RESTORE_CLUSTER':
           await this.processRestoreCluster(job);
+          break;
+        case 'MIGRATE_CLUSTER':
+          await this.processMigrateCluster(job);
           break;
         default:
           throw new Error(`Unknown job type: ${job.type}`);
@@ -312,5 +318,17 @@ export class JobProcessorService implements OnModuleInit {
       message: `Restore completed from backup`,
       metadata: { backupId },
     });
+  }
+
+  private async processMigrateCluster(job: JobDocument) {
+    const { migrationId } = job.payload as any;
+
+    this.logger.log(`Processing migration ${migrationId} for cluster ${job.targetClusterId}`);
+
+    // Delegate to the MigrationService which handles the full
+    // dump -> restore -> verify lifecycle with progress tracking
+    await this.migrationService.executeMigration(migrationId);
+
+    this.logger.log(`Migration ${migrationId} completed successfully`);
   }
 }

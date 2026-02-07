@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MongoClient, Db, Collection, ObjectId, Document } from 'mongodb';
+import { MongoClient, Db, Collection, ObjectId, Document, GridFSBucket } from 'mongodb';
 import { CredentialsService } from '../credentials/credentials.service';
 import { ClustersService } from '../clusters/clusters.service';
 
@@ -530,6 +530,228 @@ export class DataExplorerService {
     }
 
     return serialized;
+  }
+
+  // ==================== GridFS Support ====================
+
+  /**
+   * List all GridFS buckets in a database.
+   * GridFS buckets are detected by finding collections matching the pattern <bucket>.files / <bucket>.chunks.
+   */
+  async listGridFSBuckets(
+    clusterId: string,
+    dbName: string,
+  ): Promise<Array<{
+    name: string;
+    fileCount: number;
+    totalSizeBytes: number;
+    avgFileSizeBytes: number;
+    collections: { files: string; chunks: string };
+  }>> {
+    const client = await this.getConnection(clusterId);
+    const database = client.db(dbName);
+    const collections = await database.listCollections().toArray();
+
+    // Find GridFS buckets by detecting .files and .chunks pairs
+    const fileCollections = collections
+      .filter((c) => c.name.endsWith('.files'))
+      .map((c) => c.name.replace('.files', ''));
+
+    const buckets: Array<{
+      name: string;
+      fileCount: number;
+      totalSizeBytes: number;
+      avgFileSizeBytes: number;
+      collections: { files: string; chunks: string };
+    }> = [];
+
+    for (const bucketName of fileCollections) {
+      const hasChunks = collections.some((c) => c.name === `${bucketName}.chunks`);
+      if (!hasChunks) continue;
+
+      try {
+        const filesCollection = database.collection(`${bucketName}.files`);
+        const stats = await filesCollection
+          .aggregate([
+            {
+              $group: {
+                _id: null,
+                count: { $sum: 1 },
+                totalSize: { $sum: '$length' },
+                avgSize: { $avg: '$length' },
+              },
+            },
+          ])
+          .toArray();
+
+        buckets.push({
+          name: bucketName,
+          fileCount: stats[0]?.count || 0,
+          totalSizeBytes: stats[0]?.totalSize || 0,
+          avgFileSizeBytes: Math.round(stats[0]?.avgSize || 0),
+          collections: {
+            files: `${bucketName}.files`,
+            chunks: `${bucketName}.chunks`,
+          },
+        });
+      } catch (err) {
+        buckets.push({
+          name: bucketName,
+          fileCount: 0,
+          totalSizeBytes: 0,
+          avgFileSizeBytes: 0,
+          collections: {
+            files: `${bucketName}.files`,
+            chunks: `${bucketName}.chunks`,
+          },
+        });
+      }
+    }
+
+    return buckets;
+  }
+
+  /**
+   * List files in a GridFS bucket with pagination.
+   */
+  async listGridFSFiles(
+    clusterId: string,
+    dbName: string,
+    bucketName: string,
+    options: {
+      skip?: number;
+      limit?: number;
+      sort?: Record<string, 1 | -1>;
+      filter?: Record<string, any>;
+    } = {},
+  ): Promise<{
+    files: Array<{
+      id: string;
+      filename: string;
+      length: number;
+      chunkSize: number;
+      uploadDate: string;
+      contentType?: string;
+      metadata?: Record<string, any>;
+    }>;
+    totalCount: number;
+  }> {
+    const client = await this.getConnection(clusterId);
+    const database = client.db(dbName);
+    const filesCollection = database.collection(`${bucketName}.files`);
+
+    const filter = options.filter || {};
+    const limit = Math.min(options.limit || 20, 100);
+    const skip = options.skip || 0;
+
+    const [files, totalCount] = await Promise.all([
+      filesCollection
+        .find(filter)
+        .sort(options.sort || { uploadDate: -1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray(),
+      filesCollection.countDocuments(filter),
+    ]);
+
+    return {
+      files: files.map((f: any) => ({
+        id: f._id?.toString(),
+        filename: f.filename,
+        length: f.length,
+        chunkSize: f.chunkSize,
+        uploadDate: f.uploadDate?.toISOString(),
+        contentType: f.contentType || f.metadata?.contentType,
+        metadata: f.metadata,
+      })),
+      totalCount,
+    };
+  }
+
+  /**
+   * Delete a file from a GridFS bucket.
+   */
+  async deleteGridFSFile(
+    clusterId: string,
+    dbName: string,
+    bucketName: string,
+    fileId: string,
+  ): Promise<void> {
+    const client = await this.getConnection(clusterId);
+    const database = client.db(dbName);
+    const bucket = new GridFSBucket(database, { bucketName });
+
+    let id: any = fileId;
+    try {
+      id = new ObjectId(fileId);
+    } catch {
+      // Use as string
+    }
+
+    await bucket.delete(id);
+    this.logger.log(`Deleted GridFS file ${fileId} from ${dbName}.${bucketName}`);
+  }
+
+  /**
+   * Get GridFS storage statistics for a database.
+   */
+  async getGridFSStats(
+    clusterId: string,
+    dbName: string,
+  ): Promise<{
+    buckets: Array<{
+      name: string;
+      fileCount: number;
+      totalSizeBytes: number;
+      filesByContentType: Record<string, { count: number; sizeBytes: number }>;
+    }>;
+    totalFileCount: number;
+    totalSizeBytes: number;
+  }> {
+    const buckets = await this.listGridFSBuckets(clusterId, dbName);
+    const client = await this.getConnection(clusterId);
+    const database = client.db(dbName);
+
+    const bucketStats = [];
+    let totalFileCount = 0;
+    let totalSizeBytes = 0;
+
+    for (const bucket of buckets) {
+      const filesCollection = database.collection(`${bucket.name}.files`);
+
+      // Aggregate by content type
+      const byType = await filesCollection
+        .aggregate([
+          {
+            $group: {
+              _id: { $ifNull: ['$contentType', '$metadata.contentType', 'unknown'] },
+              count: { $sum: 1 },
+              sizeBytes: { $sum: '$length' },
+            },
+          },
+        ])
+        .toArray();
+
+      const filesByContentType: Record<string, { count: number; sizeBytes: number }> = {};
+      for (const t of byType) {
+        filesByContentType[t._id || 'unknown'] = {
+          count: t.count,
+          sizeBytes: t.sizeBytes,
+        };
+      }
+
+      bucketStats.push({
+        name: bucket.name,
+        fileCount: bucket.fileCount,
+        totalSizeBytes: bucket.totalSizeBytes,
+        filesByContentType,
+      });
+
+      totalFileCount += bucket.fileCount;
+      totalSizeBytes += bucket.totalSizeBytes;
+    }
+
+    return { buckets: bucketStats, totalFileCount, totalSizeBytes };
   }
 }
 

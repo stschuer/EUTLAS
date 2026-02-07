@@ -1239,7 +1239,7 @@ export class KubernetesService implements OnModuleInit {
     this.logger.log(`Backup job ${jobName} created`);
   }
 
-  async restoreBackup(params: BackupParams): Promise<void> {
+  async restoreBackup(params: BackupParams & { databases?: string[]; collections?: string[] }): Promise<void> {
     this.logger.log(`Restoring backup ${params.backupId} to cluster ${params.clusterId}`);
 
     if (this.shouldSimulate()) {
@@ -1249,6 +1249,23 @@ export class KubernetesService implements OnModuleInit {
 
     const namespace = this.getNamespace(params.projectId);
     const resourceName = this.getResourceName(params.clusterId);
+
+    // Build mongorestore command with per-database/collection filtering
+    let restoreCmd = `mongorestore --uri="mongodb://${resourceName}-svc:27017" --archive=/backup/${params.backupId}.gz --gzip --drop`;
+
+    // Add --nsInclude for per-database restore (e.g., restore only tenant_42)
+    if (params.databases?.length) {
+      for (const db of params.databases) {
+        restoreCmd += ` --nsInclude="${db}.*"`;
+      }
+    }
+
+    // Add specific collection filters
+    if (params.collections?.length) {
+      for (const ns of params.collections) {
+        restoreCmd += ` --nsInclude="${ns}"`;
+      }
+    }
 
     // Create a Job to run mongorestore
     const jobName = `restore-${params.backupId}`.substring(0, 63).toLowerCase();
@@ -1274,9 +1291,7 @@ export class KubernetesService implements OnModuleInit {
                 name: 'mongorestore',
                 image: 'mongo:7.0',
                 command: ['/bin/bash', '-c'],
-                args: [
-                  `mongorestore --uri="mongodb://${resourceName}-svc:27017" --archive=/backup/${params.backupId}.gz --gzip --drop`,
-                ],
+                args: [restoreCmd],
                 volumeMounts: [
                   {
                     name: 'backup-storage',
@@ -1301,7 +1316,7 @@ export class KubernetesService implements OnModuleInit {
     const batchApi = this.kc.makeApiClient(k8s.BatchV1Api);
     await batchApi.createNamespacedJob(namespace, restoreJob);
     
-    this.logger.log(`Restore job ${jobName} created`);
+    this.logger.log(`Restore job ${jobName} created (databases: ${params.databases?.join(', ') || 'all'})`);
   }
 
   // ========== Helper Methods ==========

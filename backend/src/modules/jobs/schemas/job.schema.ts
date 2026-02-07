@@ -9,6 +9,7 @@ export type JobType =
   | 'RESUME_CLUSTER'
   | 'BACKUP_CLUSTER'
   | 'RESTORE_CLUSTER'
+  | 'MIGRATE_CLUSTER'
   | 'SYNC_STATUS';
 
 export type JobStatus =
@@ -45,6 +46,7 @@ export class Job {
       'RESUME_CLUSTER',
       'BACKUP_CLUSTER',
       'RESTORE_CLUSTER',
+      'MIGRATE_CLUSTER',
       'SYNC_STATUS',
     ],
   })

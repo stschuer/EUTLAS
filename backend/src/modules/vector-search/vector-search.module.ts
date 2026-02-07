@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { VectorSearchController } from './vector-search.controller';
 import { VectorSearchService } from './vector-search.service';
@@ -7,6 +7,7 @@ import { ClustersModule } from '../clusters/clusters.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { OrgsModule } from '../orgs/orgs.module';
 import { EventsModule } from '../events/events.module';
+import { DataExplorerModule } from '../data-explorer/data-explorer.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { EventsModule } from '../events/events.module';
     ProjectsModule,
     OrgsModule,
     EventsModule,
+    forwardRef(() => DataExplorerModule),
   ],
   controllers: [VectorSearchController],
   providers: [VectorSearchService],

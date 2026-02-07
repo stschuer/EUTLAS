@@ -6,6 +6,7 @@ import { AutoScalingService } from './auto-scaling.service';
 import { ScalingRecommendation, ScalingRecommendationSchema } from './schemas/scaling-recommendation.schema';
 import { MetricsModule } from '../metrics/metrics.module';
 import { ClustersModule } from '../clusters/clusters.module';
+import { ClusterSettingsModule } from '../cluster-settings/cluster-settings.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { EventsModule } from '../events/events.module';
 import { AuditModule } from '../audit/audit.module';
@@ -17,6 +18,7 @@ import { AuditModule } from '../audit/audit.module';
     ]),
     MetricsModule,
     forwardRef(() => ClustersModule),
+    ClusterSettingsModule,
     forwardRef(() => JobsModule),
     EventsModule,
     AuditModule,

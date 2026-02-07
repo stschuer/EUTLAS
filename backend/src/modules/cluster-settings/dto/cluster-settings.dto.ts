@@ -66,7 +66,7 @@ export class ScheduledScalingDto {
   @IsString()
   cronSchedule: string;
 
-  @ApiProperty({ enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE'] })
+  @ApiProperty({ enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'] })
   @IsString()
   targetPlan: string;
 
@@ -74,6 +74,85 @@ export class ScheduledScalingDto {
   @IsOptional()
   @IsString()
   timezone?: string;
+}
+
+export class AutoScalingConfigDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'] })
+  @IsOptional()
+  @IsString()
+  minPlan?: string;
+
+  @ApiPropertyOptional({ enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'] })
+  @IsOptional()
+  @IsString()
+  maxPlan?: string;
+
+  @ApiPropertyOptional({ description: 'CPU/Memory % to trigger scale up', minimum: 50, maximum: 99 })
+  @IsOptional()
+  @IsNumber()
+  @Min(50)
+  @Max(99)
+  scaleUpThreshold?: number;
+
+  @ApiPropertyOptional({ description: 'CPU/Memory % to trigger scale down', minimum: 5, maximum: 50 })
+  @IsOptional()
+  @IsNumber()
+  @Min(5)
+  @Max(50)
+  scaleDownThreshold?: number;
+
+  @ApiPropertyOptional({ description: 'Minutes between scaling actions', minimum: 10, maximum: 1440 })
+  @IsOptional()
+  @IsNumber()
+  @Min(10)
+  @Max(1440)
+  cooldownMinutes?: number;
+}
+
+export class EncryptionAtRestDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: ['wiredtiger', 'kmip'] })
+  @IsOptional()
+  @IsString()
+  provider?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  keyId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  rotationIntervalDays?: number;
+}
+
+export class ReadReplicasDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 7 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(7)
+  count?: number;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  regions?: string[];
 }
 
 export class UpdateClusterSettingsDto {
@@ -150,6 +229,21 @@ export class UpdateClusterSettingsDto {
     preferredHour?: number;
     autoMinorVersionUpgrade?: boolean;
   };
+
+  @ApiPropertyOptional({ description: 'Auto-scaling configuration' })
+  @IsOptional()
+  @IsObject()
+  autoScaling?: AutoScalingConfigDto;
+
+  @ApiPropertyOptional({ description: 'Encryption at rest configuration' })
+  @IsOptional()
+  @IsObject()
+  encryptionAtRest?: EncryptionAtRestDto;
+
+  @ApiPropertyOptional({ description: 'Read replicas configuration' })
+  @IsOptional()
+  @IsObject()
+  readReplicas?: ReadReplicasDto;
 }
 
 export class AddScheduledScalingDto extends ScheduledScalingDto {}

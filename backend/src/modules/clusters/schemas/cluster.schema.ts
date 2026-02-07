@@ -13,7 +13,7 @@ export type ClusterStatus =
   | 'paused'
   | 'resuming';
 
-export type ClusterPlan = 'DEV' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'XLARGE';
+export type ClusterPlan = 'DEV' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'XLARGE' | 'XXL' | 'XXXL' | 'DEDICATED_L' | 'DEDICATED_XL';
 
 export type ClusterDocument = Cluster & Document;
 
@@ -42,10 +42,10 @@ export class Cluster {
   @Prop({ required: true, trim: true })
   name: string;
 
-  @Prop({ required: true, enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE'] })
+  @Prop({ required: true, enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'] })
   plan: ClusterPlan;
 
-  @Prop({ enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE'] })
+  @Prop({ enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'] })
   previousPlan?: ClusterPlan;
 
   @Prop({
@@ -69,6 +69,12 @@ export class Cluster {
 
   @Prop()
   connectionPort?: number;
+
+  @Prop()
+  srvHost?: string;
+
+  @Prop()
+  replicaSetName?: string;
 
   @Prop({ default: 'fsn1' })
   region?: string;

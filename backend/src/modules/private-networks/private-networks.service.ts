@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import { PrivateNetwork, PrivateNetworkDocument } from './schemas/private-network.schema';
 import { ClusterEndpoint, ClusterEndpointDocument } from './schemas/cluster-endpoint.schema';
@@ -24,13 +25,23 @@ const REGION_LABELS: Record<string, string> = {
 @Injectable()
 export class PrivateNetworksService {
   private readonly logger = new Logger(PrivateNetworksService.name);
+  private readonly hetznerApiToken: string | undefined;
+  private readonly hetznerApiUrl = 'https://api.hetzner.cloud/v1';
+  private readonly isDevelopment: boolean;
 
   constructor(
     @InjectModel(PrivateNetwork.name) private networkModel: Model<PrivateNetworkDocument>,
     @InjectModel(ClusterEndpoint.name) private endpointModel: Model<ClusterEndpointDocument>,
     private eventsService: EventsService,
     private auditService: AuditService,
-  ) {}
+    private configService: ConfigService,
+  ) {
+    this.hetznerApiToken = this.configService.get<string>('HETZNER_API_TOKEN');
+    this.isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
+    if (!this.hetznerApiToken && !this.isDevelopment) {
+      this.logger.warn('HETZNER_API_TOKEN not configured. Private network operations will be simulated.');
+    }
+  }
 
   async create(
     projectId: string,
@@ -82,26 +93,28 @@ export class PrivateNetworksService {
   }
 
   private async provisionNetwork(networkId: string): Promise<void> {
-    // Simulate async provisioning
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
     const network = await this.networkModel.findById(networkId);
     if (!network) return;
 
     try {
-      // Simulate Hetzner API call
-      network.hetznerNetworkId = `hcloud-net-${uuidv4().slice(0, 8)}`;
-      network.status = 'active';
+      // Use real Hetzner Cloud API if token is configured and not in dev mode
+      if (this.hetznerApiToken && !this.isDevelopment) {
+        await this.provisionNetworkViaHetznerApi(network);
+      } else {
+        // Simulate provisioning for development
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        network.hetznerNetworkId = `hcloud-net-${uuidv4().slice(0, 8)}`;
+        network.status = 'active';
 
-      // Create default subnet
-      const defaultSubnet = {
-        id: uuidv4(),
-        name: 'default',
-        ipRange: network.ipRange.replace('/16', '/24'),
-        zone: `${network.region}-dc1`,
-        gateway: network.ipRange.replace(/\.0\/\d+$/, '.1'),
-      };
-      network.subnets.push(defaultSubnet);
+        const defaultSubnet = {
+          id: uuidv4(),
+          name: 'default',
+          ipRange: network.ipRange.replace('/16', '/24'),
+          zone: `${network.region}-dc1`,
+          gateway: network.ipRange.replace(/\.0\/\d+$/, '.1'),
+        };
+        network.subnets.push(defaultSubnet);
+      }
 
       await network.save();
       this.logger.log(`Provisioned network ${networkId}`);
@@ -111,6 +124,67 @@ export class PrivateNetworksService {
       await network.save();
       this.logger.error(`Failed to provision network ${networkId}: ${error.message}`);
     }
+  }
+
+  /**
+   * Create a real private network via the Hetzner Cloud API.
+   * https://docs.hetzner.cloud/#networks
+   */
+  private async provisionNetworkViaHetznerApi(network: PrivateNetworkDocument): Promise<void> {
+    // Step 1: Create the network
+    const createRes = await fetch(`${this.hetznerApiUrl}/networks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.hetznerApiToken}`,
+      },
+      body: JSON.stringify({
+        name: `eutlas-${network.id}`,
+        ip_range: network.ipRange,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/network-id': network.id,
+        },
+      }),
+    });
+
+    if (!createRes.ok) {
+      const error = await createRes.json().catch(() => ({}));
+      throw new Error(`Hetzner API error: ${createRes.status} - ${JSON.stringify(error)}`);
+    }
+
+    const { network: hetznerNetwork } = await createRes.json();
+    network.hetznerNetworkId = hetznerNetwork.id.toString();
+
+    // Step 2: Add a subnet
+    const subnetIpRange = network.ipRange.replace('/16', '/24');
+    const subnetRes = await fetch(`${this.hetznerApiUrl}/networks/${hetznerNetwork.id}/actions/add_subnet`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.hetznerApiToken}`,
+      },
+      body: JSON.stringify({
+        type: 'cloud',
+        ip_range: subnetIpRange,
+        network_zone: 'eu-central',
+      }),
+    });
+
+    if (!subnetRes.ok) {
+      this.logger.warn(`Failed to add subnet to Hetzner network ${hetznerNetwork.id}`);
+    }
+
+    network.status = 'active';
+
+    const defaultSubnet = {
+      id: uuidv4(),
+      name: 'default',
+      ipRange: subnetIpRange,
+      zone: `${network.region}-dc1`,
+      gateway: network.ipRange.replace(/\.0\/\d+$/, '.1'),
+    };
+    network.subnets.push(defaultSubnet);
   }
 
   async findAllByProject(projectId: string): Promise<PrivateNetwork[]> {

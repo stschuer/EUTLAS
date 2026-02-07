@@ -486,7 +486,29 @@ export class ClustersService {
     if (!cluster.connectionHost) {
       return 'pending';
     }
-    return `mongodb://${credentials.username}:${credentials.password}@${cluster.connectionHost}:${cluster.connectionPort || 27017}/${cluster.name}?authSource=admin`;
+
+    // Build SRV connection string if available (replica set / operator-managed clusters)
+    if (cluster.srvHost) {
+      const params = new URLSearchParams();
+      params.set('authSource', 'admin');
+      params.set('retryWrites', 'true');
+      params.set('w', 'majority');
+      if (cluster.replicaSetName) {
+        params.set('replicaSet', cluster.replicaSetName);
+      }
+      return `mongodb+srv://${credentials.username}:${credentials.password}@${cluster.srvHost}/${cluster.name}?${params.toString()}`;
+    }
+
+    // Standard connection string with full options
+    const params = new URLSearchParams();
+    params.set('authSource', 'admin');
+    params.set('retryWrites', 'true');
+    params.set('w', 'majority');
+    if (cluster.replicaSetName) {
+      params.set('replicaSet', cluster.replicaSetName);
+    }
+
+    return `mongodb://${credentials.username}:${credentials.password}@${cluster.connectionHost}:${cluster.connectionPort || 27017}/${cluster.name}?${params.toString()}`;
   }
 }
 

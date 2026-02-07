@@ -21,9 +21,13 @@ const PLAN_SPECS: Record<string, PlanSpec> = {
   MEDIUM: { name: 'MEDIUM', cpu: 2, memory: 2048, storage: 50, connections: 200, monthlyPrice: 59 },
   LARGE: { name: 'LARGE', cpu: 4, memory: 4096, storage: 100, connections: 500, monthlyPrice: 119 },
   XLARGE: { name: 'XLARGE', cpu: 8, memory: 8192, storage: 200, connections: 1000, monthlyPrice: 229 },
+  XXL: { name: 'XXL', cpu: 16, memory: 16384, storage: 500, connections: 2000, monthlyPrice: 449 },
+  XXXL: { name: 'XXXL', cpu: 32, memory: 32768, storage: 1000, connections: 4000, monthlyPrice: 849 },
+  DEDICATED_L: { name: 'DEDICATED_L', cpu: 64, memory: 65536, storage: 2000, connections: 8000, monthlyPrice: 1599 },
+  DEDICATED_XL: { name: 'DEDICATED_XL', cpu: 128, memory: 131072, storage: 4000, connections: 16000, monthlyPrice: 2999 },
 };
 
-const PLAN_ORDER = ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE'];
+const PLAN_ORDER = ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'];
 
 @Injectable()
 export class ScalingService {

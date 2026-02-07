@@ -107,6 +107,32 @@ export class BillingAccount {
   @Prop({ default: 0 })
   currentPeriodUsageCents: number; // Running total for current period
 
+  // Free Trial
+  @Prop({ default: false })
+  isTrialActive: boolean;
+
+  @Prop()
+  trialStartDate?: Date;
+
+  @Prop()
+  trialEndDate?: Date;
+
+  @Prop({ default: 14 })
+  trialDurationDays: number;
+
+  @Prop({ default: 'MEDIUM' })
+  trialPlan: string; // Plan available during trial
+
+  @Prop({ default: false })
+  trialExpired: boolean;
+
+  @Prop({ default: false })
+  trialConverted: boolean; // Whether trial converted to paid
+
+  // Annual billing discount
+  @Prop({ default: 20 })
+  annualDiscountPercent: number; // 20% discount for annual billing
+
   @Prop()
   createdAt: Date;
 

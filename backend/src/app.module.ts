@@ -47,6 +47,8 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { SsoModule } from './modules/sso/sso.module';
 import { VectorSearchModule } from './modules/vector-search/vector-search.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { MigrationModule } from './modules/migration/migration.module';
+import { GdprModule } from './modules/gdpr/gdpr.module';
 
 @Module({
   imports: [
@@ -123,6 +125,8 @@ import { AdminModule } from './modules/admin/admin.module';
     SsoModule,
     VectorSearchModule,
     AdminModule,
+    MigrationModule,
+    GdprModule,
   ],
   providers: [
     // Global exception filter

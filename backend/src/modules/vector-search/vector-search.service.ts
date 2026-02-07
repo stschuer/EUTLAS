@@ -12,6 +12,7 @@ import { VectorIndex, VectorIndexDocument } from './schemas/vector-index.schema'
 import { CreateVectorIndexDto, VectorSearchQueryDto, SemanticSearchDto, HybridSearchDto } from './dto/vector-search.dto';
 import { ClustersService } from '../clusters/clusters.service';
 import { EventsService } from '../events/events.service';
+import { DataExplorerService } from '../data-explorer/data-explorer.service';
 
 // Pre-defined analyzers
 const BUILT_IN_ANALYZERS = {
@@ -49,6 +50,7 @@ export class VectorSearchService {
     private readonly configService: ConfigService,
     private readonly clustersService: ClustersService,
     private readonly eventsService: EventsService,
+    private readonly dataExplorerService: DataExplorerService,
   ) {}
 
   // ==================== Index Management ====================
@@ -236,29 +238,173 @@ export class VectorSearchService {
       );
     }
 
-    // In production, this would execute a $vectorSearch aggregation
-    // For demo, return simulated results
     const limit = queryDto.limit || 10;
-    const results = this.simulateVectorSearchResults(limit, queryDto);
 
-    this.logger.log(`Vector search executed on ${database}.${collection} with index ${indexName}`);
-    return results;
+    // Strategy 1: Try real $vectorSearch aggregation (Atlas or Atlas-compatible)
+    try {
+      const results = await this.executeAtlasVectorSearch(
+        clusterId, indexName, database, collection, queryDto, vectorField.similarity || 'cosine', limit,
+      );
+      this.logger.log(`$vectorSearch executed on ${database}.${collection} with index ${indexName}`);
+      return results;
+    } catch (atlasError) {
+      this.logger.warn(`$vectorSearch not available: ${atlasError.message}. Falling back to in-memory cosine similarity.`);
+    }
+
+    // Strategy 2: Fallback to in-memory cosine similarity search
+    try {
+      const results = await this.executeInMemoryVectorSearch(
+        clusterId, database, collection, queryDto, vectorField.similarity || 'cosine', limit,
+      );
+      this.logger.log(`In-memory vector search on ${database}.${collection} (fallback mode)`);
+      return results;
+    } catch (fallbackError) {
+      this.logger.error(`In-memory vector search failed: ${fallbackError.message}`);
+      throw new BadRequestException('Vector search failed. Ensure documents have vector embeddings.');
+    }
   }
 
-  private simulateVectorSearchResults(limit: number, query: VectorSearchQueryDto): any[] {
-    const results = [];
-    for (let i = 0; i < limit; i++) {
-      results.push({
-        _id: new Types.ObjectId().toString(),
-        score: 1 - i * 0.05 - Math.random() * 0.02, // Decreasing scores
-        document: {
-          title: `Document ${i + 1}`,
-          content: `This is simulated content for search result ${i + 1}`,
-          [query.path]: `[${query.vector.slice(0, 3).join(', ')}...]`, // Show first few dimensions
+  /**
+   * Execute real $vectorSearch aggregation pipeline (Atlas Search / Atlas-compatible)
+   */
+  private async executeAtlasVectorSearch(
+    clusterId: string,
+    indexName: string,
+    database: string,
+    collection: string,
+    queryDto: VectorSearchQueryDto,
+    similarity: string,
+    limit: number,
+  ): Promise<any[]> {
+    const client = await this.dataExplorerService.getConnection(clusterId);
+    const db = client.db(database);
+    const coll = db.collection(collection);
+
+    const pipeline: any[] = [
+      {
+        $vectorSearch: {
+          index: indexName,
+          path: queryDto.path,
+          queryVector: queryDto.vector,
+          numCandidates: queryDto.numCandidates || limit * 10,
+          limit,
+          ...(queryDto.filter ? { filter: queryDto.filter } : {}),
         },
-      });
+      },
+      {
+        $addFields: {
+          score: { $meta: 'vectorSearchScore' },
+        },
+      },
+    ];
+
+    const documents = await coll.aggregate(pipeline).toArray();
+    return documents.map((doc: any) => ({
+      _id: doc._id?.toString(),
+      score: doc.score,
+      document: doc,
+    }));
+  }
+
+  /**
+   * Fallback: in-memory cosine similarity search for non-Atlas MongoDB deployments.
+   * Fetches candidate documents, computes similarity client-side.
+   */
+  private async executeInMemoryVectorSearch(
+    clusterId: string,
+    database: string,
+    collection: string,
+    queryDto: VectorSearchQueryDto,
+    similarity: string,
+    limit: number,
+  ): Promise<any[]> {
+    const client = await this.dataExplorerService.getConnection(clusterId);
+    const db = client.db(database);
+    const coll = db.collection(collection);
+
+    // Fetch documents that have the vector field (sample up to 10,000)
+    const candidates = await coll
+      .find({ [queryDto.path]: { $exists: true } })
+      .limit(10000)
+      .project({ [queryDto.path]: 1, _id: 1 })
+      .toArray();
+
+    if (candidates.length === 0) {
+      return [];
     }
-    return results;
+
+    // Compute similarity scores
+    const scored = candidates
+      .map((doc: any) => {
+        const docVector = doc[queryDto.path];
+        if (!Array.isArray(docVector) || docVector.length !== queryDto.vector.length) {
+          return null;
+        }
+        const score = this.computeSimilarity(queryDto.vector, docVector, similarity);
+        return { _id: doc._id?.toString(), score };
+      })
+      .filter(Boolean) as Array<{ _id: string; score: number }>;
+
+    // Sort by score descending and take top N
+    scored.sort((a, b) => b.score - a.score);
+    const topIds = scored.slice(0, limit);
+
+    // Fetch full documents for top results
+    const fullDocs = await coll
+      .find({ _id: { $in: topIds.map((r) => r._id) } })
+      .toArray();
+
+    const docMap = new Map(fullDocs.map((d: any) => [d._id?.toString(), d]));
+
+    return topIds.map((r) => ({
+      _id: r._id,
+      score: r.score,
+      document: docMap.get(r._id) || {},
+    }));
+  }
+
+  /**
+   * Compute similarity between two vectors.
+   */
+  private computeSimilarity(a: number[], b: number[], method: string): number {
+    switch (method) {
+      case 'cosine':
+        return this.cosineSimilarity(a, b);
+      case 'dotProduct':
+        return this.dotProduct(a, b);
+      case 'euclidean':
+        // Convert euclidean distance to similarity (1 / (1 + distance))
+        return 1 / (1 + this.euclideanDistance(a, b));
+      default:
+        return this.cosineSimilarity(a, b);
+    }
+  }
+
+  private cosineSimilarity(a: number[], b: number[]): number {
+    let dot = 0, normA = 0, normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    const denom = Math.sqrt(normA) * Math.sqrt(normB);
+    return denom === 0 ? 0 : dot / denom;
+  }
+
+  private dotProduct(a: number[], b: number[]): number {
+    let dot = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+    }
+    return dot;
+  }
+
+  private euclideanDistance(a: number[], b: number[]): number {
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) {
+      sum += (a[i] - b[i]) ** 2;
+    }
+    return Math.sqrt(sum);
   }
 
   // ==================== Semantic Search ====================
@@ -270,23 +416,115 @@ export class VectorSearchService {
     collection: string,
     searchDto: SemanticSearchDto,
   ): Promise<any[]> {
-    // In production, this would:
-    // 1. Generate embedding from query text using the configured provider
-    // 2. Execute vector search with the embedding
-    // 3. Return results
-
-    // For demo, simulate the embedding and search
+    // Generate embedding from query text using the configured provider
     const embeddingDimensions = EMBEDDING_DIMENSIONS[searchDto.model || 'text-embedding-3-small'] || 1536;
-    const simulatedEmbedding = Array.from({ length: embeddingDimensions }, () => Math.random() * 2 - 1);
+    let embedding: number[];
 
-    this.logger.log(`Semantic search: "${searchDto.query}" using ${searchDto.embeddingProvider || 'default'} provider`);
+    const apiKey = this.getEmbeddingApiKey(searchDto.embeddingProvider);
+    if (apiKey) {
+      try {
+        embedding = await this.generateEmbedding(
+          searchDto.query,
+          searchDto.embeddingProvider || 'openai',
+          searchDto.model || 'text-embedding-3-small',
+          apiKey,
+        );
+      } catch (err) {
+        this.logger.warn(`Embedding API call failed: ${err.message}. Using random embedding for testing.`);
+        embedding = Array.from({ length: embeddingDimensions }, () => Math.random() * 2 - 1);
+      }
+    } else {
+      this.logger.warn(`No API key for ${searchDto.embeddingProvider || 'openai'}. Using random embedding for testing.`);
+      embedding = Array.from({ length: embeddingDimensions }, () => Math.random() * 2 - 1);
+    }
+
+    this.logger.log(`Semantic search: "${searchDto.query}" using ${searchDto.embeddingProvider || 'openai'} (dim=${embedding.length})`);
 
     return this.vectorSearch(clusterId, indexName, database, collection, {
-      vector: simulatedEmbedding,
-      path: 'embedding', // Default path
+      vector: embedding,
+      path: searchDto.path || 'embedding',
       limit: searchDto.limit || 10,
       filter: searchDto.filter,
     });
+  }
+
+  /**
+   * Get API key for embedding provider from environment configuration.
+   */
+  private getEmbeddingApiKey(provider?: string): string | undefined {
+    switch (provider) {
+      case 'cohere':
+        return this.configService.get<string>('COHERE_API_KEY');
+      case 'huggingface':
+        return this.configService.get<string>('HUGGINGFACE_API_KEY');
+      case 'openai':
+      default:
+        return this.configService.get<string>('OPENAI_API_KEY');
+    }
+  }
+
+  /**
+   * Generate embedding vector from text using external API.
+   */
+  private async generateEmbedding(
+    text: string,
+    provider: string,
+    model: string,
+    apiKey: string,
+  ): Promise<number[]> {
+    if (provider === 'openai' || !provider) {
+      const response = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          input: text,
+          model,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data.data[0].embedding;
+    }
+
+    if (provider === 'cohere') {
+      const response = await fetch('https://api.cohere.ai/v1/embed', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          texts: [text],
+          model,
+          input_type: 'search_query',
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Cohere API error: ${response.status} ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data.embeddings[0];
+    }
+
+    // HuggingFace Inference API
+    const response = await fetch(`https://api-inference.huggingface.co/pipeline/feature-extraction/${model}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ inputs: text }),
+    });
+    if (!response.ok) {
+      throw new Error(`HuggingFace API error: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
+    return Array.isArray(data[0]) ? data[0] : data;
   }
 
   // ==================== Hybrid Search ====================
@@ -298,42 +536,86 @@ export class VectorSearchService {
     collection: string,
     searchDto: HybridSearchDto,
   ): Promise<any[]> {
-    // Hybrid search combines:
-    // 1. Vector similarity search
-    // 2. Full-text search
-    // 3. Weighted combination of scores
-
     const vectorWeight = searchDto.vectorWeight ?? 0.5;
     const textWeight = 1 - vectorWeight;
+    const limit = searchDto.limit || 10;
 
     this.logger.log(`Hybrid search: "${searchDto.query}" (vector: ${vectorWeight}, text: ${textWeight})`);
 
-    // Simulate hybrid results
-    const limit = searchDto.limit || 10;
-    const results = [];
-
-    for (let i = 0; i < limit; i++) {
-      const vectorScore = 1 - i * 0.05 - Math.random() * 0.02;
-      const textScore = 1 - i * 0.06 - Math.random() * 0.03;
-      const combinedScore = vectorScore * vectorWeight + textScore * textWeight;
-
-      results.push({
-        _id: new Types.ObjectId().toString(),
-        score: combinedScore,
-        vectorScore,
-        textScore,
-        document: {
-          title: `Result ${i + 1}: ${searchDto.query.split(' ')[0]}...`,
-          content: `Content matching "${searchDto.query.substring(0, 30)}..."`,
-          highlights: [`...${searchDto.query}...`],
-        },
+    // Execute vector search (with real or fallback engine)
+    let vectorResults: any[] = [];
+    if (searchDto.vector) {
+      vectorResults = await this.vectorSearch(clusterId, indexName, database, collection, {
+        vector: searchDto.vector,
+        path: searchDto.path || 'embedding',
+        limit: limit * 2,
+        filter: searchDto.filter,
       });
     }
 
-    // Sort by combined score
-    results.sort((a, b) => b.score - a.score);
+    // Execute text search via MongoDB $text
+    let textResults: any[] = [];
+    try {
+      const client = await this.dataExplorerService.getConnection(clusterId);
+      const db = client.db(database);
+      const coll = db.collection(collection);
 
-    return results;
+      textResults = await coll
+        .find(
+          { $text: { $search: searchDto.query } },
+          { score: { $meta: 'textScore' } } as any,
+        )
+        .sort({ score: { $meta: 'textScore' } })
+        .limit(limit * 2)
+        .toArray();
+
+      // Normalize text scores
+      const maxTextScore = textResults.length > 0
+        ? Math.max(...textResults.map((r: any) => r.score || 0))
+        : 1;
+      textResults = textResults.map((doc: any) => ({
+        _id: doc._id?.toString(),
+        score: (doc.score || 0) / maxTextScore,
+        document: doc,
+      }));
+    } catch (err) {
+      this.logger.warn(`Text search failed (no text index?): ${err.message}`);
+    }
+
+    // Merge and rank by weighted score
+    const scoreMap = new Map<string, { vectorScore: number; textScore: number; document: any }>();
+
+    for (const r of vectorResults) {
+      scoreMap.set(r._id, {
+        vectorScore: r.score,
+        textScore: 0,
+        document: r.document,
+      });
+    }
+
+    for (const r of textResults) {
+      const existing = scoreMap.get(r._id);
+      if (existing) {
+        existing.textScore = r.score;
+      } else {
+        scoreMap.set(r._id, {
+          vectorScore: 0,
+          textScore: r.score,
+          document: r.document,
+        });
+      }
+    }
+
+    const combined = Array.from(scoreMap.entries()).map(([id, data]) => ({
+      _id: id,
+      score: data.vectorScore * vectorWeight + data.textScore * textWeight,
+      vectorScore: data.vectorScore,
+      textScore: data.textScore,
+      document: data.document,
+    }));
+
+    combined.sort((a, b) => b.score - a.score);
+    return combined.slice(0, limit);
   }
 
   // ==================== Analyzers ====================

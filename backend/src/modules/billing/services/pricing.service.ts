@@ -7,12 +7,27 @@ import { StripeService } from './stripe.service';
 
 // Default prices (in cents, EUR)
 const DEFAULT_PRICES = [
-  // Plans
+  // Plans - Standard
   { priceCode: 'plan_dev', name: 'Development Plan', category: 'plan', unitAmountCents: 900, interval: 'monthly', description: '512MB RAM, 5GB Storage' },
   { priceCode: 'plan_small', name: 'Small Plan', category: 'plan', unitAmountCents: 2900, interval: 'monthly', description: '1GB RAM, 20GB Storage' },
-  { priceCode: 'plan_medium', name: 'Medium Plan', category: 'plan', unitAmountCents: 5900, interval: 'monthly', description: '2GB RAM, 50GB Storage' },
-  { priceCode: 'plan_large', name: 'Large Plan', category: 'plan', unitAmountCents: 11900, interval: 'monthly', description: '4GB RAM, 100GB Storage' },
-  { priceCode: 'plan_xlarge', name: 'XLarge Plan', category: 'plan', unitAmountCents: 22900, interval: 'monthly', description: '8GB RAM, 200GB Storage' },
+  { priceCode: 'plan_medium', name: 'Medium Plan', category: 'plan', unitAmountCents: 5900, interval: 'monthly', description: '2GB RAM, 50GB Storage, Replica Set' },
+  { priceCode: 'plan_large', name: 'Large Plan', category: 'plan', unitAmountCents: 11900, interval: 'monthly', description: '4GB RAM, 100GB Storage, Replica Set' },
+  { priceCode: 'plan_xlarge', name: 'XLarge Plan', category: 'plan', unitAmountCents: 22900, interval: 'monthly', description: '8GB RAM, 200GB Storage, Replica Set' },
+  
+  // Plans - Enterprise
+  { priceCode: 'plan_xxl', name: 'Enterprise Plan', category: 'plan', unitAmountCents: 44900, interval: 'monthly', description: '16GB RAM, 500GB Storage, 3-node Replica Set' },
+  { priceCode: 'plan_xxxl', name: 'Enterprise Plus Plan', category: 'plan', unitAmountCents: 84900, interval: 'monthly', description: '32GB RAM, 1TB Storage, 3-node Replica Set' },
+  { priceCode: 'plan_dedicated_l', name: 'Dedicated Large', category: 'plan', unitAmountCents: 159900, interval: 'monthly', description: '64GB RAM, 2TB NVMe, Dedicated Hardware' },
+  { priceCode: 'plan_dedicated_xl', name: 'Dedicated XLarge', category: 'plan', unitAmountCents: 299900, interval: 'monthly', description: '128GB RAM, 4TB NVMe, Dedicated Hardware' },
+  
+  // Plans - Annual (20% discount)
+  { priceCode: 'plan_dev_annual', name: 'Development Plan (Annual)', category: 'plan', unitAmountCents: 720, interval: 'annual', description: '512MB RAM, 5GB Storage - 20% annual discount' },
+  { priceCode: 'plan_small_annual', name: 'Small Plan (Annual)', category: 'plan', unitAmountCents: 2320, interval: 'annual', description: '1GB RAM, 20GB Storage - 20% annual discount' },
+  { priceCode: 'plan_medium_annual', name: 'Medium Plan (Annual)', category: 'plan', unitAmountCents: 4720, interval: 'annual', description: '2GB RAM, 50GB Storage - 20% annual discount' },
+  { priceCode: 'plan_large_annual', name: 'Large Plan (Annual)', category: 'plan', unitAmountCents: 9520, interval: 'annual', description: '4GB RAM, 100GB Storage - 20% annual discount' },
+  { priceCode: 'plan_xlarge_annual', name: 'XLarge Plan (Annual)', category: 'plan', unitAmountCents: 18320, interval: 'annual', description: '8GB RAM, 200GB Storage - 20% annual discount' },
+  { priceCode: 'plan_xxl_annual', name: 'Enterprise Plan (Annual)', category: 'plan', unitAmountCents: 35920, interval: 'annual', description: '16GB RAM, 500GB Storage - 20% annual discount' },
+  { priceCode: 'plan_xxxl_annual', name: 'Enterprise Plus Plan (Annual)', category: 'plan', unitAmountCents: 67920, interval: 'annual', description: '32GB RAM, 1TB Storage - 20% annual discount' },
   
   // Usage-based pricing
   { priceCode: 'usage_cluster_hours', name: 'Cluster Hours', category: 'usage', pricingModel: 'per_unit', perUnitAmountCents: 1, unit: 'hour', description: 'Per hour of cluster runtime (included in plan)' },
@@ -21,8 +36,9 @@ const DEFAULT_PRICES = [
   { priceCode: 'usage_backup_gb', name: 'Backup Storage', category: 'usage', pricingModel: 'per_unit', perUnitAmountCents: 5, unit: 'gb-month', description: 'Backup storage' },
   
   // Addons
-  { priceCode: 'addon_dedicated_support', name: 'Dedicated Support', category: 'addon', unitAmountCents: 9900, interval: 'monthly', description: '24/7 dedicated support' },
-  { priceCode: 'addon_advanced_security', name: 'Advanced Security', category: 'addon', unitAmountCents: 4900, interval: 'monthly', description: 'Advanced security features' },
+  { priceCode: 'addon_dedicated_support', name: 'Dedicated Support', category: 'addon', unitAmountCents: 9900, interval: 'monthly', description: '24/7 dedicated support with 99.95% SLA' },
+  { priceCode: 'addon_advanced_security', name: 'Advanced Security', category: 'addon', unitAmountCents: 4900, interval: 'monthly', description: 'Encryption at rest, X.509 auth, advanced audit' },
+  { priceCode: 'addon_read_replicas', name: 'Read Replicas', category: 'addon', unitAmountCents: 7900, interval: 'monthly', description: 'Additional read-only replica node' },
 ];
 
 @Injectable()

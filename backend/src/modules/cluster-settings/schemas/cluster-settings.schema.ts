@@ -37,6 +37,11 @@ export class ClusterSettings {
     waitQueueTimeoutMS?: number;
     connectTimeoutMS?: number;
     socketTimeoutMS?: number;
+    retryWrites?: boolean;
+    retryReads?: boolean;
+    family?: 4 | 6;          // IPv4 or IPv6 preference
+    compressors?: string[];   // e.g. ['snappy', 'zstd', 'zlib']
+    directConnection?: boolean;
   };
 
   // Read/Write Concern
@@ -108,6 +113,36 @@ export class ClusterSettings {
     preferredDay?: string;
     preferredHour?: number;
     autoMinorVersionUpgrade?: boolean;
+  };
+
+  // Auto-scaling configuration (persisted)
+  @Prop({ type: Object, default: {} })
+  autoScaling: {
+    enabled?: boolean;
+    minPlan?: string;
+    maxPlan?: string;
+    scaleUpThreshold?: number;
+    scaleDownThreshold?: number;
+    cooldownMinutes?: number;
+    scheduleEnabled?: boolean;
+  };
+
+  // Encryption at rest configuration
+  @Prop({ type: Object, default: {} })
+  encryptionAtRest: {
+    enabled?: boolean;
+    provider?: 'wiredtiger' | 'kmip';
+    keyId?: string;
+    rotationIntervalDays?: number;
+  };
+
+  // Read replicas configuration
+  @Prop({ type: Object, default: {} })
+  readReplicas: {
+    enabled?: boolean;
+    count?: number;
+    regions?: string[];
+    readPreferenceForReplicas?: string;
   };
 
   @Prop()

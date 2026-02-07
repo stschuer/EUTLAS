@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ScalingRecommendation, ScalingRecommendationDocument } from './schemas/scaling-recommendation.schema';
 import { ScalingService } from './scaling.service';
 import { ClustersService } from '../clusters/clusters.service';
+import { ClusterSettingsService } from '../cluster-settings/cluster-settings.service';
 import { JobsService } from '../jobs/jobs.service';
 import { EventsService } from '../events/events.service';
 import { AuditService } from '../audit/audit.service';
@@ -24,12 +25,13 @@ export class AutoScalingService {
   private readonly logger = new Logger(AutoScalingService.name);
   
   // Plan ordering for scaling decisions
-  private readonly planOrder = ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE'];
+  private readonly planOrder = ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'];
 
   constructor(
     @InjectModel(ScalingRecommendation.name) private recommendationModel: Model<ScalingRecommendationDocument>,
     private scalingService: ScalingService,
     private clustersService: ClustersService,
+    private clusterSettingsService: ClusterSettingsService,
     private jobsService: JobsService,
     private eventsService: EventsService,
     private auditService: AuditService,
@@ -62,15 +64,28 @@ export class AutoScalingService {
   }
 
   /**
-   * Get auto-scaling configuration for a cluster
+   * Get auto-scaling configuration for a cluster (persisted in ClusterSettings)
    */
   async getAutoScalingConfig(clusterId: string): Promise<AutoScalingConfig | null> {
-    // In a real implementation, this would come from cluster settings
-    // For now, return a default config that can be extended
+    const settings = await this.clusterSettingsService.get(clusterId);
+    
+    if (settings?.autoScaling?.enabled) {
+      return {
+        enabled: settings.autoScaling.enabled,
+        minPlan: settings.autoScaling.minPlan || 'DEV',
+        maxPlan: settings.autoScaling.maxPlan || 'DEDICATED_XL',
+        scaleUpThreshold: settings.autoScaling.scaleUpThreshold || 80,
+        scaleDownThreshold: settings.autoScaling.scaleDownThreshold || 30,
+        cooldownMinutes: settings.autoScaling.cooldownMinutes || 30,
+        scheduleEnabled: settings.autoScaling.scheduleEnabled || false,
+      };
+    }
+
+    // Default: disabled
     return {
-      enabled: false, // Disabled by default, users must enable
+      enabled: false,
       minPlan: 'DEV',
-      maxPlan: 'XLARGE',
+      maxPlan: 'DEDICATED_XL',
       scaleUpThreshold: 80,
       scaleDownThreshold: 30,
       cooldownMinutes: 30,

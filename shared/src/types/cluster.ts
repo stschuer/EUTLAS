@@ -12,7 +12,11 @@ export type ClusterPlan =
   | 'SMALL'    // 1GB RAM, 20GB Storage
   | 'MEDIUM'   // 2GB RAM, 50GB Storage
   | 'LARGE'    // 4GB RAM, 100GB Storage
-  | 'XLARGE';  // 8GB RAM, 200GB Storage
+  | 'XLARGE'   // 8GB RAM, 200GB Storage
+  | 'XXL'      // 16GB RAM, 500GB Storage
+  | 'XXXL'     // 32GB RAM, 1TB Storage
+  | 'DEDICATED_L'  // 64GB RAM, 2TB Storage
+  | 'DEDICATED_XL'; // 128GB RAM, 4TB Storage
 
 export interface Cluster {
   id: string;
