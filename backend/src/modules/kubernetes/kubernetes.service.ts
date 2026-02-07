@@ -83,7 +83,7 @@ interface BackupParams {
   storageClass?: string;
 }
 
-interface ClusterStatus {
+export interface ClusterStatus {
   phase: string;
   ready: boolean;
   replicas: number;
@@ -1088,6 +1088,7 @@ export class KubernetesService implements OnModuleInit {
       };
     }
 
+    // Try MongoDBCommunity CR first (MEDIUM+ plans using the operator)
     try {
       const { body: mongoDb } = await this.customApi.getNamespacedCustomObject(
         'mongodbcommunity.mongodb.com',
@@ -1107,12 +1108,34 @@ export class KubernetesService implements OnModuleInit {
         message: status.message,
       };
     } catch (error: any) {
+      if (error.response?.statusCode !== 404) {
+        throw error;
+      }
+      // No MongoDBCommunity CR found — fall through to StatefulSet check (DEV/SMALL plans)
+    }
+
+    // Fallback: Check StatefulSet directly (DEV/SMALL plans)
+    try {
+      const { body: statefulSet } = await this.appsApi.readNamespacedStatefulSet(resourceName, namespace);
+      const specReplicas = statefulSet.spec?.replicas || 0;
+      const readyReplicas = statefulSet.status?.readyReplicas || 0;
+      const isReady = specReplicas > 0 && readyReplicas >= specReplicas;
+
+      return {
+        phase: isReady ? 'Running' : (readyReplicas > 0 ? 'Pending' : 'Creating'),
+        ready: isReady,
+        replicas: specReplicas,
+        readyReplicas,
+        message: isReady ? 'All pods are ready' : `${readyReplicas}/${specReplicas} pods ready`,
+      };
+    } catch (error: any) {
       if (error.response?.statusCode === 404) {
         return {
           phase: 'NotFound',
           ready: false,
           replicas: 0,
           readyReplicas: 0,
+          message: 'No K8s resources found for this cluster',
         };
       }
       throw error;

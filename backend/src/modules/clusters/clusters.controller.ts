@@ -15,6 +15,7 @@ import { CurrentUser, CurrentUserData } from '../../common/decorators/current-us
 import { ClustersService } from './clusters.service';
 import { ProjectsService } from '../projects/projects.service';
 import { OrgsService } from '../orgs/orgs.service';
+import { KubernetesService } from '../kubernetes/kubernetes.service';
 import { CreateClusterDto } from './dto/create-cluster.dto';
 import { ResizeClusterDto } from './dto/resize-cluster.dto';
 import { UpdateClusterDto } from './dto/update-cluster.dto';
@@ -29,6 +30,7 @@ export class ClustersController {
     private readonly clustersService: ClustersService,
     private readonly projectsService: ProjectsService,
     private readonly orgsService: OrgsService,
+    private readonly kubernetesService: KubernetesService,
   ) {}
 
   @Post()
@@ -125,6 +127,37 @@ export class ClustersController {
     return {
       success: true,
       data: result.credentials,
+    };
+  }
+
+  @Get(':clusterId/status')
+  @ApiOperation({ summary: 'Get real-time cluster status from Kubernetes' })
+  async getStatus(
+    @CurrentUser() user: CurrentUserData,
+    @Param('projectId') projectId: string,
+    @Param('clusterId') clusterId: string,
+  ) {
+    const orgId = await this.projectsService.getOrgIdForProject(projectId);
+    if (!orgId) {
+      throw new NotFoundException('Project not found');
+    }
+
+    await this.orgsService.checkAccess(orgId, user.userId);
+
+    const cluster = await this.clustersService.findById(clusterId);
+    if (!cluster || cluster.projectId.toString() !== projectId) {
+      throw new NotFoundException('Cluster not found');
+    }
+
+    const k8sStatus = await this.kubernetesService.getClusterStatus(clusterId, projectId);
+
+    return {
+      success: true,
+      data: {
+        clusterId,
+        dbStatus: cluster.status,
+        k8s: k8sStatus,
+      },
     };
   }
 

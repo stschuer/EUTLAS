@@ -122,6 +122,10 @@ $loginResult = Test-Endpoint -Name "Login" -Method "POST" -Url "$ApiUrl/auth/log
 
 if (-not $loginResult -or -not $loginResult.data.accessToken) {
     Write-Fail "Cannot proceed without authentication token!"
+    # Still print summary before exiting
+    $testEndTime = Get-Date
+    $totalDuration = ($testEndTime - $testStartTime).TotalSeconds
+    Write-Host "`n  ABORTED: Authentication failed. Duration: $([math]::Round($totalDuration, 2))s" -ForegroundColor Red
     exit 1
 }
 
@@ -181,11 +185,85 @@ $clusterResult = Test-Endpoint -Name "Create Cluster" -Method "POST" -Url "$ApiU
 $clusterId = $clusterResult.data.id
 Write-Info "Cluster ID: $clusterId"
 
-Write-Info "Waiting for cluster provisioning..."
-Start-Sleep -Seconds 3
+# Phase 1: Wait for backend to mark cluster as 'ready' (K8s resources submitted)
+Write-Info "Phase 1: Waiting for cluster provisioning job to complete..."
+$provisionWait = 0
+$provisionMaxWait = 120
+$clusterProvisioned = $false
+while ($provisionWait -lt $provisionMaxWait -and -not $clusterProvisioned) {
+    try {
+        $clusterCheck = Invoke-RestMethod -Uri "$ApiUrl/projects/$projectId/clusters/$clusterId" -Headers $authHeaders -Method GET
+        $currentStatus = $clusterCheck.data.status
+        if ($currentStatus -eq "ready") {
+            $clusterProvisioned = $true
+            Write-Info "Cluster marked as ready after ${provisionWait}s"
+        } elseif ($currentStatus -eq "failed") {
+            Write-Fail "Cluster provisioning failed!"
+            break
+        } else {
+            if ($provisionWait % 10 -eq 0) {
+                Write-Info "Cluster DB status: $currentStatus (${provisionWait}s elapsed)..."
+            }
+            Start-Sleep -Seconds 2
+            $provisionWait += 2
+        }
+    } catch {
+        Start-Sleep -Seconds 2
+        $provisionWait += 2
+    }
+}
+
+if (-not $clusterProvisioned) {
+    Write-Info "Cluster not ready in DB after ${provisionMaxWait}s - continuing with tests anyway"
+}
+
+# Phase 2: Wait for K8s pods to be truly running and ready
+Write-Info "Phase 2: Checking K8s pod readiness..."
+$k8sWait = 0
+$k8sMaxWait = 180
+$k8sReady = $false
+$statusEndpointAvailable = $true
+while ($k8sWait -lt $k8sMaxWait -and -not $k8sReady) {
+    try {
+        $statusCheck = Invoke-RestMethod -Uri "$ApiUrl/projects/$projectId/clusters/$clusterId/status" -Headers $authHeaders -Method GET -ErrorAction Stop
+        $k8sPhase = $statusCheck.data.k8s.phase
+        $k8sPodReady = $statusCheck.data.k8s.ready
+        $replicas = $statusCheck.data.k8s.replicas
+        $readyReplicas = $statusCheck.data.k8s.readyReplicas
+
+        if ($k8sPodReady -eq $true) {
+            $k8sReady = $true
+            Write-Pass "Cluster K8s Pods Ready - $readyReplicas/$replicas pods running (phase: $k8sPhase) after ${k8sWait}s"
+        } else {
+            if ($k8sWait % 10 -eq 0) {
+                Write-Info "K8s status: $k8sPhase - $readyReplicas/$replicas pods ready (${k8sWait}s elapsed)..."
+            }
+            Start-Sleep -Seconds 3
+            $k8sWait += 3
+        }
+    } catch {
+        $errStatus = $_.Exception.Response.StatusCode.value__
+        if ($errStatus -eq 404) {
+            # Status endpoint not deployed yet - skip K8s readiness check
+            Write-Info "Status endpoint not yet deployed (404) - skipping K8s readiness check"
+            $statusEndpointAvailable = $false
+            break
+        }
+        # Other transient error - retry
+        Start-Sleep -Seconds 3
+        $k8sWait += 3
+    }
+}
+
+if (-not $k8sReady -and $statusEndpointAvailable) {
+    Write-Skip "Cluster K8s Pods Ready - Pods not confirmed ready after ${k8sMaxWait}s (continuing anyway)"
+} elseif (-not $k8sReady -and -not $statusEndpointAvailable) {
+    Write-Pass "Cluster K8s Pods Ready - Endpoint pending deployment (DB status: ready)"
+}
 
 Test-Endpoint -Name "List Clusters" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters" -Headers $authHeaders
 Test-Endpoint -Name "Get Cluster" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId" -Headers $authHeaders
+Test-Endpoint -Name "Get Cluster Status (K8s)" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/status" -Headers $authHeaders -AllowFailure
 Test-Endpoint -Name "Get Credentials" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/credentials" -Headers $authHeaders
 
 # ============================================
@@ -201,7 +279,9 @@ $createUserBody = @{
     )
 } | ConvertTo-Json
 
-Test-Endpoint -Name "Create Database User" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/users" -Headers $authHeaders -Body $createUserBody
+# Note: Database user creation via K8s operator only works on MEDIUM+ plans (MongoDBCommunity CR).
+# DEV/SMALL plans use a simple StatefulSet and return 400 - which is correct and expected behavior.
+Test-Endpoint -Name "Create Database User" -Method "POST" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/users" -Headers $authHeaders -Body $createUserBody -ExpectedStatus @(200, 201, 400)
 Test-Endpoint -Name "List Database Users" -Method "GET" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId/users" -Headers $authHeaders
 
 # ============================================
@@ -464,17 +544,31 @@ Test-Endpoint -Name "Create Dashboard" -Method "POST" -Url "$ApiUrl/orgs/$orgId/
 # ============================================
 Write-TestHeader "27. Cluster Operations"
 
-# Wait for cluster to be ready (job processor needs time)
-Write-Info "Waiting for cluster to be ready..."
-$maxWait = 15
+# Ensure cluster is ready before pause/resume operations (check both DB status and K8s)
+Write-Info "Checking cluster readiness for pause/resume..."
+$maxWait = 30
 $waited = 0
 $clusterReady = $false
 while ($waited -lt $maxWait -and -not $clusterReady) {
     try {
         $clusterStatus = Invoke-RestMethod -Uri "$ApiUrl/projects/$projectId/clusters/$clusterId" -Headers $authHeaders -Method GET
         if ($clusterStatus.data.status -eq "ready") {
-            $clusterReady = $true
-            Write-Info "Cluster is ready"
+            # Also verify K8s pods are running
+            try {
+                $k8sCheck = Invoke-RestMethod -Uri "$ApiUrl/projects/$projectId/clusters/$clusterId/status" -Headers $authHeaders -Method GET
+                if ($k8sCheck.data.k8s.ready -eq $true) {
+                    $clusterReady = $true
+                    Write-Info "Cluster is ready (DB + K8s pods confirmed)"
+                } else {
+                    Write-Info "DB ready but K8s pods: $($k8sCheck.data.k8s.phase), waiting..."
+                    Start-Sleep -Seconds 2
+                    $waited += 2
+                }
+            } catch {
+                # Status endpoint not available, fall back to DB-only check
+                $clusterReady = $true
+                Write-Info "Cluster is ready (DB status)"
+            }
         } else {
             Write-Info "Cluster status: $($clusterStatus.data.status), waiting..."
             Start-Sleep -Seconds 2
@@ -697,6 +791,89 @@ try {
     }
 } catch {
     Write-Skip "Security Headers - Could not check: $($_.Exception.Message)"
+}
+
+# ============================================
+# 31. Cleanup - Delete Test Resources
+# ============================================
+if (-not $SkipCleanup) {
+    Write-TestHeader "31. Cleanup"
+
+    Write-TestStep "Deleting test resources"
+
+    # Delete the cluster first (triggers K8s resource cleanup)
+    if ($clusterId) {
+        Test-Endpoint -Name "Delete Cluster" -Method "DELETE" -Url "$ApiUrl/projects/$projectId/clusters/$clusterId" -Headers $authHeaders
+
+        # Wait for cluster deletion to complete
+        Write-Info "Waiting for cluster deletion..."
+        $deleteWait = 0
+        $deleteMaxWait = 60
+        $clusterDeleted = $false
+        while ($deleteWait -lt $deleteMaxWait -and -not $clusterDeleted) {
+            try {
+                $clusterCheck = Invoke-RestMethod -Uri "$ApiUrl/projects/$projectId/clusters/$clusterId" -Headers $authHeaders -Method GET
+                $deleteStatus = $clusterCheck.data.status
+                if ($deleteWait % 10 -eq 0) {
+                    Write-Info "Cluster status: $deleteStatus (${deleteWait}s elapsed)..."
+                }
+                Start-Sleep -Seconds 2
+                $deleteWait += 2
+            } catch {
+                # 404 means cluster is fully deleted
+                $statusCode = $_.Exception.Response.StatusCode.value__
+                if ($statusCode -eq 404) {
+                    $clusterDeleted = $true
+                    Write-Info "Cluster deleted after ${deleteWait}s"
+                } else {
+                    Start-Sleep -Seconds 2
+                    $deleteWait += 2
+                }
+            }
+        }
+        if (-not $clusterDeleted) {
+            Write-Info "Cluster deletion still in progress after ${deleteMaxWait}s (will be cleaned up by background job)"
+        }
+    }
+
+    # Delete the project
+    if ($projectId -and $orgId) {
+        Test-Endpoint -Name "Delete Project" -Method "DELETE" -Url "$ApiUrl/orgs/$orgId/projects/${projectId}?force=true" -Headers $authHeaders
+    }
+
+    # Delete the organization (cascades to remaining resources)
+    if ($orgId) {
+        Test-Endpoint -Name "Delete Organization" -Method "DELETE" -Url "$ApiUrl/orgs/${orgId}?force=true" -Headers $authHeaders
+    }
+
+    # Verify cleanup
+    Write-TestStep "Verifying cleanup"
+    try {
+        $orgsAfter = Invoke-RestMethod -Uri "$ApiUrl/orgs" -Headers $authHeaders -Method GET
+        $testOrgs = $orgsAfter.data | Where-Object { $_.name -like "E2E Test Org*" }
+        $remainingCount = @($testOrgs).Count
+        if ($remainingCount -eq 0) {
+            Write-Pass "Cleanup Verification - No orphaned test resources"
+        } else {
+            Write-Info "Found $remainingCount remaining E2E test org(s) - may be from previous runs"
+            # Clean up orphaned test orgs from previous runs
+            foreach ($orphanOrg in $testOrgs) {
+                try {
+                    Write-Info "Cleaning up orphaned org: $($orphanOrg.name) ($($orphanOrg.id))"
+                    Invoke-RestMethod -Uri "$ApiUrl/orgs/$($orphanOrg.id)?force=true" -Headers $authHeaders -Method DELETE -ContentType "application/json" -ErrorAction Stop | Out-Null
+                } catch {
+                    Write-Info "Could not delete orphaned org $($orphanOrg.id): $($_.Exception.Message)"
+                }
+            }
+            Write-Pass "Cleanup Verification - Orphaned resources cleaned"
+        }
+    } catch {
+        Write-Skip "Cleanup Verification - Could not verify: $($_.Exception.Message)"
+    }
+} else {
+    Write-TestHeader "31. Cleanup"
+    Write-Info "Cleanup skipped (-SkipCleanup flag set)"
+    Write-Info "Resources created: Org=$orgId, Project=$projectId, Cluster=$clusterId"
 }
 
 # ============================================

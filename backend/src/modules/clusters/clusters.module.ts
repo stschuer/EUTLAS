@@ -7,6 +7,7 @@ import { ProjectsModule } from '../projects/projects.module';
 import { OrgsModule } from '../orgs/orgs.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { CredentialsModule } from '../credentials/credentials.module';
+import { KubernetesModule } from '../kubernetes/kubernetes.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { CredentialsModule } from '../credentials/credentials.module';
     OrgsModule,
     forwardRef(() => JobsModule),
     CredentialsModule,
+    KubernetesModule,
   ],
   controllers: [ClustersController],
   providers: [ClustersService],
