@@ -346,7 +346,7 @@ export class VectorSearchService {
 
     // Fetch full documents for top results
     const fullDocs = await coll
-      .find({ _id: { $in: topIds.map((r) => r._id) } })
+      .find({ _id: { $in: topIds.map((r) => r._id) } } as any)
       .toArray();
 
     const docMap = new Map(fullDocs.map((d: any) => [d._id?.toString(), d]));

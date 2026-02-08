@@ -153,6 +153,11 @@ export class SemanticSearchDto {
   @MaxLength(1000)
   query: string;
 
+  @ApiPropertyOptional({ example: 'embedding', description: 'Path to vector field in documents' })
+  @IsOptional()
+  @IsString()
+  path?: string;
+
   @ApiPropertyOptional({ example: 10, default: 10 })
   @IsOptional()
   @IsNumber()
@@ -184,6 +189,11 @@ export class HybridSearchDto {
   @ApiProperty({ example: 'authentication tutorial', description: 'Text query' })
   @IsString()
   query: string;
+
+  @ApiPropertyOptional({ example: 'embedding', description: 'Path to vector field in documents' })
+  @IsOptional()
+  @IsString()
+  path?: string;
 
   @ApiPropertyOptional({ description: 'Vector for similarity search' })
   @IsOptional()

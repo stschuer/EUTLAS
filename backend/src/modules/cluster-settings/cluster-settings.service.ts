@@ -195,7 +195,7 @@ export class ClusterSettingsService {
 
     if (dto.tags !== undefined) settings.tags = new Map(Object.entries(dto.tags));
     if (dto.labels !== undefined) settings.labels = dto.labels;
-    if (dto.connectionPool) settings.connectionPool = { ...settings.connectionPool, ...dto.connectionPool };
+    if (dto.connectionPool) settings.connectionPool = { ...settings.connectionPool, ...dto.connectionPool } as any;
     if (dto.readPreference) settings.readPreference = dto.readPreference as any;
     if (dto.readConcern) settings.readConcern = dto.readConcern as any;
     if (dto.writeConcern) settings.writeConcern = dto.writeConcern;
@@ -207,7 +207,7 @@ export class ClusterSettingsService {
     if (dto.alertThresholds) settings.alertThresholds = { ...settings.alertThresholds, ...dto.alertThresholds };
     if (dto.maintenancePreferences) settings.maintenancePreferences = { ...settings.maintenancePreferences, ...dto.maintenancePreferences };
     if (dto.autoScaling) settings.autoScaling = { ...settings.autoScaling, ...dto.autoScaling };
-    if (dto.encryptionAtRest) settings.encryptionAtRest = { ...settings.encryptionAtRest, ...dto.encryptionAtRest };
+    if (dto.encryptionAtRest) settings.encryptionAtRest = { ...settings.encryptionAtRest, ...dto.encryptionAtRest } as any;
     if (dto.readReplicas) settings.readReplicas = { ...settings.readReplicas, ...dto.readReplicas };
 
     await settings.save();
