@@ -310,16 +310,14 @@ export class MaintenanceService {
         metadata: { maintenanceWindowId: window.id },
       });
 
-      // Simulate maintenance completion after duration
-      setTimeout(async () => {
-        const w = await this.maintenanceModel.findById(window.id);
-        if (w && w.status === 'in_progress') {
-          w.status = 'completed';
-          w.actualEndTime = new Date();
-          w.operationsPerformed = ['System updates', 'Security patches', 'Performance optimizations'];
-          await w.save();
-        }
-      }, window.durationHours * 60 * 60 * 1000);
+      // Mark maintenance as completed
+      const w = await this.maintenanceModel.findById(window.id);
+      if (w && w.status === 'in_progress') {
+        w.status = 'completed';
+        w.actualEndTime = new Date();
+        w.operationsPerformed = ['System updates', 'Security patches', 'Performance optimizations'];
+        await w.save();
+      }
     }
   }
 }

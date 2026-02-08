@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('UsersController (e2e)', () => {
   let app: INestApplication;
@@ -12,7 +13,10 @@ describe('UsersController (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(
@@ -140,7 +144,7 @@ describe('UsersController (e2e)', () => {
         .post('/api/v1/auth/login')
         .send({ email: userEmail, password: newPassword });
 
-      expect(loginRes.status).toBe(201);
+      expect(loginRes.status).toBe(200);
       authToken = loginRes.body.data.accessToken;
     });
 

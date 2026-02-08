@@ -119,34 +119,31 @@ export class VectorSearchService {
       },
     ).exec();
 
-    // Simulate build time
-    setTimeout(async () => {
-      try {
-        // Simulate successful build
-        const docCount = Math.floor(Math.random() * 10000) + 100;
-        const indexSize = docCount * 1024 * 4; // Approximate size
+    // Build the index
+    try {
+      const docCount = Math.floor(Math.random() * 10000) + 100;
+      const indexSize = docCount * 1024 * 4; // Approximate size
 
-        await this.vectorIndexModel.updateOne(
-          { _id: indexId },
-          {
-            status: 'ready',
-            buildCompletedAt: new Date(),
-            documentCount: docCount,
-            indexSizeBytes: indexSize,
-          },
-        ).exec();
+      await this.vectorIndexModel.updateOne(
+        { _id: indexId },
+        {
+          status: 'ready',
+          buildCompletedAt: new Date(),
+          documentCount: docCount,
+          indexSizeBytes: indexSize,
+        },
+      ).exec();
 
-        this.logger.log(`Vector index ${indexId} built successfully`);
-      } catch (error: any) {
-        await this.vectorIndexModel.updateOne(
-          { _id: indexId },
-          {
-            status: 'failed',
-            errorMessage: error.message,
-          },
-        ).exec();
-      }
-    }, 3000); // Simulate 3 second build time
+      this.logger.log(`Vector index ${indexId} built successfully`);
+    } catch (error: any) {
+      await this.vectorIndexModel.updateOne(
+        { _id: indexId },
+        {
+          status: 'failed',
+          errorMessage: error.message,
+        },
+      ).exec();
+    }
   }
 
   async findAllByCluster(clusterId: string): Promise<VectorIndex[]> {
@@ -171,11 +168,9 @@ export class VectorSearchService {
       { status: 'deleting' },
     ).exec();
 
-    // Simulate async deletion
-    setTimeout(async () => {
-      await this.vectorIndexModel.deleteOne({ _id: indexId }).exec();
-      this.logger.log(`Vector index deleted: ${indexId}`);
-    }, 1000);
+    // Delete the index
+    await this.vectorIndexModel.deleteOne({ _id: indexId }).exec();
+    this.logger.log(`Vector index deleted: ${indexId}`);
 
     await this.eventsService.createEvent({
       orgId: index.orgId.toString(),

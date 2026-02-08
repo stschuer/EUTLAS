@@ -99,6 +99,16 @@ export class VectorIndex {
 
 export const VectorIndexSchema = SchemaFactory.createForClass(VectorIndex);
 
+VectorIndexSchema.set('toJSON', {
+  virtuals: true,
+  transform: (_: any, ret: any) => {
+    ret.id = ret._id.toString();
+    delete ret._id;
+    delete ret.__v;
+    return ret;
+  },
+});
+
 // Indexes
 VectorIndexSchema.index({ clusterId: 1, database: 1, collection: 1, name: 1 }, { unique: true });
 VectorIndexSchema.index({ status: 1 });

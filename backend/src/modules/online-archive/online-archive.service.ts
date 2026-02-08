@@ -129,10 +129,8 @@ export class OnlineArchiveService {
     rule.status = 'deleting';
     await rule.save();
 
-    // Actually delete after cleanup
-    setTimeout(async () => {
-      await this.archiveRuleModel.findByIdAndDelete(ruleId);
-    }, 5000);
+    // Delete the rule
+    await this.archiveRuleModel.findByIdAndDelete(ruleId);
   }
 
   async pause(ruleId: string): Promise<ArchiveRule> {

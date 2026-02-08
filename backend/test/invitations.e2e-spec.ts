@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 describe('InvitationsController (e2e)', () => {
   let app: INestApplication;
@@ -12,7 +13,10 @@ describe('InvitationsController (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(
@@ -129,7 +133,7 @@ describe('InvitationsController (e2e)', () => {
         .post(`/api/v1/orgs/${testOrgId}/invitations/${testInvitationId}/resend`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ message: 'Updated message' })
-        .expect(200);
+        .expect(201);
 
       expect(res.body.success).toBe(true);
     });

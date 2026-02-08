@@ -239,10 +239,8 @@ export class PrivateNetworksService {
       description: `Deleted private network "${network.name}"`,
     });
 
-    // Simulate cleanup
-    setTimeout(async () => {
-      await this.networkModel.findByIdAndDelete(networkId);
-    }, 3000);
+    // Delete the network
+    await this.networkModel.findByIdAndDelete(networkId);
   }
 
   async addSubnet(networkId: string, dto: CreateSubnetDto): Promise<PrivateNetwork> {
@@ -295,17 +293,12 @@ export class PrivateNetworksService {
     network.peeringConnections.push(peering);
     await network.save();
 
-    // Simulate peering establishment
-    setTimeout(async () => {
-      const n = await this.networkModel.findById(networkId);
-      if (n) {
-        const p = n.peeringConnections.find(x => x.id === peering.id);
-        if (p) {
-          p.status = 'active';
-          await n.save();
-        }
-      }
-    }, 3000);
+    // Mark peering as active
+    const p = network.peeringConnections.find(x => x.id === peering.id);
+    if (p) {
+      p.status = 'active';
+      await network.save();
+    }
 
     return network;
   }

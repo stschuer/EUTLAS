@@ -179,10 +179,8 @@ export class SearchIndexesService {
       metadata: { indexName: index.name },
     });
 
-    // Actually delete after a short delay (simulate cleanup)
-    setTimeout(async () => {
-      await this.searchIndexModel.findByIdAndDelete(indexId);
-    }, 1000);
+    // Delete the index
+    await this.searchIndexModel.findByIdAndDelete(indexId);
 
     this.logger.log(`Deleted search index ${indexId}`);
   }
