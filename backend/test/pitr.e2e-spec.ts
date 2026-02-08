@@ -104,8 +104,8 @@ describe('PitrController (e2e)', () => {
         .post(`${basePath()}/enable`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          retentionHours: 72,
-          captureIntervalMinutes: 10,
+          retentionDays: 3,
+          settings: { captureIntervalMs: 600000 },
         })
         .expect(201);
 
@@ -122,8 +122,8 @@ describe('PitrController (e2e)', () => {
         .put(`${basePath()}/config`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          retentionHours: 168,
-          captureIntervalMinutes: 5,
+          retentionDays: 7,
+          settings: { captureIntervalMs: 300000 },
         })
         .expect(200);
 
@@ -169,7 +169,7 @@ describe('PitrController (e2e)', () => {
         .post(`${basePath()}/restore`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          targetTimestamp: new Date(Date.now() - 3600000).toISOString(),
+          restorePointTimestamp: new Date(Date.now() - 3600000).toISOString(),
         })
         .expect(201);
 

@@ -1,4 +1,4 @@
-import { IsString, IsObject, IsEnum, IsOptional, IsBoolean } from 'class-validator';
+import { IsString, IsObject, IsEnum, IsOptional, IsBoolean, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateSchemaDto {
@@ -77,6 +77,12 @@ export class GenerateSchemaDto {
   @IsOptional()
   @IsBoolean()
   strict?: boolean;
+}
+
+export class ValidateBulkDto {
+  @ApiProperty({ description: 'Array of documents to validate' })
+  @IsArray()
+  documents: Record<string, any>[];
 }
 
 

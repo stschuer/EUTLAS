@@ -1,4 +1,4 @@
-import { IsString, MinLength, MaxLength, Matches, IsEnum, IsOptional } from 'class-validator';
+import { IsString, MinLength, MaxLength, Matches, IsEnum, IsOptional, IsArray } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateClusterDto {
@@ -12,9 +12,9 @@ export class CreateClusterDto {
   )
   name: string;
 
-  @ApiProperty({ enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE'], example: 'MEDIUM' })
-  @IsEnum(['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE'], { message: 'Invalid plan selected' })
-  plan: 'DEV' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'XLARGE';
+  @ApiProperty({ enum: ['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'], example: 'MEDIUM' })
+  @IsEnum(['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'], { message: 'Invalid plan selected' })
+  plan: 'DEV' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'XLARGE' | 'XXL' | 'XXXL' | 'DEDICATED_L' | 'DEDICATED_XL';
 
   // MongoDB version is managed automatically - always uses latest stable (7.0.5)
   // Field kept for API compatibility but not exposed to users
@@ -27,5 +27,21 @@ export class CreateClusterDto {
   @IsOptional()
   @IsString()
   region?: string;
+}
+
+export class CloneClusterDto {
+  @ApiProperty({ example: 'cloned-cluster' })
+  @IsString()
+  name: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  targetProjectId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  plan?: string;
 }
 

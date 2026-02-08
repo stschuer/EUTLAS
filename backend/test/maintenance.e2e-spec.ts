@@ -84,7 +84,7 @@ describe('MaintenanceController (e2e)', () => {
         .send({
           title: 'Weekly Maintenance',
           description: 'Regular maintenance window',
-          dayOfWeek: 0, // Sunday
+          dayOfWeek: 'sunday',
           startHour: 2,
           durationHours: 2,
           timezone: 'Europe/Berlin',
@@ -95,7 +95,7 @@ describe('MaintenanceController (e2e)', () => {
 
       expect(res.body.success).toBe(true);
       expect(res.body.data.title).toBe('Weekly Maintenance');
-      expect(res.body.data.dayOfWeek).toBe(0);
+      expect(res.body.data.dayOfWeek).toBe('sunday');
       expect(res.body.data).toHaveProperty('id');
       testWindowId = res.body.data.id;
     });

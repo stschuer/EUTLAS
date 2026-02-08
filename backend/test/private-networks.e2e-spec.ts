@@ -240,7 +240,7 @@ describe('PrivateNetworksController (e2e)', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           publicEndpointEnabled: true,
-          minTlsVersion: '1.2',
+          minTlsVersion: 'TLS1.2',
         })
         .expect(200);
 

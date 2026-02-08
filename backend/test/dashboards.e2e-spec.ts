@@ -90,7 +90,7 @@ describe('DashboardsController (e2e)', () => {
               position: { x: 0, y: 0, width: 6, height: 4 },
             },
           ],
-          timeRange: '24h',
+          timeRange: { from: 'now-24h', to: 'now' },
         })
         .expect(201);
 
@@ -147,7 +147,7 @@ describe('DashboardsController (e2e)', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           name: 'Updated Dashboard',
-          timeRange: '7d',
+          timeRange: { from: 'now-7d', to: 'now' },
         })
         .expect(200);
 

@@ -16,7 +16,7 @@ import { ClustersService } from './clusters.service';
 import { ProjectsService } from '../projects/projects.service';
 import { OrgsService } from '../orgs/orgs.service';
 import { KubernetesService } from '../kubernetes/kubernetes.service';
-import { CreateClusterDto } from './dto/create-cluster.dto';
+import { CreateClusterDto, CloneClusterDto } from './dto/create-cluster.dto';
 import { ResizeClusterDto } from './dto/resize-cluster.dto';
 import { UpdateClusterDto } from './dto/update-cluster.dto';
 import { PauseClusterDto, ResumeClusterDto } from './dto/pause-cluster.dto';
@@ -250,7 +250,7 @@ export class ClustersController {
     @CurrentUser() user: CurrentUserData,
     @Param('projectId') projectId: string,
     @Param('clusterId') clusterId: string,
-    @Body() body: { name: string; targetProjectId?: string; plan?: string },
+    @Body() body: CloneClusterDto,
   ) {
     const orgId = await this.projectsService.getOrgIdForProject(projectId);
     if (!orgId) {

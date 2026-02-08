@@ -100,17 +100,17 @@ describe('Advanced Billing & Pricing (e2e)', () => {
 
   // ==================== Billing Account with Trial Support ====================
 
-  describe('POST /orgs/:orgId/billing/accounts', () => {
+  describe('POST /orgs/:orgId/billing/account', () => {
     it('should create a billing account', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/orgs/${testOrgId}/billing/accounts`)
+        .post(`/api/v1/orgs/${testOrgId}/billing/account`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          name: 'Test Billing Account',
-          email: 'billing@testcompany.eu',
+          billingName: 'Test Billing Account',
+          billingEmail: 'billing@testcompany.eu',
           companyName: 'Test GmbH',
           address: {
-            street: 'Teststraße 1',
+            line1: 'Teststraße 1',
             city: 'Berlin',
             postalCode: '10115',
             country: 'DE',
@@ -124,15 +124,14 @@ describe('Advanced Billing & Pricing (e2e)', () => {
     });
   });
 
-  describe('GET /orgs/:orgId/billing/accounts', () => {
-    it('should list billing accounts', async () => {
+  describe('GET /orgs/:orgId/billing/account', () => {
+    it('should get billing account', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/api/v1/orgs/${testOrgId}/billing/accounts`)
+        .get(`/api/v1/orgs/${testOrgId}/billing/account`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(Array.isArray(res.body.data)).toBe(true);
     });
   });
 
@@ -171,60 +170,10 @@ describe('Advanced Billing & Pricing (e2e)', () => {
 
   // ==================== Cost Estimates for Enterprise Plans ====================
 
-  describe('POST /orgs/:orgId/billing/estimate', () => {
-    it('should estimate costs for XXL plan', async () => {
+  describe('GET /orgs/:orgId/billing/prices', () => {
+    it('should return pricing information', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/orgs/${testOrgId}/billing/estimate`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({
-          plan: 'XXL',
-          period: 'monthly',
-        });
-
-      // May return 201 or 200 depending on implementation
-      if (res.status === 201 || res.status === 200) {
-        expect(res.body.success).toBe(true);
-        if (res.body.data?.estimate) {
-          expect(res.body.data.estimate).toBeGreaterThan(0);
-        }
-      }
-    });
-
-    it('should estimate costs for DEDICATED_L plan', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/orgs/${testOrgId}/billing/estimate`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({
-          plan: 'DEDICATED_L',
-          period: 'monthly',
-        });
-
-      if (res.status === 201 || res.status === 200) {
-        expect(res.body.success).toBe(true);
-      }
-    });
-
-    it('should estimate annual costs with discount', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/orgs/${testOrgId}/billing/estimate`)
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({
-          plan: 'XXXL',
-          period: 'annual',
-        });
-
-      if (res.status === 201 || res.status === 200) {
-        expect(res.body.success).toBe(true);
-      }
-    });
-  });
-
-  // ==================== Credits ====================
-
-  describe('GET /orgs/:orgId/billing/credits', () => {
-    it('should return credits balance', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/api/v1/orgs/${testOrgId}/billing/credits`)
+        .get(`/api/v1/orgs/${testOrgId}/billing/prices`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 

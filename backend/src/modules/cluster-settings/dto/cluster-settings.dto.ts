@@ -35,6 +35,31 @@ export class ConnectionPoolDto {
   @IsOptional()
   @IsNumber()
   socketTimeoutMS?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  retryWrites?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  retryReads?: boolean;
+
+  @ApiPropertyOptional({ description: 'IP address family (4 or 6)' })
+  @IsOptional()
+  @IsNumber()
+  family?: number;
+
+  @ApiPropertyOptional({ description: 'Compression algorithms', type: [String] })
+  @IsOptional()
+  @IsArray()
+  compressors?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  directConnection?: boolean;
 }
 
 export class WriteConcernDto {
@@ -134,6 +159,11 @@ export class EncryptionAtRestDto {
   @IsOptional()
   @IsNumber()
   rotationIntervalDays?: number;
+
+  @ApiPropertyOptional({ description: 'Encryption algorithm, e.g. AES-256' })
+  @IsOptional()
+  @IsString()
+  algorithm?: string;
 }
 
 export class ReadReplicasDto {
@@ -142,10 +172,10 @@ export class ReadReplicasDto {
   @IsBoolean()
   enabled?: boolean;
 
-  @ApiPropertyOptional({ minimum: 1, maximum: 7 })
+  @ApiPropertyOptional({ minimum: 0, maximum: 7 })
   @IsOptional()
   @IsNumber()
-  @Min(1)
+  @Min(0)
   @Max(7)
   count?: number;
 
@@ -258,6 +288,39 @@ export class UpdateLabelsDto {
   @ApiProperty({ type: [String] })
   @IsArray()
   labels: string[];
+}
+
+export class TagValueDto {
+  @ApiProperty()
+  @IsString()
+  value: string;
+}
+
+export class UpdateScheduledScalingDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  cronSchedule?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  targetPlan?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  timezone?: string;
 }
 
 

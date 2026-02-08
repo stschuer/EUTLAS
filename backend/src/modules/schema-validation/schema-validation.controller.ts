@@ -13,7 +13,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CurrentUser, CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { SchemaValidationService } from './schema-validation.service';
-import { CreateSchemaDto, UpdateSchemaDto, ValidateDocumentDto, GenerateSchemaDto } from './dto/schema-validation.dto';
+import { CreateSchemaDto, UpdateSchemaDto, ValidateDocumentDto, GenerateSchemaDto, ValidateBulkDto } from './dto/schema-validation.dto';
 
 @ApiTags('Schema Validation')
 @ApiBearerAuth()
@@ -98,7 +98,7 @@ export class SchemaValidationController {
   @ApiOperation({ summary: 'Validate multiple documents against schema' })
   async validateDocuments(
     @Param('schemaId') schemaId: string,
-    @Body() body: { documents: Record<string, any>[] },
+    @Body() body: ValidateBulkDto,
   ) {
     const result = await this.schemaService.validateDocuments(schemaId, body.documents);
     return { success: true, data: result };

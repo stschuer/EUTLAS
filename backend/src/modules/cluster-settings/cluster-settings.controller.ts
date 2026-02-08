@@ -17,6 +17,8 @@ import {
   AddScheduledScalingDto,
   UpdateTagsDto,
   UpdateLabelsDto,
+  TagValueDto,
+  UpdateScheduledScalingDto,
 } from './dto/cluster-settings.dto';
 
 @ApiTags('Cluster Settings')
@@ -65,7 +67,7 @@ export class ClusterSettingsController {
   async addTag(
     @Param('clusterId') clusterId: string,
     @Param('key') key: string,
-    @Body() body: { value: string },
+    @Body() body: TagValueDto,
   ) {
     const settings = await this.settingsService.addTag(clusterId, key, body.value);
     return { success: true, data: Object.fromEntries(settings.tags) };
@@ -124,7 +126,7 @@ export class ClusterSettingsController {
   async updateScheduledScaling(
     @Param('clusterId') clusterId: string,
     @Param('scheduleId') scheduleId: string,
-    @Body() dto: Partial<AddScheduledScalingDto>,
+    @Body() dto: UpdateScheduledScalingDto,
   ) {
     const settings = await this.settingsService.updateScheduledScaling(clusterId, scheduleId, dto);
     return { success: true, data: settings.scheduledScaling };
