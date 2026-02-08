@@ -5,9 +5,9 @@ namespace: eutlas
 
 resources:
   - ../base
-  - ingress-patch.yaml
 
 patches:
+  - path: ingress-patch.yaml
   - patch: |-
       - op: replace
         path: /spec/replicas

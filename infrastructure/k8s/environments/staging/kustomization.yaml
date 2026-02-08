@@ -5,9 +5,9 @@ namespace: eutlas-staging
 
 resources:
   - ../base
-  - ingress-patch.yaml
 
 patches:
+  - path: ingress-patch.yaml
   - patch: |-
       - op: replace
         path: /metadata/name

@@ -5,13 +5,13 @@ namespace: eutlas-test
 
 resources:
   - ../base
-  - ingress-patch.yaml
 
 namePrefix: ""
 nameSuffix: ""
 
 # Patches for test environment
 patches:
+  - path: ingress-patch.yaml
   - patch: |-
       - op: replace
         path: /metadata/name
