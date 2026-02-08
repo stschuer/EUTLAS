@@ -33,8 +33,7 @@ describe('MigrationController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Migration',
+        name: 'Test Migration',
       });
 
     const loginRes = await request(app.getHttpServer())

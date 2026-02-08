@@ -33,8 +33,7 @@ describe('MetricsController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'User',
+        name: 'Test User',
       });
 
     const loginRes = await request(app.getHttpServer())

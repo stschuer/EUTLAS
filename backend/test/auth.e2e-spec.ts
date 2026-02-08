@@ -38,13 +38,12 @@ describe('AuthController (e2e)', () => {
         .send({
           email: uniqueEmail,
           password,
-          firstName: 'Test',
-          lastName: 'Auth',
+          name: 'Test Auth',
         })
         .expect(201);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveProperty('id');
+      expect(res.body.data).toHaveProperty('userId');
       expect(res.body.data.email).toBe(uniqueEmail);
     });
 
@@ -54,8 +53,7 @@ describe('AuthController (e2e)', () => {
         .send({
           email: uniqueEmail,
           password,
-          firstName: 'Test',
-          lastName: 'Duplicate',
+          name: 'Test Duplicate',
         })
         .expect(409);
     });
@@ -66,8 +64,7 @@ describe('AuthController (e2e)', () => {
         .send({
           email: 'not-an-email',
           password,
-          firstName: 'Test',
-          lastName: 'User',
+          name: 'Test User',
         })
         .expect(400);
     });
@@ -78,8 +75,7 @@ describe('AuthController (e2e)', () => {
         .send({
           email: `weak-pw-${Date.now()}@example.com`,
           password: '123',
-          firstName: 'Test',
-          lastName: 'User',
+          name: 'Test User',
         })
         .expect(400);
     });

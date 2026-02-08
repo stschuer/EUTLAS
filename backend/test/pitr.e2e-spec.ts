@@ -32,8 +32,7 @@ describe('PitrController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'PITR',
+        name: 'Test PITR',
       });
 
     const loginRes = await request(app.getHttpServer())

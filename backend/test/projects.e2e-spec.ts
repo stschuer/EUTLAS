@@ -32,8 +32,7 @@ describe('ProjectsController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Projects',
+        name: 'Test Projects',
       });
 
     const loginRes = await request(app.getHttpServer())

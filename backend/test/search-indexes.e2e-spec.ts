@@ -32,8 +32,7 @@ describe('SearchIndexesController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'SearchIdx',
+        name: 'Test SearchIdx',
       });
 
     const loginRes = await request(app.getHttpServer())

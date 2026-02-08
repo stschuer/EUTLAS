@@ -33,8 +33,7 @@ describe('PrivateNetworksController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Networks',
+        name: 'Test Networks',
       });
 
     const loginRes = await request(app.getHttpServer())

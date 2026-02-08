@@ -31,8 +31,7 @@ describe('ClusterSettingsController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Settings',
+        name: 'Test Settings',
       });
 
     const loginRes = await request(app.getHttpServer())

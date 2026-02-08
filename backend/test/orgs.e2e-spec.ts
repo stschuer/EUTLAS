@@ -33,8 +33,7 @@ describe('OrgsController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'OrgOwner',
+        name: 'Test OrgOwner',
       });
 
     const loginRes = await request(app.getHttpServer())
@@ -50,11 +49,10 @@ describe('OrgsController (e2e)', () => {
       .send({
         email: secondEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Member',
+        name: 'Test Member',
       });
 
-    secondUserId = signupRes.body.data.id;
+    secondUserId = signupRes.body.data.userId;
 
     const secondLoginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')

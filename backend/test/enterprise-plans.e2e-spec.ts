@@ -31,8 +31,7 @@ describe('Enterprise Plans (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Enterprise',
+        name: 'Test Enterprise',
       });
 
     const loginRes = await request(app.getHttpServer())

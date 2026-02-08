@@ -32,8 +32,7 @@ describe('SchemaValidationController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Schemas',
+        name: 'Test Schemas',
       });
 
     const loginRes = await request(app.getHttpServer())

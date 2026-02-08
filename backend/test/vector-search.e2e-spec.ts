@@ -32,8 +32,7 @@ describe('VectorSearchController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Vector',
+        name: 'Test Vector',
       });
 
     const loginRes = await request(app.getHttpServer())

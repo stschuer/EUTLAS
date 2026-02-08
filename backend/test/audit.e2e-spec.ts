@@ -30,8 +30,7 @@ describe('AuditController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Audit',
+        name: 'Test Audit',
       });
 
     const loginRes = await request(app.getHttpServer())

@@ -32,8 +32,7 @@ describe('ScalingController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Scaling',
+        name: 'Test Scaling',
       });
 
     const loginRes = await request(app.getHttpServer())

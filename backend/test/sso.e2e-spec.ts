@@ -31,8 +31,7 @@ describe('SsoController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'SSO',
+        name: 'Test SSO',
       });
 
     const loginRes = await request(app.getHttpServer())

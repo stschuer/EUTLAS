@@ -32,8 +32,7 @@ describe('LogForwardingController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'LogFwd',
+        name: 'Test LogFwd',
       });
 
     const loginRes = await request(app.getHttpServer())

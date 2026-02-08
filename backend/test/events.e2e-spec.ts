@@ -32,8 +32,7 @@ describe('EventsController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Events',
+        name: 'Test Events',
       });
 
     const loginRes = await request(app.getHttpServer())

@@ -37,8 +37,7 @@ describe('DataExplorerController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Explorer',
+        name: 'Test Explorer',
       });
 
     const loginRes = await request(app.getHttpServer())

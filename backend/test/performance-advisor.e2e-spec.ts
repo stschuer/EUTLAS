@@ -33,8 +33,7 @@ describe('PerformanceAdvisorController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Performance',
+        name: 'Test Performance',
       });
 
     const loginRes = await request(app.getHttpServer())

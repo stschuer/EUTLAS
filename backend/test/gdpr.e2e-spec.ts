@@ -32,8 +32,7 @@ describe('GdprController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'GDPR',
+        name: 'Test GDPR',
       });
 
     const loginRes = await request(app.getHttpServer())

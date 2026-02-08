@@ -34,8 +34,7 @@ describe('AdminController (e2e)', () => {
       .send({
         email: adminEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Admin',
+        name: 'Test Admin',
       });
 
     const adminLoginRes = await request(app.getHttpServer())
@@ -51,8 +50,7 @@ describe('AdminController (e2e)', () => {
       .send({
         email: regularEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Regular',
+        name: 'Test Regular',
       });
 
     const regularLoginRes = await request(app.getHttpServer())

@@ -32,8 +32,7 @@ describe('MaintenanceController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Maintenance',
+        name: 'Test Maintenance',
       });
 
     const loginRes = await request(app.getHttpServer())

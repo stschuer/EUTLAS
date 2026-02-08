@@ -31,8 +31,7 @@ describe('UsersController (e2e)', () => {
       .send({
         email: userEmail,
         password: userPassword,
-        firstName: 'Test',
-        lastName: 'User',
+        name: 'Test User',
       });
 
     const loginRes = await request(app.getHttpServer())

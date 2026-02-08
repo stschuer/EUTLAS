@@ -32,8 +32,7 @@ describe('OnlineArchiveController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Archive',
+        name: 'Test Archive',
       });
 
     const loginRes = await request(app.getHttpServer())

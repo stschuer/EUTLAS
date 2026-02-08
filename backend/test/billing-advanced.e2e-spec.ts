@@ -32,8 +32,7 @@ describe('Advanced Billing & Pricing (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Billing',
+        name: 'Test Billing',
       });
 
     const loginRes = await request(app.getHttpServer())

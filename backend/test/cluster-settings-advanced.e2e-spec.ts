@@ -31,8 +31,7 @@ describe('Advanced Cluster Settings (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'AdvSettings',
+        name: 'Test AdvSettings',
       });
 
     const loginRes = await request(app.getHttpServer())

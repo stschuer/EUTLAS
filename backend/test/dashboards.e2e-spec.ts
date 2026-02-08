@@ -32,8 +32,7 @@ describe('DashboardsController (e2e)', () => {
       .send({
         email: uniqueEmail,
         password: 'TestPassword123!',
-        firstName: 'Test',
-        lastName: 'Dashboards',
+        name: 'Test Dashboards',
       });
 
     const loginRes = await request(app.getHttpServer())
