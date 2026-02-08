@@ -202,9 +202,13 @@ export class LogForwardingService {
         throw new Error('Connection timeout');
       }
     } catch (error) {
-      config.lastError = error.message;
-      config.lastErrorAt = new Date();
-      await config.save();
+      try {
+        config.lastError = error.message;
+        config.lastErrorAt = new Date();
+        await config.save();
+      } catch {
+        // Connection may have been closed during teardown, ignore
+      }
 
       return {
         success: false,

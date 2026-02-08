@@ -173,7 +173,13 @@ describe('DashboardsController (e2e)', () => {
         .expect(201);
 
       expect(res.body.success).toBe(true);
-      testWidgetId = res.body.data.id || 'widget-2';
+      // addWidget returns the entire dashboard, so extract widget ID from the widgets array
+      const widgets = res.body.data.widgets;
+      if (widgets && widgets.length > 0) {
+        testWidgetId = widgets[widgets.length - 1].id;
+      } else {
+        testWidgetId = 'widget-2';
+      }
     });
   });
 

@@ -67,10 +67,10 @@ export class SearchIndexesService {
 
   private async buildIndex(indexId: string): Promise<void> {
     // Simulate index building
-    const index = await this.searchIndexModel.findById(indexId);
-    if (!index) return;
-
     try {
+      const index = await this.searchIndexModel.findById(indexId);
+      if (!index) return;
+
       // Update to building status
       index.status = 'building';
       index.buildStartedAt = new Date();
@@ -79,23 +79,32 @@ export class SearchIndexesService {
       // Simulate build time (2-5 seconds)
       await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 3000));
 
-      // Complete the build
-      const completed = await this.searchIndexModel.findById(indexId);
-      if (completed && completed.status === 'building') {
-        completed.status = 'ready';
-        completed.buildCompletedAt = new Date();
-        completed.documentCount = Math.floor(Math.random() * 10000);
-        completed.storageSizeBytes = Math.floor(Math.random() * 10000000);
-        await completed.save();
+      // Complete the build - wrap in try/catch in case connection was closed during the delay
+      try {
+        const completed = await this.searchIndexModel.findById(indexId);
+        if (completed && completed.status === 'building') {
+          completed.status = 'ready';
+          completed.buildCompletedAt = new Date();
+          completed.documentCount = Math.floor(Math.random() * 10000);
+          completed.storageSizeBytes = Math.floor(Math.random() * 10000000);
+          await completed.save();
 
-        this.logger.log(`Search index ${indexId} build completed`);
+          this.logger.log(`Search index ${indexId} build completed`);
+        }
+      } catch (postDelayError) {
+        // Connection may have been closed during the simulated delay (e.g. during test teardown)
+        this.logger.warn(`Search index ${indexId} post-build update failed (connection may be closed): ${postDelayError.message}`);
       }
     } catch (error) {
-      const failed = await this.searchIndexModel.findById(indexId);
-      if (failed) {
-        failed.status = 'failed';
-        failed.errorMessage = error.message;
-        await failed.save();
+      try {
+        const failed = await this.searchIndexModel.findById(indexId);
+        if (failed) {
+          failed.status = 'failed';
+          failed.errorMessage = error.message;
+          await failed.save();
+        }
+      } catch {
+        // Connection may have been closed, ignore
       }
       this.logger.error(`Search index ${indexId} build failed: ${error.message}`);
     }

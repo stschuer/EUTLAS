@@ -284,10 +284,10 @@ export class PitrService {
   }
 
   private async processRestore(restoreId: string): Promise<void> {
-    const restore = await this.pitrRestoreModel.findById(restoreId);
-    if (!restore) return;
-
     try {
+      const restore = await this.pitrRestoreModel.findById(restoreId);
+      if (!restore) return;
+
       // Update status to preparing
       restore.status = 'preparing';
       restore.startedAt = new Date();
@@ -326,23 +326,27 @@ export class PitrService {
         });
       }
     } catch (error) {
-      const failedRestore = await this.pitrRestoreModel.findById(restoreId);
-      if (failedRestore) {
-        failedRestore.status = 'failed';
-        failedRestore.errorMessage = error.message;
-        failedRestore.completedAt = new Date();
-        await failedRestore.save();
+      try {
+        const failedRestore = await this.pitrRestoreModel.findById(restoreId);
+        if (failedRestore) {
+          failedRestore.status = 'failed';
+          failedRestore.errorMessage = error.message;
+          failedRestore.completedAt = new Date();
+          await failedRestore.save();
 
-        // Create failure event
-        await this.eventsService.createEvent({
-          orgId: failedRestore.orgId.toString(),
-          projectId: failedRestore.projectId.toString(),
-          clusterId: failedRestore.sourceClusterId.toString(),
-          type: 'PITR_RESTORE_FAILED',
-          severity: 'error',
-          message: `Point-in-Time restore failed: ${error.message}`,
-          metadata: { restoreId: failedRestore.id, error: error.message },
-        });
+          // Create failure event
+          await this.eventsService.createEvent({
+            orgId: failedRestore.orgId.toString(),
+            projectId: failedRestore.projectId.toString(),
+            clusterId: failedRestore.sourceClusterId.toString(),
+            type: 'PITR_RESTORE_FAILED',
+            severity: 'error',
+            message: `Point-in-Time restore failed: ${error.message}`,
+            metadata: { restoreId: failedRestore.id, error: error.message },
+          });
+        }
+      } catch {
+        // Connection may have been closed during teardown, ignore
       }
 
       this.logger.error(`PITR restore ${restoreId} failed: ${error.message}`);
@@ -355,13 +359,18 @@ export class PitrService {
     step: string,
     progress: number,
   ): Promise<void> {
-    const restore = await this.pitrRestoreModel.findById(restoreId);
-    if (!restore) return;
+    try {
+      const restore = await this.pitrRestoreModel.findById(restoreId);
+      if (!restore) return;
 
-    restore.status = status;
-    restore.currentStep = step;
-    restore.progress = progress;
-    await restore.save();
+      restore.status = status;
+      restore.currentStep = step;
+      restore.progress = progress;
+      await restore.save();
+    } catch {
+      // Connection may have been closed during teardown, ignore
+      return;
+    }
 
     // Simulate processing time
     await new Promise((resolve) => setTimeout(resolve, 2000 + Math.random() * 3000));

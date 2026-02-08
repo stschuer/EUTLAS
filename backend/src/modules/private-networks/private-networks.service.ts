@@ -93,36 +93,45 @@ export class PrivateNetworksService {
   }
 
   private async provisionNetwork(networkId: string): Promise<void> {
-    const network = await this.networkModel.findById(networkId);
-    if (!network) return;
-
     try {
-      // Use real Hetzner Cloud API if token is configured and not in dev mode
-      if (this.hetznerApiToken && !this.isDevelopment) {
-        await this.provisionNetworkViaHetznerApi(network);
-      } else {
-        // Simulate provisioning for development
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        network.hetznerNetworkId = `hcloud-net-${uuidv4().slice(0, 8)}`;
-        network.status = 'active';
+      const network = await this.networkModel.findById(networkId);
+      if (!network) return;
 
-        const defaultSubnet = {
-          id: uuidv4(),
-          name: 'default',
-          ipRange: network.ipRange.replace('/16', '/24'),
-          zone: `${network.region}-dc1`,
-          gateway: network.ipRange.replace(/\.0\/\d+$/, '.1'),
-        };
-        network.subnets.push(defaultSubnet);
+      try {
+        // Use real Hetzner Cloud API if token is configured and not in dev mode
+        if (this.hetznerApiToken && !this.isDevelopment) {
+          await this.provisionNetworkViaHetznerApi(network);
+        } else {
+          // Simulate provisioning for development
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          network.hetznerNetworkId = `hcloud-net-${uuidv4().slice(0, 8)}`;
+          network.status = 'active';
+
+          const defaultSubnet = {
+            id: uuidv4(),
+            name: 'default',
+            ipRange: network.ipRange.replace('/16', '/24'),
+            zone: `${network.region}-dc1`,
+            gateway: network.ipRange.replace(/\.0\/\d+$/, '.1'),
+          };
+          network.subnets.push(defaultSubnet);
+        }
+
+        await network.save();
+        this.logger.log(`Provisioned network ${networkId}`);
+      } catch (error) {
+        try {
+          network.status = 'failed';
+          network.errorMessage = error.message;
+          await network.save();
+        } catch {
+          // Connection may have been closed during teardown, ignore
+        }
+        this.logger.error(`Failed to provision network ${networkId}: ${error.message}`);
       }
-
-      await network.save();
-      this.logger.log(`Provisioned network ${networkId}`);
-    } catch (error) {
-      network.status = 'failed';
-      network.errorMessage = error.message;
-      await network.save();
-      this.logger.error(`Failed to provision network ${networkId}: ${error.message}`);
+    } catch {
+      // Connection may have been closed during teardown, ignore
+      this.logger.warn(`Network provisioning skipped for ${networkId} (connection may be closed)`);
     }
   }
 

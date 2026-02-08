@@ -1,4 +1,5 @@
 import { IsString, IsOptional, IsNumber, IsObject, IsEnum, IsArray, Min, Max, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class QuerySlowQueriesDto {
@@ -14,12 +15,14 @@ export class QuerySlowQueriesDto {
 
   @ApiProperty({ required: false, default: 100, description: 'Minimum execution time in ms' })
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   minExecutionTimeMs?: number;
 
   @ApiProperty({ required: false, default: 50, maximum: 200 })
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(1)
   @Max(200)
