@@ -137,7 +137,7 @@ describe('Enterprise Plans (e2e)', () => {
         .send({ name: 'resize-test-cluster', plan: 'SMALL' });
 
       smallClusterId = clusterRes.body.data.id;
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 8000));
     });
 
     it('should resize from SMALL to XXL', async () => {
@@ -173,7 +173,7 @@ describe('Enterprise Plans (e2e)', () => {
         .send({ name: 'scale-enterprise-cluster', plan: 'XLARGE' });
 
       xlClusterId = clusterRes.body.data.id;
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 8000));
     });
 
     it('should return scaling recommendations including enterprise tiers', async () => {

@@ -188,15 +188,27 @@ export class NetworkAccessController {
     const forwarded = req.headers['x-forwarded-for'];
     if (forwarded) {
       const ips = (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',');
-      return ips[0].trim();
+      return this.normalizeIp(ips[0].trim());
     }
 
     const realIp = req.headers['x-real-ip'];
     if (realIp) {
-      return Array.isArray(realIp) ? realIp[0] : realIp;
+      return this.normalizeIp(Array.isArray(realIp) ? realIp[0] : realIp);
     }
 
-    return req.ip || req.socket.remoteAddress || '0.0.0.0';
+    return this.normalizeIp(req.ip || req.socket.remoteAddress || '0.0.0.0');
+  }
+
+  private normalizeIp(ip: string): string {
+    // Convert IPv6-mapped IPv4 (::ffff:127.0.0.1) to IPv4
+    if (ip.startsWith('::ffff:')) {
+      return ip.slice(7);
+    }
+    // Convert IPv6 localhost to IPv4 localhost
+    if (ip === '::1') {
+      return '127.0.0.1';
+    }
+    return ip;
   }
 }
 

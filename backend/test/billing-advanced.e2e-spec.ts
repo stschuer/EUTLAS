@@ -69,7 +69,7 @@ describe('Advanced Billing & Pricing (e2e)', () => {
   describe('GET /orgs/:orgId/billing/pricing', () => {
     it('should return pricing including enterprise plans', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/api/v1/orgs/${testOrgId}/billing/pricing`)
+        .get(`/api/v1/orgs/${testOrgId}/billing/prices`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 

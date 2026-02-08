@@ -78,7 +78,7 @@ describe('DataExplorerController (e2e)', () => {
     testClusterId = clusterRes.body.data.id;
 
     // Wait for cluster to be ready (simulated - in dev it's instant)
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 8000));
   }, 60000);
 
   afterAll(async () => {

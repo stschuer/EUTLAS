@@ -66,7 +66,7 @@ describe('ScalingController (e2e)', () => {
 
     testClusterId = clusterRes.body.data.id;
 
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 8000));
   }, 60000);
 
   afterAll(async () => {

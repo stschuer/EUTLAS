@@ -42,9 +42,9 @@ export class PitrService {
     } else {
       // Create new config
       config = new this.pitrConfigModel({
-        clusterId: new Types.ObjectId(clusterId),
-        orgId: new Types.ObjectId(orgId),
-        projectId: new Types.ObjectId(projectId),
+        clusterId,
+        orgId,
+        projectId,
         enabled: true,
         enabledAt: new Date(),
         retentionDays: dto.retentionDays,
