@@ -1,9 +1,11 @@
 import {
   Injectable,
+  Inject,
   NotFoundException,
   ConflictException,
   BadRequestException,
   Logger,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -13,6 +15,7 @@ import { CreateDatabaseUserDto } from './dto/create-database-user.dto';
 import { UpdateDatabaseUserDto } from './dto/update-database-user.dto';
 import { KubernetesService } from '../kubernetes/kubernetes.service';
 import { EventsService } from '../events/events.service';
+import { ClustersService } from '../clusters/clusters.service';
 
 @Injectable()
 export class DatabaseUsersService {
@@ -22,7 +25,14 @@ export class DatabaseUsersService {
     @InjectModel(DatabaseUser.name) private dbUserModel: Model<DatabaseUserDocument>,
     private readonly kubernetesService: KubernetesService,
     private readonly eventsService: EventsService,
+    @Inject(forwardRef(() => ClustersService))
+    private readonly clustersService: ClustersService,
   ) {}
+
+  private async getClusterPlan(clusterId: string): Promise<string> {
+    const cluster = await this.clustersService.findById(clusterId);
+    return cluster?.plan || 'DEV';
+  }
 
   async create(
     clusterId: string,
@@ -65,9 +75,11 @@ export class DatabaseUsersService {
 
     // Create user in MongoDB cluster (via K8s)
     try {
+      const plan = await this.getClusterPlan(clusterId);
       await this.kubernetesService.createDatabaseUser({
         clusterId,
         projectId,
+        plan,
         username: createDto.username,
         password: createDto.password,
         roles: createDto.roles as DatabaseRoleAssignment[],
@@ -142,9 +154,11 @@ export class DatabaseUsersService {
 
     // Update in K8s/MongoDB
     try {
+      const plan = await this.getClusterPlan(dbUser.clusterId.toString());
       await this.kubernetesService.updateDatabaseUser({
         clusterId: dbUser.clusterId.toString(),
         projectId: dbUser.projectId.toString(),
+        plan,
         username: dbUser.username,
         password: updateDto.password,
         roles: updateDto.roles as DatabaseRoleAssignment[],
@@ -199,9 +213,11 @@ export class DatabaseUsersService {
 
     // Delete from K8s/MongoDB
     try {
+      const plan = await this.getClusterPlan(dbUser.clusterId.toString());
       await this.kubernetesService.deleteDatabaseUser({
         clusterId: dbUser.clusterId.toString(),
         projectId: dbUser.projectId.toString(),
+        plan,
         username: dbUser.username,
       });
     } catch (error: any) {
