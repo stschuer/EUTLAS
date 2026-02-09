@@ -9,10 +9,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - staging.46.224.42.63.nip.io
+        - staging.mongo.eutlas.eu
       secretName: eutlas-staging-tls
   rules:
-    - host: staging.46.224.42.63.nip.io
+    - host: staging.mongo.eutlas.eu
       http:
         paths:
           - path: /api

@@ -9,10 +9,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - eutlas.46.224.42.63.nip.io
+        - mongo.eutlas.eu
       secretName: eutlas-prod-tls
   rules:
-    - host: eutlas.46.224.42.63.nip.io
+    - host: mongo.eutlas.eu
       http:
         paths:
           - path: /api
@@ -29,6 +29,3 @@ spec:
                 name: eutlas-frontend
                 port:
                   number: 3000
-
-
-
