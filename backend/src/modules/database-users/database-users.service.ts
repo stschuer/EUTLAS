@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { DatabaseUser, DatabaseUserDocument, DatabaseRoleAssignment } from './schemas/database-user.schema';
 import { CreateDatabaseUserDto } from './dto/create-database-user.dto';
 import { UpdateDatabaseUserDto } from './dto/update-database-user.dto';
