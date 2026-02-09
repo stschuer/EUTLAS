@@ -33,12 +33,13 @@ interface DeleteClusterParams {
 interface PauseClusterParams {
   clusterId: string;
   projectId: string;
+  plan: string;
 }
 
 interface ResumeClusterParams {
   clusterId: string;
   projectId: string;
-  plan: string;
+  plan: string; // needed to determine replica count and operator vs StatefulSet path
 }
 
 interface ClusterConnectionInfo {
@@ -55,6 +56,7 @@ interface ClusterConnectionInfo {
 interface CreateDatabaseUserParams {
   clusterId: string;
   projectId: string;
+  plan: string;
   username: string;
   password: string;
   roles: { role: string; db: string }[];
@@ -63,6 +65,7 @@ interface CreateDatabaseUserParams {
 interface UpdateDatabaseUserParams {
   clusterId: string;
   projectId: string;
+  plan: string;
   username: string;
   password?: string;
   roles?: { role: string; db: string }[];
@@ -72,6 +75,7 @@ interface UpdateDatabaseUserParams {
 interface DeleteDatabaseUserParams {
   clusterId: string;
   projectId: string;
+  plan: string;
   username: string;
 }
 
@@ -84,6 +88,7 @@ interface UpdateNetworkPolicyParams {
 interface BackupParams {
   clusterId: string;
   projectId: string;
+  plan: string;
   backupId: string;
   storageClass?: string;
 }
@@ -106,15 +111,16 @@ export const PLAN_RESOURCES: Record<string, {
   cpuLimit: string;
   memoryLimit: string;
 }> = {
-  // Reduced resource requests to fit on shared cluster
+  // Plans aligned with ClusterPlan enum in cluster.schema.ts / create-cluster.dto.ts
   DEV: { cpu: '50m', memory: '128Mi', storage: '1Gi', replicas: 1, cpuLimit: '200m', memoryLimit: '256Mi' },
   SMALL: { cpu: '100m', memory: '256Mi', storage: '5Gi', replicas: 1, cpuLimit: '500m', memoryLimit: '512Mi' },
   MEDIUM: { cpu: '150m', memory: '512Mi', storage: '10Gi', replicas: 1, cpuLimit: '750m', memoryLimit: '1Gi' },
   LARGE: { cpu: '250m', memory: '1Gi', storage: '25Gi', replicas: 3, cpuLimit: '1000m', memoryLimit: '2Gi' },
   XLARGE: { cpu: '500m', memory: '2Gi', storage: '50Gi', replicas: 3, cpuLimit: '2000m', memoryLimit: '4Gi' },
-  DEDICATED_SMALL: { cpu: '1000m', memory: '2Gi', storage: '50Gi', replicas: 3, cpuLimit: '2000m', memoryLimit: '4Gi' },
-  DEDICATED_MEDIUM: { cpu: '2000m', memory: '4Gi', storage: '100Gi', replicas: 3, cpuLimit: '4000m', memoryLimit: '8Gi' },
-  DEDICATED_LARGE: { cpu: '4000m', memory: '8Gi', storage: '250Gi', replicas: 3, cpuLimit: '8000m', memoryLimit: '16Gi' },
+  XXL: { cpu: '1000m', memory: '4Gi', storage: '100Gi', replicas: 3, cpuLimit: '2000m', memoryLimit: '8Gi' },
+  XXXL: { cpu: '2000m', memory: '8Gi', storage: '250Gi', replicas: 3, cpuLimit: '4000m', memoryLimit: '16Gi' },
+  DEDICATED_L: { cpu: '4000m', memory: '8Gi', storage: '250Gi', replicas: 3, cpuLimit: '8000m', memoryLimit: '16Gi' },
+  DEDICATED_XL: { cpu: '8000m', memory: '16Gi', storage: '500Gi', replicas: 3, cpuLimit: '16000m', memoryLimit: '32Gi' },
 };
 
 // Qdrant companion service resource sizing (opt-in, only when vectorSearchEnabled)
@@ -130,9 +136,10 @@ export const QDRANT_RESOURCES: Record<string, {
   MEDIUM: { cpu: '250m', memory: '1Gi', storage: '10Gi', cpuLimit: '750m', memoryLimit: '2Gi' },
   LARGE: { cpu: '500m', memory: '2Gi', storage: '25Gi', cpuLimit: '1000m', memoryLimit: '4Gi' },
   XLARGE: { cpu: '1000m', memory: '4Gi', storage: '50Gi', cpuLimit: '2000m', memoryLimit: '8Gi' },
-  DEDICATED_SMALL: { cpu: '1000m', memory: '4Gi', storage: '50Gi', cpuLimit: '2000m', memoryLimit: '8Gi' },
-  DEDICATED_MEDIUM: { cpu: '2000m', memory: '8Gi', storage: '100Gi', cpuLimit: '4000m', memoryLimit: '16Gi' },
-  DEDICATED_LARGE: { cpu: '4000m', memory: '16Gi', storage: '250Gi', cpuLimit: '8000m', memoryLimit: '32Gi' },
+  XXL: { cpu: '1000m', memory: '4Gi', storage: '100Gi', cpuLimit: '2000m', memoryLimit: '8Gi' },
+  XXXL: { cpu: '2000m', memory: '8Gi', storage: '250Gi', cpuLimit: '4000m', memoryLimit: '16Gi' },
+  DEDICATED_L: { cpu: '4000m', memory: '16Gi', storage: '250Gi', cpuLimit: '8000m', memoryLimit: '32Gi' },
+  DEDICATED_XL: { cpu: '8000m', memory: '32Gi', storage: '500Gi', cpuLimit: '16000m', memoryLimit: '64Gi' },
 };
 
 // MongoDB Community Operator CRD API Version
@@ -329,7 +336,7 @@ export class KubernetesService implements OnModuleInit {
       await this.createCredentialsSecret(namespace, resourceName, params.credentials);
 
       // 2. Choose deployment strategy based on plan
-      const useOperator = ['MEDIUM', 'LARGE', 'XLARGE', 'DEDICATED_SMALL', 'DEDICATED_MEDIUM', 'DEDICATED_LARGE'].includes(params.plan);
+      const useOperator = this.isOperatorManaged(params.plan);
       
       if (useOperator) {
         // Use MongoDB Operator for larger plans (replica sets)
@@ -347,7 +354,10 @@ export class KubernetesService implements OnModuleInit {
       // 3. Create NetworkPolicy for security
       await this.createDefaultNetworkPolicy(namespace, resourceName);
 
-      // 4. Create Qdrant companion service if vector search is enabled
+      // 4. Create backup PVC for this cluster
+      await this.ensureBackupPvc(namespace, resourceName);
+
+      // 5. Create Qdrant companion service if vector search is enabled
       let qdrantInfo: { host: string; port: number } | undefined;
       if (params.vectorSearchEnabled) {
         const qdrantResources = QDRANT_RESOURCES[params.plan] || QDRANT_RESOURCES.DEV;
@@ -358,7 +368,7 @@ export class KubernetesService implements OnModuleInit {
 
       this.logger.log(`MongoDB cluster ${params.clusterId} creation initiated successfully`);
 
-      const serviceName = useOperator ? `${resourceName}-svc` : resourceName;
+      const serviceName = this.getServiceName(resourceName, params.plan);
       return {
         host: `${serviceName}.${namespace}.svc.cluster.local`,
         port: 27017,
@@ -698,7 +708,7 @@ export class KubernetesService implements OnModuleInit {
     }
   }
 
-  async resizeMongoCluster(params: ResizeClusterParams): Promise<void> {
+  async resizeMongoCluster(params: ResizeClusterParams & { currentPlan?: string }): Promise<void> {
     this.logger.log(`Resizing cluster ${params.clusterId} to ${params.newPlan}`);
 
     const namespace = this.getNamespace(params.projectId);
@@ -710,38 +720,73 @@ export class KubernetesService implements OnModuleInit {
       return;
     }
 
-    try {
-      // Get current MongoDBCommunity resource
-      const { body: current } = await this.customApi.getNamespacedCustomObject(
-        'mongodbcommunity.mongodb.com',
-        'v1',
-        namespace,
-        'mongodbcommunity',
-        resourceName,
-      ) as { body: any };
+    const currentIsOperator = params.currentPlan ? this.isOperatorManaged(params.currentPlan) : false;
+    const newIsOperator = this.isOperatorManaged(params.newPlan);
 
-      // Update resource configuration
-      current.metadata.labels['eutlas.eu/plan'] = params.newPlan;
-      current.spec.members = resources.replicas;
-      current.spec.statefulSet.spec.template.spec.containers[0].resources = {
-        requests: {
-          cpu: resources.cpu,
-          memory: resources.memory,
-        },
-        limits: {
-          cpu: resources.cpuLimit,
-          memory: resources.memoryLimit,
-        },
-      };
-
-      await this.customApi.replaceNamespacedCustomObject(
-        'mongodbcommunity.mongodb.com',
-        'v1',
-        namespace,
-        'mongodbcommunity',
-        resourceName,
-        current,
+    // Block cross-path resizing (StatefulSet <-> Operator) as it requires migration
+    if (params.currentPlan && currentIsOperator !== newIsOperator) {
+      throw new Error(
+        `Cannot resize between StatefulSet-based plans (DEV/SMALL) and Operator-managed plans (MEDIUM+). ` +
+        `Please create a new cluster with the desired plan and migrate your data.`
       );
+    }
+
+    try {
+      if (newIsOperator) {
+        // Operator path: update the MongoDBCommunity CR
+        const { body: current } = await this.customApi.getNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com',
+          'v1',
+          namespace,
+          'mongodbcommunity',
+          resourceName,
+        ) as { body: any };
+
+        current.metadata.labels['eutlas.eu/plan'] = params.newPlan;
+        current.spec.members = resources.replicas;
+        current.spec.statefulSet.spec.template.spec.containers[0].resources = {
+          requests: { cpu: resources.cpu, memory: resources.memory },
+          limits: { cpu: resources.cpuLimit, memory: resources.memoryLimit },
+        };
+
+        await this.customApi.replaceNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com',
+          'v1',
+          namespace,
+          'mongodbcommunity',
+          resourceName,
+          current,
+        );
+      } else {
+        // StatefulSet path: patch the container resources directly
+        const patch = {
+          spec: {
+            template: {
+              spec: {
+                containers: [{
+                  name: 'mongodb',
+                  resources: {
+                    requests: { cpu: resources.cpu, memory: resources.memory },
+                    limits: { cpu: resources.cpuLimit, memory: resources.memoryLimit },
+                  },
+                }],
+              },
+            },
+          },
+        };
+
+        await this.appsApi.patchNamespacedStatefulSet(
+          resourceName,
+          namespace,
+          patch,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { headers: { 'Content-Type': 'application/strategic-merge-patch+json' } },
+        );
+      }
 
       this.logger.log(`Cluster ${params.clusterId} resize initiated`);
     } catch (error: any) {
@@ -834,18 +879,25 @@ export class KubernetesService implements OnModuleInit {
     }
 
     try {
-      // Scale down the StatefulSet to 0 replicas using scale subresource
-      const statefulSetName = `${resourceName}`;
-      
-      // Read current scale
-      const currentScale = await this.appsApi.readNamespacedStatefulSetScale(statefulSetName, namespace);
-      
-      // Update replicas to 0
-      if (currentScale.body.spec) {
-        currentScale.body.spec.replicas = 0;
+      if (this.isOperatorManaged(params.plan)) {
+        // Operator path: set spec.members to 0 so the operator scales down gracefully
+        const { body: mongoDb } = await this.customApi.getNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName,
+        ) as { body: any };
+
+        mongoDb.spec.members = 0;
+
+        await this.customApi.replaceNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName, mongoDb,
+        );
+      } else {
+        // StatefulSet path: scale directly
+        const currentScale = await this.appsApi.readNamespacedStatefulSetScale(resourceName, namespace);
+        if (currentScale.body.spec) {
+          currentScale.body.spec.replicas = 0;
+        }
+        await this.appsApi.replaceNamespacedStatefulSetScale(resourceName, namespace, currentScale.body);
       }
-      
-      await this.appsApi.replaceNamespacedStatefulSetScale(statefulSetName, namespace, currentScale.body);
 
       this.logger.log(`Cluster ${params.clusterId} paused (scaled to 0 replicas)`);
     } catch (error: any) {
@@ -867,18 +919,25 @@ export class KubernetesService implements OnModuleInit {
     }
 
     try {
-      // Scale up the StatefulSet to original replicas using scale subresource
-      const statefulSetName = `${resourceName}`;
-      
-      // Read current scale
-      const currentScale = await this.appsApi.readNamespacedStatefulSetScale(statefulSetName, namespace);
-      
-      // Update replicas
-      if (currentScale.body.spec) {
-        currentScale.body.spec.replicas = resources.replicas;
+      if (this.isOperatorManaged(params.plan)) {
+        // Operator path: restore spec.members so the operator scales up
+        const { body: mongoDb } = await this.customApi.getNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName,
+        ) as { body: any };
+
+        mongoDb.spec.members = resources.replicas;
+
+        await this.customApi.replaceNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName, mongoDb,
+        );
+      } else {
+        // StatefulSet path: scale directly
+        const currentScale = await this.appsApi.readNamespacedStatefulSetScale(resourceName, namespace);
+        if (currentScale.body.spec) {
+          currentScale.body.spec.replicas = resources.replicas;
+        }
+        await this.appsApi.replaceNamespacedStatefulSetScale(resourceName, namespace, currentScale.body);
       }
-      
-      await this.appsApi.replaceNamespacedStatefulSetScale(statefulSetName, namespace, currentScale.body);
 
       this.logger.log(`Cluster ${params.clusterId} resumed (scaled to ${resources.replicas} replicas)`);
     } catch (error: any) {
@@ -901,55 +960,47 @@ export class KubernetesService implements OnModuleInit {
     const resourceName = this.getResourceName(params.clusterId);
 
     try {
-      // Create password secret for the user
-      const secretName = `${resourceName}-user-${params.username}`;
-      
-      await this.coreApi.createNamespacedSecret(namespace, {
-        metadata: {
-          name: secretName,
-          namespace,
-          labels: {
-            'eutlas.eu/managed-by': 'eutlas',
-            'eutlas.eu/cluster': resourceName,
-            'eutlas.eu/user': params.username,
+      if (this.isOperatorManaged(params.plan)) {
+        // Operator path: create secret + update MongoDBCommunity CR
+        const secretName = `${resourceName}-user-${params.username}`;
+        
+        await this.coreApi.createNamespacedSecret(namespace, {
+          metadata: {
+            name: secretName,
+            namespace,
+            labels: {
+              'eutlas.eu/managed-by': 'eutlas',
+              'eutlas.eu/cluster': resourceName,
+              'eutlas.eu/user': params.username,
+            },
           },
-        },
-        type: 'Opaque',
-        stringData: {
-          password: params.password,
-        },
-      });
+          type: 'Opaque',
+          stringData: { password: params.password },
+        });
 
-      // Update MongoDBCommunity resource to add the user
-      const { body: mongoDb } = await this.customApi.getNamespacedCustomObject(
-        'mongodbcommunity.mongodb.com',
-        'v1',
-        namespace,
-        'mongodbcommunity',
-        resourceName,
-      ) as { body: any };
+        const { body: mongoDb } = await this.customApi.getNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName,
+        ) as { body: any };
 
-      const newUser = {
-        name: params.username,
-        db: 'admin',
-        passwordSecretRef: {
-          name: secretName,
-        },
-        roles: params.roles.map(r => ({ name: r.role, db: r.db })),
-        scramCredentialsSecretName: `${resourceName}-${params.username}-scram`,
-      };
+        mongoDb.spec.users = mongoDb.spec.users || [];
+        mongoDb.spec.users.push({
+          name: params.username,
+          db: 'admin',
+          passwordSecretRef: { name: secretName },
+          roles: params.roles.map(r => ({ name: r.role, db: r.db })),
+          scramCredentialsSecretName: `${resourceName}-${params.username}-scram`,
+        });
 
-      mongoDb.spec.users = mongoDb.spec.users || [];
-      mongoDb.spec.users.push(newUser);
-
-      await this.customApi.replaceNamespacedCustomObject(
-        'mongodbcommunity.mongodb.com',
-        'v1',
-        namespace,
-        'mongodbcommunity',
-        resourceName,
-        mongoDb,
-      );
+        await this.customApi.replaceNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName, mongoDb,
+        );
+      } else {
+        // StatefulSet path: exec mongosh to create user directly
+        const rolesJson = JSON.stringify(params.roles.map(r => ({ role: r.role, db: r.db })));
+        const escapedPassword = params.password.replace(/'/g, "\\'");
+        const cmd = `mongosh --quiet --eval "db.getSiblingDB('admin').createUser({user:'${params.username}',pwd:'${escapedPassword}',roles:${rolesJson}})"`;
+        await this.execInMongoPod(namespace, resourceName, cmd);
+      }
 
       this.logger.log(`Database user ${params.username} created`);
     } catch (error: any) {
@@ -970,43 +1021,39 @@ export class KubernetesService implements OnModuleInit {
     const resourceName = this.getResourceName(params.clusterId);
 
     try {
-      // Update password secret if provided
-      if (params.password) {
-        const secretName = `${resourceName}-user-${params.username}`;
-        
-        // Read current secret and update it
-        const currentSecret = await this.coreApi.readNamespacedSecret(secretName, namespace);
-        if (currentSecret.body.stringData) {
-          currentSecret.body.stringData.password = params.password;
-        } else {
+      if (this.isOperatorManaged(params.plan)) {
+        // Operator path: update secret + MongoDBCommunity CR
+        if (params.password) {
+          const secretName = `${resourceName}-user-${params.username}`;
+          const currentSecret = await this.coreApi.readNamespacedSecret(secretName, namespace);
           currentSecret.body.stringData = { password: params.password };
+          await this.coreApi.replaceNamespacedSecret(secretName, namespace, currentSecret.body);
         }
-        
-        await this.coreApi.replaceNamespacedSecret(secretName, namespace, currentSecret.body);
-      }
 
-      // Update roles if provided
-      if (params.roles) {
-        const { body: mongoDb } = await this.customApi.getNamespacedCustomObject(
-          'mongodbcommunity.mongodb.com',
-          'v1',
-          namespace,
-          'mongodbcommunity',
-          resourceName,
-        ) as { body: any };
+        if (params.roles) {
+          const { body: mongoDb } = await this.customApi.getNamespacedCustomObject(
+            'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName,
+          ) as { body: any };
 
-        const userIndex = mongoDb.spec.users.findIndex((u: any) => u.name === params.username);
-        if (userIndex !== -1) {
-          mongoDb.spec.users[userIndex].roles = params.roles.map(r => ({ name: r.role, db: r.db }));
-
-          await this.customApi.replaceNamespacedCustomObject(
-            'mongodbcommunity.mongodb.com',
-            'v1',
-            namespace,
-            'mongodbcommunity',
-            resourceName,
-            mongoDb,
-          );
+          const userIndex = mongoDb.spec.users.findIndex((u: any) => u.name === params.username);
+          if (userIndex !== -1) {
+            mongoDb.spec.users[userIndex].roles = params.roles.map(r => ({ name: r.role, db: r.db }));
+            await this.customApi.replaceNamespacedCustomObject(
+              'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName, mongoDb,
+            );
+          }
+        }
+      } else {
+        // StatefulSet path: exec mongosh to update user directly
+        if (params.password) {
+          const escapedPassword = params.password.replace(/'/g, "\\'");
+          const cmd = `mongosh --quiet --eval "db.getSiblingDB('admin').changeUserPassword('${params.username}','${escapedPassword}')"`;
+          await this.execInMongoPod(namespace, resourceName, cmd);
+        }
+        if (params.roles) {
+          const rolesJson = JSON.stringify(params.roles.map(r => ({ role: r.role, db: r.db })));
+          const cmd = `mongosh --quiet --eval "db.getSiblingDB('admin').updateUser('${params.username}',{roles:${rolesJson}})"`;
+          await this.execInMongoPod(namespace, resourceName, cmd);
         }
       }
 
@@ -1029,35 +1076,71 @@ export class KubernetesService implements OnModuleInit {
     const resourceName = this.getResourceName(params.clusterId);
 
     try {
-      // Delete user's password secret
-      const secretName = `${resourceName}-user-${params.username}`;
-      await this.coreApi.deleteNamespacedSecret(secretName, namespace);
+      if (this.isOperatorManaged(params.plan)) {
+        // Operator path: delete secret + remove from CRD
+        const secretName = `${resourceName}-user-${params.username}`;
+        try {
+          await this.coreApi.deleteNamespacedSecret(secretName, namespace);
+        } catch (e: any) {
+          if (e.response?.statusCode !== 404) throw e;
+        }
 
-      // Remove user from MongoDBCommunity resource
-      const { body: mongoDb } = await this.customApi.getNamespacedCustomObject(
-        'mongodbcommunity.mongodb.com',
-        'v1',
-        namespace,
-        'mongodbcommunity',
-        resourceName,
-      ) as { body: any };
+        const { body: mongoDb } = await this.customApi.getNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName,
+        ) as { body: any };
 
-      mongoDb.spec.users = mongoDb.spec.users.filter((u: any) => u.name !== params.username);
+        mongoDb.spec.users = mongoDb.spec.users.filter((u: any) => u.name !== params.username);
 
-      await this.customApi.replaceNamespacedCustomObject(
-        'mongodbcommunity.mongodb.com',
-        'v1',
-        namespace,
-        'mongodbcommunity',
-        resourceName,
-        mongoDb,
-      );
+        await this.customApi.replaceNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName, mongoDb,
+        );
+      } else {
+        // StatefulSet path: exec mongosh to drop user directly
+        const cmd = `mongosh --quiet --eval "db.getSiblingDB('admin').dropUser('${params.username}')"`;
+        await this.execInMongoPod(namespace, resourceName, cmd);
+      }
 
       this.logger.log(`Database user ${params.username} deleted`);
     } catch (error: any) {
       this.logger.error(`Failed to delete database user: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Execute a command in the first running MongoDB pod of a StatefulSet cluster.
+   * Used for direct mongosh operations on DEV/SMALL plans.
+   */
+  private async execInMongoPod(namespace: string, resourceName: string, command: string): Promise<string> {
+    const podName = `${resourceName}-0`; // StatefulSet pod naming convention
+    const exec = new k8s.Exec(this.kc);
+    
+    return new Promise<string>((resolve, reject) => {
+      let stdout = '';
+      let stderr = '';
+
+      exec.exec(
+        namespace,
+        podName,
+        'mongodb',
+        ['/bin/sh', '-c', command],
+        {
+          write: (data: string) => { stdout += data; },
+        } as any,
+        {
+          write: (data: string) => { stderr += data; },
+        } as any,
+        null,
+        false,
+        (status: k8s.V1Status) => {
+          if (status.status === 'Success') {
+            resolve(stdout);
+          } else {
+            reject(new Error(`Exec failed: ${stderr || status.message || 'unknown error'}`));
+          }
+        },
+      ).catch(reject);
+    });
   }
 
   // ========== Network Policy Management ==========
@@ -1214,6 +1297,39 @@ export class KubernetesService implements OnModuleInit {
 
   // ========== Backup & Restore ==========
 
+  /**
+   * Ensure a PVC exists for storing backups for a given cluster.
+   * Called during cluster creation and before backup operations.
+   */
+  async ensureBackupPvc(namespace: string, resourceName: string): Promise<void> {
+    const pvcName = `${resourceName}-backups`;
+    try {
+      await this.coreApi.readNamespacedPersistentVolumeClaim(pvcName, namespace);
+      // PVC already exists
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        await this.coreApi.createNamespacedPersistentVolumeClaim(namespace, {
+          metadata: {
+            name: pvcName,
+            namespace,
+            labels: {
+              'eutlas.eu/managed-by': 'eutlas',
+              'eutlas.eu/cluster': resourceName,
+            },
+          },
+          spec: {
+            accessModes: ['ReadWriteOnce'],
+            storageClassName: 'local-path',
+            resources: { requests: { storage: '5Gi' } },
+          },
+        });
+        this.logger.log(`Created backup PVC ${pvcName} in ${namespace}`);
+      } else {
+        throw error;
+      }
+    }
+  }
+
   async createBackup(params: BackupParams): Promise<void> {
     this.logger.log(`Creating backup ${params.backupId} for cluster ${params.clusterId}`);
 
@@ -1224,8 +1340,14 @@ export class KubernetesService implements OnModuleInit {
 
     const namespace = this.getNamespace(params.projectId);
     const resourceName = this.getResourceName(params.clusterId);
+    const serviceName = this.getServiceName(resourceName, params.plan);
 
-    // Create a Job to run mongodump
+    // Ensure the backup PVC exists
+    await this.ensureBackupPvc(namespace, resourceName);
+
+    // Build mongodump command with proper auth
+    const dumpCmd = `mongodump --host="${serviceName}" --port=27017 --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=/backup/${params.backupId}.gz --gzip`;
+
     const jobName = `backup-${params.backupId}`.substring(0, 63).toLowerCase();
     
     const backupJob: k8s.V1Job = {
@@ -1249,18 +1371,11 @@ export class KubernetesService implements OnModuleInit {
                 name: 'mongodump',
                 image: 'mongo:7.0',
                 command: ['/bin/bash', '-c'],
-                args: [
-                  `mongodump --uri="mongodb://${resourceName}-svc:27017" --archive=/backup/${params.backupId}.gz --gzip`,
-                ],
+                args: [dumpCmd],
                 env: [
                   {
                     name: 'MONGO_ADMIN_USER',
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: `${resourceName}-admin-password`,
-                        key: 'username',
-                      },
-                    },
+                    value: 'admin',
                   },
                   {
                     name: 'MONGO_ADMIN_PASSWORD',
@@ -1273,10 +1388,7 @@ export class KubernetesService implements OnModuleInit {
                   },
                 ],
                 volumeMounts: [
-                  {
-                    name: 'backup-storage',
-                    mountPath: '/backup',
-                  },
+                  { name: 'backup-storage', mountPath: '/backup' },
                 ],
               },
             ],
@@ -1309,25 +1421,23 @@ export class KubernetesService implements OnModuleInit {
 
     const namespace = this.getNamespace(params.projectId);
     const resourceName = this.getResourceName(params.clusterId);
+    const serviceName = this.getServiceName(resourceName, params.plan);
 
-    // Build mongorestore command with per-database/collection filtering
-    let restoreCmd = `mongorestore --uri="mongodb://${resourceName}-svc:27017" --archive=/backup/${params.backupId}.gz --gzip --drop`;
+    // Build mongorestore command with proper auth and correct service name
+    let restoreCmd = `mongorestore --host="${serviceName}" --port=27017 --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=/backup/${params.backupId}.gz --gzip --drop`;
 
-    // Add --nsInclude for per-database restore (e.g., restore only tenant_42)
     if (params.databases?.length) {
       for (const db of params.databases) {
         restoreCmd += ` --nsInclude="${db}.*"`;
       }
     }
 
-    // Add specific collection filters
     if (params.collections?.length) {
       for (const ns of params.collections) {
         restoreCmd += ` --nsInclude="${ns}"`;
       }
     }
 
-    // Create a Job to run mongorestore
     const jobName = `restore-${params.backupId}`.substring(0, 63).toLowerCase();
     
     const restoreJob: k8s.V1Job = {
@@ -1352,11 +1462,23 @@ export class KubernetesService implements OnModuleInit {
                 image: 'mongo:7.0',
                 command: ['/bin/bash', '-c'],
                 args: [restoreCmd],
-                volumeMounts: [
+                env: [
                   {
-                    name: 'backup-storage',
-                    mountPath: '/backup',
+                    name: 'MONGO_ADMIN_USER',
+                    value: 'admin',
                   },
+                  {
+                    name: 'MONGO_ADMIN_PASSWORD',
+                    valueFrom: {
+                      secretKeyRef: {
+                        name: `${resourceName}-admin-password`,
+                        key: 'password',
+                      },
+                    },
+                  },
+                ],
+                volumeMounts: [
+                  { name: 'backup-storage', mountPath: '/backup' },
                 ],
               },
             ],
@@ -1547,6 +1669,22 @@ export class KubernetesService implements OnModuleInit {
   }
 
   // ========== Helper Methods ==========
+
+  /**
+   * Returns true if the plan uses the MongoDB Community Operator (MongoDBCommunity CRD).
+   * DEV and SMALL use simple StatefulSets; everything else uses the operator.
+   */
+  private isOperatorManaged(plan: string): boolean {
+    return ['MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'].includes(plan);
+  }
+
+  /**
+   * Returns the correct MongoDB service hostname for the given deployment type.
+   * Operator-managed clusters use `{resourceName}-svc`, StatefulSet clusters use `{resourceName}`.
+   */
+  private getServiceName(resourceName: string, plan: string): string {
+    return this.isOperatorManaged(plan) ? `${resourceName}-svc` : resourceName;
+  }
 
   private getNamespace(projectId: string): string {
     return `${this.namespacePrefix}${projectId}`.toLowerCase();

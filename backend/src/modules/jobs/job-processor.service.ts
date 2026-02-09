@@ -180,6 +180,7 @@ export class JobProcessorService implements OnModuleInit {
       clusterId,
       projectId,
       newPlan,
+      currentPlan: oldPlan,
     });
 
     // Update cluster status and plan
@@ -222,9 +223,13 @@ export class JobProcessorService implements OnModuleInit {
     const projectId = job.targetProjectId!.toString();
     const reason = (job.payload as any)?.reason;
 
+    // Look up cluster plan
+    const cluster = await this.clustersService.findById(clusterId);
+    const plan = cluster?.plan || (job.payload as any)?.plan || 'DEV';
+
     // Scale down K8s resources
     try {
-      await this.kubernetesService.pauseMongoCluster({ clusterId, projectId });
+      await this.kubernetesService.pauseMongoCluster({ clusterId, projectId, plan });
     } catch (error: any) {
       this.logger.warn(`K8s pause failed for cluster ${clusterId}: ${error.message}. Marking as paused anyway.`);
     }
@@ -278,11 +283,15 @@ export class JobProcessorService implements OnModuleInit {
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
 
+    // Look up cluster plan for correct service name
+    const cluster = await this.clustersService.findById(clusterId);
+    const plan = cluster?.plan || 'DEV';
+
     // Start backup
     await this.backupsService.startBackup(backupId);
 
     // Create backup via K8s job
-    await this.kubernetesService.createBackup({ clusterId, projectId, backupId });
+    await this.kubernetesService.createBackup({ clusterId, projectId, plan, backupId });
 
     // Complete backup with simulated results
     const sizeBytes = Math.floor(Math.random() * 100 * 1024 * 1024) + 10 * 1024 * 1024; // 10-110MB
@@ -304,8 +313,12 @@ export class JobProcessorService implements OnModuleInit {
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
 
+    // Look up cluster plan for correct service name
+    const cluster = await this.clustersService.findById(clusterId);
+    const plan = cluster?.plan || 'DEV';
+
     // Restore via K8s job
-    await this.kubernetesService.restoreBackup({ clusterId, projectId, backupId });
+    await this.kubernetesService.restoreBackup({ clusterId, projectId, plan, backupId });
 
     // Complete restore
     await this.backupsService.completeRestore(backupId);
