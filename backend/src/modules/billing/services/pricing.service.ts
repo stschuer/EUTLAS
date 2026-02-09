@@ -54,30 +54,30 @@ export class PricingService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-    if (nodeEnv === 'test') {
-      this.logger.log('Skipping price seed in test environment');
-      return;
-    }
     await this.seedDefaultPrices();
-    await this.syncStripePrices();
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    if (nodeEnv !== 'test') {
+      await this.syncStripePrices();
+    }
     await this.loadPriceCache();
   }
 
   private async seedDefaultPrices(): Promise<void> {
     for (const priceData of DEFAULT_PRICES) {
-      const existing = await this.priceModel.findOne({ priceCode: priceData.priceCode }).exec();
-      if (!existing) {
-        const price = new this.priceModel({
-          ...priceData,
-          currency: 'EUR',
-          pricingModel: priceData.pricingModel || 'flat',
-          active: true,
-        });
-        await price.save();
-        this.logger.log(`Seeded price: ${priceData.priceCode}`);
-      }
+      await this.priceModel.updateOne(
+        { priceCode: priceData.priceCode },
+        {
+          $setOnInsert: {
+            ...priceData,
+            currency: 'EUR',
+            pricingModel: priceData.pricingModel || 'flat',
+            active: true,
+          },
+        },
+        { upsert: true },
+      ).exec();
     }
+    this.logger.log(`Seeded ${DEFAULT_PRICES.length} default prices`);
   }
 
   /**
