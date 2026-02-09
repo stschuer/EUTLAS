@@ -141,6 +141,27 @@ export class AdminController {
     return this.adminService.removeUserFromTenant(tenantId, userId);
   }
 
+  // ============ Cluster Cleanup ============
+
+  @Get('clusters/failed')
+  @ApiOperation({ summary: 'List failed or stuck clusters that may need cleanup' })
+  @ApiResponse({ status: 200 })
+  async listFailedClusters() {
+    return this.adminService.listFailedClusters();
+  }
+
+  @Delete('clusters/:clusterId/cleanup')
+  @ApiOperation({
+    summary: 'Clean up a failed cluster (delete K8s resources and DB records)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Cluster cleaned up successfully',
+  })
+  async cleanupFailedCluster(@Param('clusterId') clusterId: string) {
+    return this.adminService.cleanupFailedCluster(clusterId);
+  }
+
   // ============ Users ============
 
   @Get('users')

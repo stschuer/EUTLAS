@@ -132,10 +132,12 @@ export class JobProcessorService implements OnModuleInit {
       vectorSearchEnabled: vectorSearchEnabled || false,
     });
 
-    // Update cluster with connection info (including Qdrant if enabled)
+    // Update cluster with connection info (including replicaSet, SRV, and Qdrant if enabled)
     await this.clustersService.updateStatus(clusterId, 'ready', {
       host: result.host,
       port: result.port,
+      replicaSet: result.replicaSet,
+      srv: result.srv,
       qdrant: result.qdrant,
     });
 
@@ -254,7 +256,10 @@ export class JobProcessorService implements OnModuleInit {
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
     const reason = (job.payload as any)?.reason;
-    const plan = (job.payload as any)?.plan || 'DEV';
+
+    // Look up cluster plan to determine correct K8s path (operator vs StatefulSet)
+    const cluster = await this.clustersService.findById(clusterId);
+    const plan = cluster?.plan || (job.payload as any)?.plan || 'DEV';
 
     // Scale up K8s resources
     try {

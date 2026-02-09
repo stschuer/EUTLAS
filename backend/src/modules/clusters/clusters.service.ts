@@ -183,13 +183,25 @@ export class ClustersService {
   async updateStatus(
     clusterId: string,
     status: ClusterStatus,
-    connectionInfo?: { host: string; port: number; qdrant?: { host: string; port: number } },
+    connectionInfo?: {
+      host: string;
+      port: number;
+      replicaSet?: string;
+      srv?: string;
+      qdrant?: { host: string; port: number };
+    },
   ): Promise<ClusterDocument> {
     const updateData: any = { status };
     
     if (connectionInfo) {
       updateData.connectionHost = connectionInfo.host;
       updateData.connectionPort = connectionInfo.port;
+      if (connectionInfo.replicaSet) {
+        updateData.replicaSetName = connectionInfo.replicaSet;
+      }
+      if (connectionInfo.srv) {
+        updateData.srvHost = connectionInfo.srv;
+      }
       if (connectionInfo.qdrant) {
         updateData.vectorDbHost = connectionInfo.qdrant.host;
         updateData.vectorDbPort = connectionInfo.qdrant.port;
@@ -352,13 +364,13 @@ export class ClustersService {
     cluster.pauseReason = reason;
     await cluster.save();
 
-    // Create pause job
+    // Create pause job (include plan so the processor knows which K8s path to use)
     await this.jobsService.createJob({
       type: 'PAUSE_CLUSTER' as any,
       targetClusterId: clusterId,
       targetProjectId: cluster.projectId.toString(),
       targetOrgId: cluster.orgId.toString(),
-      payload: { reason },
+      payload: { reason, plan: cluster.plan },
     });
 
     return cluster;
@@ -381,13 +393,13 @@ export class ClustersService {
     cluster.status = 'resuming' as ClusterStatus;
     await cluster.save();
 
-    // Create resume job
+    // Create resume job (include plan so the processor knows which K8s path to use)
     await this.jobsService.createJob({
       type: 'RESUME_CLUSTER' as any,
       targetClusterId: clusterId,
       targetProjectId: cluster.projectId.toString(),
       targetOrgId: cluster.orgId.toString(),
-      payload: { reason },
+      payload: { reason, plan: cluster.plan },
     });
 
     return cluster;
