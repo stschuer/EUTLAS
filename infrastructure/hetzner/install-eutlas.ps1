@@ -100,20 +100,37 @@ function Install-MongoDBOperator {
     
     $existing = kubectl get crd mongodbcommunity.mongodbcommunity.mongodb.com 2>$null
     if ($existing) {
-        Write-Info "MongoDB Operator already installed"
-        return
+        $deployment = kubectl get deployment mongodb-kubernetes-operator -n mongodb-operator 2>$null
+        if ($deployment) {
+            Write-Info "MongoDB Operator already installed"
+            return
+        }
     }
     
-    kubectl apply -f "https://raw.githubusercontent.com/mongodb/mongodb-kubernetes-operator/master/config/crd/bases/mongodbcommunity.mongodb.com_mongodbcommunity.yaml"
-    
+    # Install via Helm with resource limits suitable for a single node (4 CPU, 8GB RAM)
     helm repo add mongodb https://mongodb.github.io/helm-charts
     helm repo update
     
-    helm install mongodb-operator mongodb/community-operator `
+    helm install community-operator mongodb/community-operator `
         --namespace mongodb-operator `
-        --create-namespace
+        --create-namespace `
+        --set operator.watchNamespace="*" `
+        --set operator.resources.requests.cpu=100m `
+        --set operator.resources.requests.memory=128Mi `
+        --set operator.resources.limits.cpu=200m `
+        --set operator.resources.limits.memory=256Mi
     
-    Write-Success "MongoDB Operator installed"
+    Write-Info "Waiting for MongoDB Operator to be ready..."
+    kubectl wait --for=condition=Available --timeout=120s `
+        deployment/mongodb-kubernetes-operator -n mongodb-operator 2>$null
+    
+    # Verify CRD was installed
+    $crd = kubectl get crd mongodbcommunity.mongodbcommunity.mongodb.com 2>$null
+    if ($crd) {
+        Write-Success "MongoDB Community Operator installed (CRD: mongodbcommunity.mongodb.com/v1)"
+    } else {
+        Write-Info "MongoDB Operator deployed but CRD not found yet. It may take a moment to register."
+    }
 }
 
 # Create namespace and secrets
@@ -151,10 +168,10 @@ function New-EutlasSecrets {
 }
 
 # Deploy EUTLAS
-function Deploy-Eutlas {
+function Publish-Eutlas {
     param(
         [string]$Env = "production",
-        [string]$Host = "app.$Domain",
+        [string]$Hostname = "app.$Domain",
         [int]$Replicas = 2
     )
     
@@ -191,7 +208,7 @@ spec:
             - name: PORT
               value: "4000"
             - name: FRONTEND_URL
-              value: "https://$Host"
+              value: "https://$Hostname"
           resources:
             requests:
               memory: "512Mi"
@@ -240,7 +257,7 @@ spec:
             - containerPort: 3000
           env:
             - name: NEXT_PUBLIC_API_URL
-              value: "https://$Host/api/v1"
+              value: "https://$Hostname/api/v1"
           resources:
             requests:
               memory: "256Mi"
@@ -274,10 +291,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - $Host
+        - $Hostname
       secretName: eutlas-tls
   rules:
-    - host: $Host
+    - host: $Hostname
       http:
         paths:
           - path: /api
@@ -302,7 +319,7 @@ spec:
     Write-Host "=============================================="
     Write-Host "Deployment Complete!"
     Write-Host "=============================================="
-    Write-Host "URL: https://$Host"
+    Write-Host "URL: https://$Hostname"
     Write-Host ""
     Write-Host "Check status:"
     Write-Host "  kubectl get pods -n $Namespace"
@@ -327,14 +344,14 @@ function Main {
     
     switch ($Environment) {
         "production" {
-            Deploy-Eutlas -Env "production" -Host "app.$Domain" -Replicas 3
+            Publish-Eutlas -Env "production" -Hostname "app.$Domain" -Replicas 3
         }
         "staging" {
-            Deploy-Eutlas -Env "staging" -Host "staging.$Domain" -Replicas 1
+            Publish-Eutlas -Env "staging" -Hostname "staging.$Domain" -Replicas 1
         }
         "both" {
-            Deploy-Eutlas -Env "production" -Host "app.$Domain" -Replicas 3
-            Deploy-Eutlas -Env "staging" -Host "staging.$Domain" -Replicas 1
+            Publish-Eutlas -Env "production" -Hostname "app.$Domain" -Replicas 3
+            Publish-Eutlas -Env "staging" -Hostname "staging.$Domain" -Replicas 1
         }
     }
     
