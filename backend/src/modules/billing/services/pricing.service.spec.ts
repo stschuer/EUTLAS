@@ -26,7 +26,11 @@ describe('PricingService', () => {
       configured: false,
     };
 
-    service = new PricingService(MockModel, mockStripeService);
+    const mockConfigService: any = {
+      get: jest.fn().mockReturnValue('test'),
+    };
+
+    service = new PricingService(MockModel, mockStripeService, mockConfigService);
   });
 
   // ==================== calculateAmount - flat pricing ====================
