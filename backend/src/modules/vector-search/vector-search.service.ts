@@ -13,6 +13,7 @@ import { CreateVectorIndexDto, VectorSearchQueryDto, SemanticSearchDto, HybridSe
 import { ClustersService } from '../clusters/clusters.service';
 import { EventsService } from '../events/events.service';
 import { DataExplorerService } from '../data-explorer/data-explorer.service';
+import { VectorSyncService } from './vector-sync.service';
 
 // Pre-defined analyzers
 const BUILT_IN_ANALYZERS = {
@@ -51,6 +52,7 @@ export class VectorSearchService {
     private readonly clustersService: ClustersService,
     private readonly eventsService: EventsService,
     private readonly dataExplorerService: DataExplorerService,
+    private readonly vectorSyncService: VectorSyncService,
   ) {}
 
   // ==================== Index Management ====================
@@ -102,7 +104,7 @@ export class VectorSearchService {
       message: `Vector search index "${createDto.name}" created on ${createDto.database}.${createDto.collection}`,
     });
 
-    // Simulate index building
+    // Build index asynchronously (creates Qdrant collection if available, otherwise simulates)
     this.buildIndexAsync(index._id.toString());
 
     this.logger.log(`Vector index created: ${index._id}`);
@@ -113,29 +115,63 @@ export class VectorSearchService {
     // Update status to building
     await this.vectorIndexModel.updateOne(
       { _id: indexId },
-      { 
+      {
         status: 'building',
         buildStartedAt: new Date(),
       },
     ).exec();
 
-    // Build the index
     try {
-      const docCount = Math.floor(Math.random() * 10000) + 100;
-      const indexSize = docCount * 1024 * 4; // Approximate size
+      const index = await this.vectorIndexModel.findById(indexId).exec();
+      if (!index) return;
 
-      await this.vectorIndexModel.updateOne(
-        { _id: indexId },
-        {
-          status: 'ready',
-          buildCompletedAt: new Date(),
-          documentCount: docCount,
-          indexSizeBytes: indexSize,
-        },
-      ).exec();
+      // Check if cluster has Qdrant enabled
+      const cluster = await this.clustersService.findById(index.clusterId.toString());
+      const hasQdrant = cluster?.vectorSearchEnabled && cluster?.vectorDbHost;
 
-      this.logger.log(`Vector index ${indexId} built successfully`);
+      if (hasQdrant) {
+        // Create real Qdrant collection
+        await this.vectorSyncService.createQdrantCollection(indexId);
+
+        // Run initial bulk sync from MongoDB to Qdrant
+        const syncResult = await this.vectorSyncService.bulkSync(indexId);
+
+        // Start change stream watcher for real-time sync
+        await this.vectorSyncService.startWatcher(indexId);
+
+        // Get real stats from Qdrant
+        const stats = await this.vectorSyncService.getCollectionStats(indexId);
+
+        await this.vectorIndexModel.updateOne(
+          { _id: indexId },
+          {
+            status: 'ready',
+            buildCompletedAt: new Date(),
+            documentCount: stats?.pointCount ?? syncResult.synced,
+            indexSizeBytes: stats?.indexSizeBytes ?? syncResult.synced * (index.vectorFields[0]?.dimensions || 128) * 4,
+          },
+        ).exec();
+
+        this.logger.log(`Vector index ${indexId} built on Qdrant: ${syncResult.synced} points synced`);
+      } else {
+        // No Qdrant -- simulate for dev/testing (legacy behaviour)
+        const docCount = Math.floor(Math.random() * 10000) + 100;
+        const indexSize = docCount * 1024 * 4;
+
+        await this.vectorIndexModel.updateOne(
+          { _id: indexId },
+          {
+            status: 'ready',
+            buildCompletedAt: new Date(),
+            documentCount: docCount,
+            indexSizeBytes: indexSize,
+          },
+        ).exec();
+
+        this.logger.log(`Vector index ${indexId} built in simulation mode`);
+      }
     } catch (error: any) {
+      this.logger.error(`Vector index build failed for ${indexId}: ${error.message}`);
       await this.vectorIndexModel.updateOne(
         { _id: indexId },
         {
@@ -168,7 +204,14 @@ export class VectorSearchService {
       { status: 'deleting' },
     ).exec();
 
-    // Delete the index
+    // Delete Qdrant collection if it exists
+    try {
+      await this.vectorSyncService.deleteQdrantCollection(indexId);
+    } catch (err: any) {
+      this.logger.warn(`Failed to delete Qdrant collection for index ${indexId}: ${err.message}`);
+    }
+
+    // Delete the index document
     await this.vectorIndexModel.deleteOne({ _id: indexId }).exec();
     this.logger.log(`Vector index deleted: ${indexId}`);
 
@@ -189,6 +232,16 @@ export class VectorSearchService {
       throw new BadRequestException('Index is already building');
     }
 
+    // Stop existing watcher
+    this.vectorSyncService.stopWatcher(indexId);
+
+    // Delete and recreate Qdrant collection
+    try {
+      await this.vectorSyncService.deleteQdrantCollection(indexId);
+    } catch {
+      // ignore
+    }
+
     await this.vectorIndexModel.updateOne(
       { _id: indexId },
       { status: 'pending', errorMessage: null },
@@ -197,6 +250,17 @@ export class VectorSearchService {
     this.buildIndexAsync(indexId);
 
     return this.findById(indexId);
+  }
+
+  // ==================== Bulk Sync Endpoint ====================
+
+  async syncIndex(indexId: string): Promise<{ synced: number; errors: number }> {
+    const index = await this.findById(indexId);
+    if (index.status !== 'ready') {
+      throw new BadRequestException('Index must be in ready state to sync');
+    }
+
+    return this.vectorSyncService.bulkSync(indexId);
   }
 
   // ==================== Vector Search ====================
@@ -235,28 +299,130 @@ export class VectorSearchService {
 
     const limit = queryDto.limit || 10;
 
-    // Strategy 1: Try real $vectorSearch aggregation (Atlas or Atlas-compatible)
+    // Strategy 1: Qdrant ANN search (primary -- for clusters with vector search enabled)
+    try {
+      const qdrantClient = await this.vectorSyncService.getQdrantClient(clusterId);
+      if (qdrantClient) {
+        const results = await this.executeQdrantSearch(
+          qdrantClient, index, queryDto, limit,
+        );
+        this.logger.log(`Qdrant search on ${database}.${collection} with index ${indexName} (${results.length} results)`);
+        return results;
+      }
+    } catch (qdrantError: any) {
+      this.logger.warn(`Qdrant search failed: ${qdrantError.message}. Falling back.`);
+    }
+
+    // Strategy 2: Try Atlas $vectorSearch (for Atlas-compatible deployments)
     try {
       const results = await this.executeAtlasVectorSearch(
         clusterId, indexName, database, collection, queryDto, vectorField.similarity || 'cosine', limit,
       );
       this.logger.log(`$vectorSearch executed on ${database}.${collection} with index ${indexName}`);
       return results;
-    } catch (atlasError) {
-      this.logger.warn(`$vectorSearch not available: ${atlasError.message}. Falling back to in-memory cosine similarity.`);
+    } catch (atlasError: any) {
+      this.logger.warn(`$vectorSearch not available: ${atlasError.message}. Falling back to in-memory.`);
     }
 
-    // Strategy 2: Fallback to in-memory cosine similarity search
+    // Strategy 3: In-memory fallback (last resort for dev/small datasets)
     try {
       const results = await this.executeInMemoryVectorSearch(
         clusterId, database, collection, queryDto, vectorField.similarity || 'cosine', limit,
       );
       this.logger.log(`In-memory vector search on ${database}.${collection} (fallback mode)`);
       return results;
-    } catch (fallbackError) {
+    } catch (fallbackError: any) {
       this.logger.error(`In-memory vector search failed: ${fallbackError.message}`);
       throw new BadRequestException('Vector search failed. Ensure documents have vector embeddings.');
     }
+  }
+
+  /**
+   * Execute vector search via Qdrant ANN engine.
+   * Returns scored documents with full MongoDB documents fetched by ID.
+   */
+  private async executeQdrantSearch(
+    qdrantClient: any,
+    index: VectorIndexDocument,
+    queryDto: VectorSearchQueryDto,
+    limit: number,
+  ): Promise<any[]> {
+    const collectionName = this.vectorSyncService.getQdrantCollectionName(index);
+
+    // Build Qdrant filter from the query filter
+    let qdrantFilter: any = undefined;
+    if (queryDto.filter && Object.keys(queryDto.filter).length > 0) {
+      const mustConditions: any[] = [];
+      for (const [key, value] of Object.entries(queryDto.filter)) {
+        const fieldKey = key.replace(/\./g, '_');
+        if (typeof value === 'object' && value !== null) {
+          // Range filters: { $gte: 10, $lte: 100 }
+          if (value.$gte !== undefined || value.$lte !== undefined) {
+            mustConditions.push({
+              key: fieldKey,
+              range: {
+                ...(value.$gte !== undefined ? { gte: value.$gte } : {}),
+                ...(value.$lte !== undefined ? { lte: value.$lte } : {}),
+                ...(value.$gt !== undefined ? { gt: value.$gt } : {}),
+                ...(value.$lt !== undefined ? { lt: value.$lt } : {}),
+              },
+            });
+          }
+        } else {
+          // Exact match
+          mustConditions.push({
+            key: fieldKey,
+            match: { value },
+          });
+        }
+      }
+      if (mustConditions.length > 0) {
+        qdrantFilter = { must: mustConditions };
+      }
+    }
+
+    // Execute search
+    const searchResult = await qdrantClient.search(collectionName, {
+      vector: queryDto.vector,
+      limit,
+      filter: qdrantFilter,
+      with_payload: true,
+    });
+
+    if (!searchResult || searchResult.length === 0) {
+      return [];
+    }
+
+    // Fetch full documents from MongoDB using the stored _mongo_id
+    const mongoIds = searchResult
+      .map((r: any) => r.payload?._mongo_id)
+      .filter(Boolean);
+
+    let docMap = new Map<string, any>();
+
+    if (mongoIds.length > 0) {
+      try {
+        const mongoClient = await this.dataExplorerService.getConnection(index.clusterId.toString());
+        const db = mongoClient.db(index.database);
+        const coll = db.collection(index.collection);
+
+        const fullDocs = await coll.find({
+          _id: { $in: mongoIds.map((id: string) => {
+            try { return new Types.ObjectId(id); } catch { return id; }
+          }) },
+        } as any).toArray();
+
+        docMap = new Map(fullDocs.map((d: any) => [d._id?.toString(), d]));
+      } catch (err: any) {
+        this.logger.warn(`Failed to fetch full documents from MongoDB: ${err.message}`);
+      }
+    }
+
+    return searchResult.map((r: any) => ({
+      _id: r.payload?._mongo_id || r.id?.toString(),
+      score: r.score,
+      document: docMap.get(r.payload?._mongo_id) || r.payload || {},
+    }));
   }
 
   /**
@@ -424,7 +590,7 @@ export class VectorSearchService {
           searchDto.model || 'text-embedding-3-small',
           apiKey,
         );
-      } catch (err) {
+      } catch (err: any) {
         this.logger.warn(`Embedding API call failed: ${err.message}. Using random embedding for testing.`);
         embedding = Array.from({ length: embeddingDimensions }, () => Math.random() * 2 - 1);
       }
@@ -537,7 +703,7 @@ export class VectorSearchService {
 
     this.logger.log(`Hybrid search: "${searchDto.query}" (vector: ${vectorWeight}, text: ${textWeight})`);
 
-    // Execute vector search (with real or fallback engine)
+    // Execute vector search (with Qdrant, Atlas, or fallback engine)
     let vectorResults: any[] = [];
     if (searchDto.vector) {
       vectorResults = await this.vectorSearch(clusterId, indexName, database, collection, {
@@ -573,7 +739,7 @@ export class VectorSearchService {
         score: (doc.score || 0) / maxTextScore,
         document: doc,
       }));
-    } catch (err) {
+    } catch (err: any) {
       this.logger.warn(`Text search failed (no text index?): ${err.message}`);
     }
 
@@ -676,4 +842,3 @@ export class VectorSearchService {
     };
   }
 }
-

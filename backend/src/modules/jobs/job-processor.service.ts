@@ -115,12 +115,12 @@ export class JobProcessorService implements OnModuleInit {
   }
 
   private async processCreateCluster(job: JobDocument) {
-    const { plan, mongoVersion, credentials, clusterName, createdBy } = job.payload as any;
+    const { plan, mongoVersion, credentials, clusterName, createdBy, vectorSearchEnabled } = job.payload as any;
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
     const orgId = job.targetOrgId!.toString();
     
-    // Create K8s resources
+    // Create K8s resources (MongoDB + optional Qdrant companion)
     const result = await this.kubernetesService.createMongoCluster({
       clusterId,
       projectId,
@@ -129,12 +129,14 @@ export class JobProcessorService implements OnModuleInit {
       plan,
       mongoVersion,
       credentials,
+      vectorSearchEnabled: vectorSearchEnabled || false,
     });
 
-    // Update cluster with connection info
+    // Update cluster with connection info (including Qdrant if enabled)
     await this.clustersService.updateStatus(clusterId, 'ready', {
       host: result.host,
       port: result.port,
+      qdrant: result.qdrant,
     });
 
     // Create event

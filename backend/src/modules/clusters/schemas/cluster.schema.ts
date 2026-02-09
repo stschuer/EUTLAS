@@ -88,6 +88,15 @@ export class Cluster {
   @Prop({ required: true })
   credentialsEncrypted: string;
 
+  @Prop({ default: false })
+  vectorSearchEnabled: boolean;
+
+  @Prop()
+  vectorDbHost?: string;
+
+  @Prop()
+  vectorDbPort?: number;
+
   @Prop({ type: Types.ObjectId, ref: 'Cluster' })
   clonedFrom?: Types.ObjectId;
 

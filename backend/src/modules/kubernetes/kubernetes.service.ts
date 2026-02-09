@@ -12,6 +12,7 @@ interface CreateClusterParams {
   plan: string;
   mongoVersion: string;
   region?: string;
+  vectorSearchEnabled?: boolean;
   credentials: {
     username: string;
     password: string;
@@ -45,6 +46,10 @@ interface ClusterConnectionInfo {
   port: number;
   replicaSet?: string;
   srv?: string;
+  qdrant?: {
+    host: string;
+    port: number;
+  };
 }
 
 interface CreateDatabaseUserParams {
@@ -110,6 +115,24 @@ export const PLAN_RESOURCES: Record<string, {
   DEDICATED_SMALL: { cpu: '1000m', memory: '2Gi', storage: '50Gi', replicas: 3, cpuLimit: '2000m', memoryLimit: '4Gi' },
   DEDICATED_MEDIUM: { cpu: '2000m', memory: '4Gi', storage: '100Gi', replicas: 3, cpuLimit: '4000m', memoryLimit: '8Gi' },
   DEDICATED_LARGE: { cpu: '4000m', memory: '8Gi', storage: '250Gi', replicas: 3, cpuLimit: '8000m', memoryLimit: '16Gi' },
+};
+
+// Qdrant companion service resource sizing (opt-in, only when vectorSearchEnabled)
+export const QDRANT_RESOURCES: Record<string, {
+  cpu: string;
+  memory: string;
+  storage: string;
+  cpuLimit: string;
+  memoryLimit: string;
+}> = {
+  DEV: { cpu: '100m', memory: '256Mi', storage: '1Gi', cpuLimit: '200m', memoryLimit: '512Mi' },
+  SMALL: { cpu: '200m', memory: '512Mi', storage: '5Gi', cpuLimit: '500m', memoryLimit: '1Gi' },
+  MEDIUM: { cpu: '250m', memory: '1Gi', storage: '10Gi', cpuLimit: '750m', memoryLimit: '2Gi' },
+  LARGE: { cpu: '500m', memory: '2Gi', storage: '25Gi', cpuLimit: '1000m', memoryLimit: '4Gi' },
+  XLARGE: { cpu: '1000m', memory: '4Gi', storage: '50Gi', cpuLimit: '2000m', memoryLimit: '8Gi' },
+  DEDICATED_SMALL: { cpu: '1000m', memory: '4Gi', storage: '50Gi', cpuLimit: '2000m', memoryLimit: '8Gi' },
+  DEDICATED_MEDIUM: { cpu: '2000m', memory: '8Gi', storage: '100Gi', cpuLimit: '4000m', memoryLimit: '16Gi' },
+  DEDICATED_LARGE: { cpu: '4000m', memory: '16Gi', storage: '250Gi', cpuLimit: '8000m', memoryLimit: '32Gi' },
 };
 
 // MongoDB Community Operator CRD API Version
@@ -290,7 +313,15 @@ export class KubernetesService implements OnModuleInit {
 
     if (this.shouldSimulate()) {
       await this.simulateDelay(2000);
-      return this.getSimulatedConnectionInfo(resourceName, namespace);
+      const simInfo = this.getSimulatedConnectionInfo(resourceName, namespace);
+      if (params.vectorSearchEnabled) {
+        const qdrantName = `qdrant-${params.clusterId}`.toLowerCase();
+        simInfo.qdrant = {
+          host: `${qdrantName}.${namespace}.svc.cluster.local`,
+          port: 6333,
+        };
+      }
+      return simInfo;
     }
 
     try {
@@ -316,6 +347,15 @@ export class KubernetesService implements OnModuleInit {
       // 3. Create NetworkPolicy for security
       await this.createDefaultNetworkPolicy(namespace, resourceName);
 
+      // 4. Create Qdrant companion service if vector search is enabled
+      let qdrantInfo: { host: string; port: number } | undefined;
+      if (params.vectorSearchEnabled) {
+        const qdrantResources = QDRANT_RESOURCES[params.plan] || QDRANT_RESOURCES.DEV;
+        const qdrantName = `qdrant-${params.clusterId}`.toLowerCase();
+        qdrantInfo = await this.createQdrantStatefulSet(namespace, qdrantName, qdrantResources);
+        this.logger.log(`Qdrant companion service created for cluster ${params.clusterId}`);
+      }
+
       this.logger.log(`MongoDB cluster ${params.clusterId} creation initiated successfully`);
 
       const serviceName = useOperator ? `${resourceName}-svc` : resourceName;
@@ -324,6 +364,7 @@ export class KubernetesService implements OnModuleInit {
         port: 27017,
         replicaSet: useOperator ? resourceName : undefined,
         srv: useOperator ? `mongodb+srv://${serviceName}.${namespace}.svc.cluster.local` : undefined,
+        qdrant: qdrantInfo,
       };
     } catch (error: any) {
       const errorDetails = error.response?.body || error.body || error.message;
@@ -751,6 +792,25 @@ export class KubernetesService implements OnModuleInit {
         await this.networkApi.deleteNamespacedNetworkPolicy(`${resourceName}-network-policy`, namespace);
       } catch (e) {
         // Ignore if not found
+      }
+
+      // Delete Qdrant companion service if it exists
+      await this.deleteQdrantInstance(namespace, params.clusterId);
+
+      // Delete simple StatefulSet + Service (DEV/SMALL plans)
+      try {
+        await this.appsApi.deleteNamespacedStatefulSet(resourceName, namespace);
+      } catch (e: any) {
+        if (e.response?.statusCode !== 404) {
+          this.logger.warn(`Failed to delete StatefulSet ${resourceName}: ${e.message}`);
+        }
+      }
+      try {
+        await this.coreApi.deleteNamespacedService(resourceName, namespace);
+      } catch (e: any) {
+        if (e.response?.statusCode !== 404) {
+          this.logger.warn(`Failed to delete Service ${resourceName}: ${e.message}`);
+        }
       }
 
       this.logger.log(`Cluster ${params.clusterId} deleted`);
@@ -1317,6 +1377,173 @@ export class KubernetesService implements OnModuleInit {
     await batchApi.createNamespacedJob(namespace, restoreJob);
     
     this.logger.log(`Restore job ${jobName} created (databases: ${params.databases?.join(', ') || 'all'})`);
+  }
+
+  // ========== Qdrant Companion Service ==========
+
+  private async createQdrantStatefulSet(
+    namespace: string,
+    resourceName: string,
+    resources: typeof QDRANT_RESOURCES.DEV,
+  ): Promise<{ host: string; port: number }> {
+    // Create Qdrant StatefulSet
+    const statefulSet: k8s.V1StatefulSet = {
+      metadata: {
+        name: resourceName,
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/component': 'qdrant',
+          app: resourceName,
+        },
+      },
+      spec: {
+        serviceName: resourceName,
+        replicas: 1,
+        selector: {
+          matchLabels: { app: resourceName },
+        },
+        template: {
+          metadata: {
+            labels: {
+              app: resourceName,
+              'eutlas.eu/component': 'qdrant',
+            },
+          },
+          spec: {
+            containers: [
+              {
+                name: 'qdrant',
+                image: 'qdrant/qdrant:v1.13.2',
+                ports: [
+                  { containerPort: 6333, name: 'http' },
+                  { containerPort: 6334, name: 'grpc' },
+                ],
+                resources: {
+                  requests: { cpu: resources.cpu, memory: resources.memory },
+                  limits: { cpu: resources.cpuLimit, memory: resources.memoryLimit },
+                },
+                volumeMounts: [{ name: 'qdrant-storage', mountPath: '/qdrant/storage' }],
+                readinessProbe: {
+                  httpGet: { path: '/readyz', port: 6333 as any },
+                  initialDelaySeconds: 5,
+                  periodSeconds: 10,
+                },
+                livenessProbe: {
+                  httpGet: { path: '/livez', port: 6333 as any },
+                  initialDelaySeconds: 10,
+                  periodSeconds: 30,
+                },
+              },
+            ],
+          },
+        },
+        volumeClaimTemplates: [
+          {
+            metadata: { name: 'qdrant-storage' },
+            spec: {
+              accessModes: ['ReadWriteOnce'],
+              storageClassName: 'local-path',
+              resources: { requests: { storage: resources.storage } },
+            },
+          },
+        ],
+      },
+    };
+
+    // Create headless Service for Qdrant
+    const service: k8s.V1Service = {
+      metadata: {
+        name: resourceName,
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/component': 'qdrant',
+          app: resourceName,
+        },
+      },
+      spec: {
+        selector: { app: resourceName },
+        ports: [
+          { port: 6333, targetPort: 6333, name: 'http' },
+          { port: 6334, targetPort: 6334, name: 'grpc' },
+        ],
+        clusterIP: 'None',
+      },
+    };
+
+    try {
+      await this.appsApi.createNamespacedStatefulSet(namespace, statefulSet);
+      this.logger.log(`Created Qdrant StatefulSet ${resourceName} in ${namespace}`);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 409) {
+        this.logger.error(`Failed to create Qdrant StatefulSet: ${JSON.stringify(error.response?.body || error.message)}`);
+        throw error;
+      }
+    }
+
+    try {
+      await this.coreApi.createNamespacedService(namespace, service);
+      this.logger.log(`Created Qdrant Service ${resourceName} in ${namespace}`);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 409) {
+        this.logger.error(`Failed to create Qdrant Service: ${JSON.stringify(error.response?.body || error.message)}`);
+        throw error;
+      }
+    }
+
+    return {
+      host: `${resourceName}.${namespace}.svc.cluster.local`,
+      port: 6333,
+    };
+  }
+
+  async deleteQdrantInstance(namespace: string, clusterId: string): Promise<void> {
+    const qdrantName = `qdrant-${clusterId}`.toLowerCase();
+
+    if (this.shouldSimulate()) {
+      this.logger.debug(`[SIM] Would delete Qdrant instance: ${qdrantName}`);
+      return;
+    }
+
+    // Delete Qdrant StatefulSet
+    try {
+      await this.appsApi.deleteNamespacedStatefulSet(qdrantName, namespace);
+      this.logger.log(`Deleted Qdrant StatefulSet ${qdrantName}`);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 404) {
+        this.logger.warn(`Failed to delete Qdrant StatefulSet: ${error.message}`);
+      }
+    }
+
+    // Delete Qdrant Service
+    try {
+      await this.coreApi.deleteNamespacedService(qdrantName, namespace);
+      this.logger.log(`Deleted Qdrant Service ${qdrantName}`);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 404) {
+        this.logger.warn(`Failed to delete Qdrant Service: ${error.message}`);
+      }
+    }
+
+    // Delete Qdrant PVCs
+    try {
+      const pvcs = await this.coreApi.listNamespacedPersistentVolumeClaim(
+        namespace,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        `app=${qdrantName}`,
+      );
+      for (const pvc of pvcs.body.items) {
+        if (pvc.metadata?.name) {
+          await this.coreApi.deleteNamespacedPersistentVolumeClaim(pvc.metadata.name, namespace);
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(`Failed to clean up Qdrant PVCs: ${error.message}`);
+    }
   }
 
   // ========== Helper Methods ==========

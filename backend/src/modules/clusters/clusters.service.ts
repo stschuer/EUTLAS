@@ -58,6 +58,7 @@ export class ClustersService {
       mongoVersion: createClusterDto.mongoVersion || '7.0.5',
       status: 'creating' as ClusterStatus,
       credentialsEncrypted: credentials.encrypted,
+      vectorSearchEnabled: createClusterDto.enableVectorSearch || false,
     });
 
     await cluster.save();
@@ -74,6 +75,7 @@ export class ClustersService {
         credentials: credentials.raw,
         clusterName: createClusterDto.name,
         createdBy,
+        vectorSearchEnabled: createClusterDto.enableVectorSearch || false,
       },
     });
 
@@ -181,13 +183,17 @@ export class ClustersService {
   async updateStatus(
     clusterId: string,
     status: ClusterStatus,
-    connectionInfo?: { host: string; port: number },
+    connectionInfo?: { host: string; port: number; qdrant?: { host: string; port: number } },
   ): Promise<ClusterDocument> {
     const updateData: any = { status };
     
     if (connectionInfo) {
       updateData.connectionHost = connectionInfo.host;
       updateData.connectionPort = connectionInfo.port;
+      if (connectionInfo.qdrant) {
+        updateData.vectorDbHost = connectionInfo.qdrant.host;
+        updateData.vectorDbPort = connectionInfo.qdrant.port;
+      }
     }
 
     const cluster = await this.clusterModel.findByIdAndUpdate(

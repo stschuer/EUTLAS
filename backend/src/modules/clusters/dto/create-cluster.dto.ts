@@ -1,4 +1,4 @@
-import { IsString, MinLength, MaxLength, Matches, IsEnum, IsOptional, IsArray } from 'class-validator';
+import { IsString, MinLength, MaxLength, Matches, IsEnum, IsOptional, IsArray, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateClusterDto {
@@ -27,6 +27,11 @@ export class CreateClusterDto {
   @IsOptional()
   @IsString()
   region?: string;
+
+  @ApiPropertyOptional({ example: false, description: 'Enable Qdrant vector search companion service' })
+  @IsOptional()
+  @IsBoolean()
+  enableVectorSearch?: boolean;
 }
 
 export class CloneClusterDto {

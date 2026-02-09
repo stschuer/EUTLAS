@@ -169,6 +169,25 @@ export class VectorSearchController {
     };
   }
 
+  @Post('indexes/:indexId/sync')
+  @ApiOperation({ summary: 'Bulk sync MongoDB data to Qdrant vector index' })
+  async syncIndex(
+    @CurrentUser() user: CurrentUserData,
+    @Param('projectId') projectId: string,
+    @Param('clusterId') clusterId: string,
+    @Param('indexId') indexId: string,
+  ) {
+    await this.verifyAccess(user.userId, projectId, clusterId, ['OWNER', 'ADMIN']);
+
+    const result = await this.vectorSearchService.syncIndex(indexId);
+
+    return {
+      success: true,
+      data: result,
+      message: `Sync complete: ${result.synced} documents synced, ${result.errors} errors`,
+    };
+  }
+
   // ==================== Search Operations ====================
 
   @Post('search')
