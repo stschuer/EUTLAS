@@ -176,9 +176,9 @@ export class KubernetesService implements OnModuleInit {
       }
     } catch (error: any) {
       this.logger.error(`Failed to connect to Kubernetes: ${error.message}`);
-      if (!this.devMode) {
-        throw error;
-      }
+      this.logger.warn('Falling back to simulation mode for Kubernetes operations');
+      // Don't crash the app - fall back to simulation mode
+      this.isConnected = false;
     }
   }
 
