@@ -22,7 +22,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { 
   Key, 
@@ -214,94 +213,94 @@ export default function ApiKeysPage() {
       <PageHeader
         title="API Keys"
         description="Manage programmatic access to your organization"
-        action={
-          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Create API Key
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Create API Key</DialogTitle>
-                <DialogDescription>
-                  Create a new API key for programmatic access. The secret key will only be shown once.
-                </DialogDescription>
-              </DialogHeader>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  createMutation.mutate(newKey);
-                }}
-                className="space-y-4"
-              >
-                <div className="space-y-2">
-                  <Label htmlFor="name">Name</Label>
-                  <Input
-                    id="name"
-                    placeholder="Production API Key"
-                    value={newKey.name}
-                    onChange={(e) => setNewKey({ ...newKey, name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description (optional)</Label>
-                  <Textarea
-                    id="description"
-                    placeholder="Used by CI/CD pipeline..."
-                    value={newKey.description}
-                    onChange={(e) => setNewKey({ ...newKey, description: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Permissions</Label>
-                  <div className="grid gap-2 max-h-[200px] overflow-y-auto border rounded-md p-3">
-                    {availableScopes.map((item) => (
-                      <div key={item.scope} className="flex items-start gap-2">
-                        <Checkbox
-                          id={item.scope}
-                          checked={newKey.scopes.includes(item.scope)}
-                          onCheckedChange={() => toggleScope(item.scope)}
-                        />
-                        <label htmlFor={item.scope} className="text-sm cursor-pointer">
-                          <span className="font-medium">{item.scope}</span>
-                          <p className="text-muted-foreground text-xs">{item.description}</p>
-                        </label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="expiry">Expiration</Label>
-                  <select
-                    id="expiry"
-                    value={newKey.expiry}
-                    onChange={(e) => setNewKey({ ...newKey, expiry: e.target.value })}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <option value="30">30 days</option>
-                    <option value="60">60 days</option>
-                    <option value="90">90 days</option>
-                    <option value="180">180 days</option>
-                    <option value="365">1 year</option>
-                    <option value="never">No expiration</option>
-                  </select>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={createMutation.isPending || newKey.scopes.length === 0}>
-                    {createMutation.isPending ? 'Creating...' : 'Create Key'}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+        actions={
+          <Button onClick={() => setShowCreateDialog(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create API Key
+          </Button>
         }
       />
+
+      {/* Create API Key Dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create API Key</DialogTitle>
+            <DialogDescription>
+              Create a new API key for programmatic access. The secret key will only be shown once.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate(newKey);
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                placeholder="Production API Key"
+                value={newKey.name}
+                onChange={(e) => setNewKey({ ...newKey, name: e.target.value })}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">Description (optional)</Label>
+              <Textarea
+                id="description"
+                placeholder="Used by CI/CD pipeline..."
+                value={newKey.description}
+                onChange={(e) => setNewKey({ ...newKey, description: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Permissions</Label>
+              <div className="grid gap-2 max-h-[200px] overflow-y-auto border rounded-md p-3">
+                {availableScopes.map((item) => (
+                  <div key={item.scope} className="flex items-start gap-2">
+                    <Checkbox
+                      id={item.scope}
+                      checked={newKey.scopes.includes(item.scope)}
+                      onCheckedChange={() => toggleScope(item.scope)}
+                    />
+                    <label htmlFor={item.scope} className="text-sm cursor-pointer">
+                      <span className="font-medium">{item.scope}</span>
+                      <p className="text-muted-foreground text-xs">{item.description}</p>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expiry">Expiration</Label>
+              <select
+                id="expiry"
+                value={newKey.expiry}
+                onChange={(e) => setNewKey({ ...newKey, expiry: e.target.value })}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="30">30 days</option>
+                <option value="60">60 days</option>
+                <option value="90">90 days</option>
+                <option value="180">180 days</option>
+                <option value="365">1 year</option>
+                <option value="never">No expiration</option>
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createMutation.isPending || newKey.scopes.length === 0}>
+                {createMutation.isPending ? 'Creating...' : 'Create Key'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Secret Key Dialog */}
       <Dialog open={showSecretDialog} onOpenChange={(open) => {
