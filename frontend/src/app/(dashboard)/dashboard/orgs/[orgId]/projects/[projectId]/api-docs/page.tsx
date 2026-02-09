@@ -42,7 +42,7 @@ function generateApiDocs(project: any, clusters: any[], baseUrl: string): string
 | **API Base URL** | \`${baseUrl}\` |
 | **Project ID** | \`${project.id}\` |
 | **Project Name** | ${project.name} |
-| **Authentication** | Bearer token (JWT) — pass as \`Authorization: Bearer <token>\` header |
+| **Authentication** | Bearer token (JWT) or API Key — see Section 1 below |
 
 ## Your Clusters
 
@@ -52,13 +52,17 @@ ${clusterList || '_No clusters created yet._'}
 
 ## 1. Authentication
 
-All API calls require a JWT Bearer token in the \`Authorization\` header.
+The API supports two authentication methods: **JWT Bearer tokens** (for interactive/user sessions) and **API Keys** (for programmatic/machine access).
+
+### Option A: JWT Bearer Token
+
+Pass a JWT token in the \`Authorization\` header. Best for interactive sessions and short-lived access.
 
 \`\`\`
 Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 \`\`\`
 
-### Login
+#### Login
 \`\`\`
 POST ${baseUrl}/auth/login
 Content-Type: application/json
@@ -70,6 +74,73 @@ Content-Type: application/json
 \`\`\`json
 { "success": true, "data": { "token": "eyJ...", "user": { "id": "...", "email": "..." } } }
 \`\`\`
+
+### Option B: API Key
+
+Pass an API key in the \`x-api-key\` header. Best for CI/CD pipelines, scripts, automation, and server-to-server communication.
+
+\`\`\`
+x-api-key: <public_key>:<secret_key>
+\`\`\`
+
+The header value is your **public key** and **secret key** joined with a colon (\`:\`).
+
+**Example:**
+\`\`\`
+x-api-key: eutlas_pk_a1b2c3d4e5f6a1b2...:eutlas_sk_f6e5d4c3b2a1f6e5d4c3b2a1...
+\`\`\`
+
+#### Creating API Keys
+
+API keys are managed via the **Organization > API Keys** page in the dashboard, or via the management API:
+
+\`\`\`
+POST ${baseUrl}/orgs/<orgId>/api-keys
+Authorization: Bearer <jwt-token>
+Content-Type: application/json
+
+{
+  "name": "CI/CD Pipeline Key",
+  "description": "Used by GitHub Actions",
+  "scopes": ["clusters:read", "backups:read", "backups:write"],
+  "expiry": "90"
+}
+\`\`\`
+
+> **Important:** The secret key is only shown **once** at creation time. Copy and store it securely.
+
+#### Available Scopes (Permissions)
+
+| Scope | Description |
+|-------|-------------|
+| \`clusters:read\` | Read cluster information |
+| \`clusters:write\` | Create, update, delete clusters |
+| \`projects:read\` | Read project information |
+| \`projects:write\` | Create, update, delete projects |
+| \`backups:read\` | Read backup information |
+| \`backups:write\` | Create, restore, delete backups |
+| \`metrics:read\` | Read cluster metrics and monitoring data |
+| \`members:read\` | Read organization members |
+| \`members:write\` | Invite and manage members |
+| \`admin\` | Full administrative access (grants all scopes) |
+
+Default scopes (if none specified): \`clusters:read\`, \`projects:read\`
+
+#### API Key Features
+
+- **IP Whitelisting** — Restrict key usage to specific IP addresses or CIDR ranges
+- **Expiration** — Keys can be set to expire after 30, 60, 90, 180, or 365 days (or never)
+- **Usage Tracking** — Last-used timestamp and usage count are tracked automatically
+
+#### Rate Limits
+
+| Window | Max Requests |
+|--------|-------------|
+| 1 second | 10 |
+| 10 seconds | 50 |
+| 1 minute | 200 |
+
+If you exceed the rate limit, you will receive a \`429\` response with the message "API rate limit exceeded."
 
 ---
 
@@ -396,10 +467,17 @@ Here's how to build a NotebookLM-style RAG pipeline using EUTLAS:
 import requests
 
 API = "${baseUrl}"
-TOKEN = "your-jwt-token"
-HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 PROJECT = "${project.id}"
 CLUSTER = "${sampleCluster.id}"
+
+# Authentication: choose ONE of the following
+# Option A: JWT Bearer token
+TOKEN = "your-jwt-token"
+HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+
+# Option B: API Key (recommended for scripts & automation)
+# API_KEY = "eutlas_pk_...:eutlas_sk_..."
+# HEADERS = {"x-api-key": API_KEY, "Content-Type": "application/json"}
 
 # 1. Create a cluster with vector search enabled
 requests.post(f"{API}/projects/{PROJECT}/clusters", json={
