@@ -49,7 +49,7 @@ interface ApiKey {
   lastUsedAt?: string;
   usageCount: number;
   createdAt: string;
-  createdBy?: { firstName: string; lastName: string; email: string };
+  createdBy?: { name: string; email: string };
 }
 
 interface NewApiKeyResponse {
@@ -88,6 +88,7 @@ export default function ApiKeysPage() {
     name: '',
     description: '',
     scopes: ['clusters:read', 'projects:read'],
+    expiry: 'never' as string,
   });
 
   // Fetch API keys
@@ -95,27 +96,41 @@ export default function ApiKeysPage() {
     queryKey: ['api-keys', orgId],
     queryFn: async () => {
       const response = await apiClient.get(`/orgs/${orgId}/api-keys`);
-      return response.data.data as ApiKey[];
+      return (response.success ? response.data : []) as ApiKey[];
     },
   });
 
   // Create API key mutation
   const createMutation = useMutation({
     mutationFn: async (data: typeof newKey) => {
-      const response = await apiClient.post(`/orgs/${orgId}/api-keys`, data);
-      return response.data.data as NewApiKeyResponse;
+      const payload: any = {
+        name: data.name,
+        description: data.description,
+        scopes: data.scopes,
+      };
+      if (data.expiry !== 'never') {
+        const days = parseInt(data.expiry, 10);
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + days);
+        payload.expiresAt = expiresAt.toISOString();
+      }
+      const response = await apiClient.post(`/orgs/${orgId}/api-keys`, payload);
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to create API key');
+      }
+      return response.data as NewApiKeyResponse;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['api-keys', orgId] });
       setNewKeyData(data);
       setShowCreateDialog(false);
       setShowSecretDialog(true);
-      setNewKey({ name: '', description: '', scopes: ['clusters:read', 'projects:read'] });
+      setNewKey({ name: '', description: '', scopes: ['clusters:read', 'projects:read'], expiry: 'never' });
     },
     onError: (error: any) => {
       toast({
         title: 'Error',
-        description: error.response?.data?.message || 'Failed to create API key',
+        description: error.message || 'Failed to create API key',
         variant: 'destructive',
       });
     },
@@ -124,7 +139,10 @@ export default function ApiKeysPage() {
   // Delete API key mutation
   const deleteMutation = useMutation({
     mutationFn: async (keyId: string) => {
-      await apiClient.delete(`/orgs/${orgId}/api-keys/${keyId}`);
+      const response = await apiClient.delete(`/orgs/${orgId}/api-keys/${keyId}`);
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to delete API key');
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['api-keys', orgId] });
@@ -134,7 +152,7 @@ export default function ApiKeysPage() {
     onError: (error: any) => {
       toast({
         title: 'Error',
-        description: error.response?.data?.message || 'Failed to delete API key',
+        description: error.message || 'Failed to delete API key',
         variant: 'destructive',
       });
     },
@@ -143,7 +161,10 @@ export default function ApiKeysPage() {
   // Toggle active mutation
   const toggleActiveMutation = useMutation({
     mutationFn: async ({ keyId, isActive }: { keyId: string; isActive: boolean }) => {
-      await apiClient.patch(`/orgs/${orgId}/api-keys/${keyId}`, { isActive });
+      const response = await apiClient.patch(`/orgs/${orgId}/api-keys/${keyId}`, { isActive });
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to update API key');
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['api-keys', orgId] });
@@ -152,7 +173,7 @@ export default function ApiKeysPage() {
     onError: (error: any) => {
       toast({
         title: 'Error',
-        description: error.response?.data?.message || 'Failed to update API key',
+        description: error.message || 'Failed to update API key',
         variant: 'destructive',
       });
     },
@@ -251,6 +272,22 @@ export default function ApiKeysPage() {
                       </div>
                     ))}
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="expiry">Expiration</Label>
+                  <select
+                    id="expiry"
+                    value={newKey.expiry}
+                    onChange={(e) => setNewKey({ ...newKey, expiry: e.target.value })}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <option value="30">30 days</option>
+                    <option value="60">60 days</option>
+                    <option value="90">90 days</option>
+                    <option value="180">180 days</option>
+                    <option value="365">1 year</option>
+                    <option value="never">No expiration</option>
+                  </select>
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)}>
