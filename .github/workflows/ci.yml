@@ -268,14 +268,26 @@ jobs:
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
 
-      - name: Configure kubeconfig
+      - name: Determine namespace
+        id: ns
+        run: |
+          if [[ "${{ needs.set-env.outputs.environment }}" == "production" ]]; then
+            echo "namespace=eutlas" >> $GITHUB_OUTPUT
+          else
+            echo "namespace=eutlas-${{ needs.set-env.outputs.environment }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get kubeconfig from Rancher
         run: |
           mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          curl -s -k \
+            -H "Authorization: Bearer ${{ secrets.RANCHER_BEARER_TOKEN }}" \
+            "${{ secrets.RANCHER_URL }}/v3/clusters/${{ secrets.RANCHER_CLUSTER_ID }}?action=generateKubeconfig" \
+            -X POST | jq -r '.config' > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
       - name: Deploy with Kustomize
         run: |
           kubectl apply -k infrastructure/k8s/environments/${{ needs.set-env.outputs.environment }}
-          kubectl rollout restart deployment/eutlas-backend -n eutlas-${{ needs.set-env.outputs.environment == 'production' && '' || needs.set-env.outputs.environment }}
-          kubectl rollout restart deployment/eutlas-frontend -n eutlas-${{ needs.set-env.outputs.environment == 'production' && '' || needs.set-env.outputs.environment }}
+          kubectl rollout restart deployment/eutlas-backend -n ${{ steps.ns.outputs.namespace }}
+          kubectl rollout restart deployment/eutlas-frontend -n ${{ steps.ns.outputs.namespace }}
