@@ -24,6 +24,8 @@ spec:
               value: "production"
             - name: PORT
               value: "4000"
+            - name: K8S_IN_CLUSTER
+              value: "true"
             - name: REDIS_URL
               value: "redis://eutlas-redis:6379"
             - name: FRONTEND_URL
@@ -61,6 +63,3 @@ spec:
   ports:
     - port: 4000
       targetPort: 4000
-
-
-

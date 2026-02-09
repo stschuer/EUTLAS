@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eutlas-backend-crb-production
+subjects:
+  - kind: ServiceAccount
+    name: eutlas-backend
+    namespace: eutlas
+roleRef:
+  kind: ClusterRole
+  name: eutlas-backend-cluster-role
+  apiGroup: rbac.authorization.k8s.io

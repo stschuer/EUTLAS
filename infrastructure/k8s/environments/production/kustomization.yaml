@@ -5,6 +5,7 @@ namespace: eutlas
 
 resources:
   - ../base
+  - cluster-role-binding.yaml
 
 patches:
   - path: ingress-patch.yaml

@@ -5,6 +5,7 @@ namespace: eutlas-test
 
 resources:
   - ../base
+  - cluster-role-binding.yaml
 
 namePrefix: ""
 nameSuffix: ""
