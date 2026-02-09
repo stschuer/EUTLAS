@@ -26,6 +26,7 @@ import {
   CheckCircle,
   AlertTriangle,
   Pause,
+  BookOpen,
 } from 'lucide-react';
 
 const statusConfig: Record<string, { color: string; icon: React.ReactNode }> = {
@@ -112,6 +113,12 @@ export default function ProjectDetailPage() {
       description: 'View recent events and audit logs',
       icon: <Activity className="h-5 w-5" />,
       href: `/dashboard/orgs/${orgId}/activity`,
+    },
+    {
+      title: 'API Docs',
+      description: 'LLM-ready API reference with your project IDs',
+      icon: <BookOpen className="h-5 w-5" />,
+      href: `/dashboard/orgs/${orgId}/projects/${projectId}/api-docs`,
     },
     {
       title: 'Settings',
