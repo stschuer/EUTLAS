@@ -6,16 +6,16 @@ describe('JwtAuthGuard', () => {
   let guard: JwtAuthGuard;
   let reflector: Reflector;
 
-  const createMockContext = (): ExecutionContext =>
+  const createMockContext = (requestOverrides?: Record<string, any>): ExecutionContext =>
     ({
       getHandler: jest.fn(),
       getClass: jest.fn(),
       switchToHttp: jest.fn().mockReturnValue({
-        getRequest: jest.fn().mockReturnValue({}),
+        getRequest: jest.fn().mockReturnValue({ headers: {}, ...requestOverrides }),
         getResponse: jest.fn().mockReturnValue({}),
       }),
       getType: jest.fn().mockReturnValue('http'),
-      getArgs: jest.fn().mockReturnValue([{}, {}, undefined, undefined]),
+      getArgs: jest.fn().mockReturnValue([{ headers: {}, ...requestOverrides }, {}, undefined, undefined]),
       getArgByIndex: jest.fn(),
       switchToRpc: jest.fn(),
       switchToWs: jest.fn(),
@@ -28,19 +28,19 @@ describe('JwtAuthGuard', () => {
 
   // ==================== Public routes ====================
 
-  it('should allow access to public routes (returns true immediately)', () => {
+  it('should allow access to public routes (returns true immediately)', async () => {
     jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
     const context = createMockContext();
 
-    const result = guard.canActivate(context);
+    const result = await guard.canActivate(context);
     expect(result).toBe(true);
   });
 
-  it('should check IS_PUBLIC_KEY metadata from handler and class', () => {
+  it('should check IS_PUBLIC_KEY metadata from handler and class', async () => {
     const spy = jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
     const context = createMockContext();
 
-    guard.canActivate(context);
+    await guard.canActivate(context);
 
     expect(spy).toHaveBeenCalledWith('isPublic', [
       context.getHandler(),
