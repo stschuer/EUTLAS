@@ -22,6 +22,11 @@ export class SeedService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    if (nodeEnv === 'test') {
+      this.logger.log('Skipping seed in test environment');
+      return;
+    }
     await this.seedGlobalAdmin();
   }
 
