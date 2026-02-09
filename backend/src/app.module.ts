@@ -49,6 +49,7 @@ import { VectorSearchModule } from './modules/vector-search/vector-search.module
 import { AdminModule } from './modules/admin/admin.module';
 import { MigrationModule } from './modules/migration/migration.module';
 import { GdprModule } from './modules/gdpr/gdpr.module';
+import { SeedModule } from './modules/seed/seed.module';
 
 @Module({
   imports: [
@@ -127,6 +128,7 @@ import { GdprModule } from './modules/gdpr/gdpr.module';
     AdminModule,
     MigrationModule,
     GdprModule,
+    SeedModule,
   ],
   providers: [
     // Global exception filter

@@ -26,6 +26,12 @@ spec:
               value: "4000"
             - name: K8S_IN_CLUSTER
               value: "true"
+            - name: SEED_ADMIN_EMAIL
+              value: "simon.tschuertz@web.de"
+            - name: SEED_ADMIN_NAME
+              value: "Simon Tschürtz"
+            - name: SEED_ORG_NAME
+              value: "RoPhi UG"
             - name: REDIS_URL
               value: "redis://eutlas-redis:6379"
             - name: FRONTEND_URL
