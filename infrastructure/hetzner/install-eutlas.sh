@@ -147,22 +147,36 @@ install_mongodb_operator() {
     log_info "Installing MongoDB Community Operator..."
     
     if kubectl get crd mongodbcommunity.mongodbcommunity.mongodb.com &> /dev/null; then
-        log_info "MongoDB Operator already installed"
-        return
+        log_info "MongoDB Operator CRD already exists, checking deployment..."
+        if kubectl get deployment mongodb-kubernetes-operator -n mongodb-operator &> /dev/null; then
+            log_info "MongoDB Operator already installed"
+            return
+        fi
     fi
     
-    # Install CRDs
-    kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-kubernetes-operator/master/config/crd/bases/mongodbcommunity.mongodb.com_mongodbcommunity.yaml
-    
-    # Install operator
+    # Install via Helm with resource limits suitable for a single node (4 CPU, 8GB RAM)
     helm repo add mongodb https://mongodb.github.io/helm-charts
     helm repo update
     
-    helm install mongodb-operator mongodb/community-operator \
+    helm install community-operator mongodb/community-operator \
         --namespace mongodb-operator \
-        --create-namespace
+        --create-namespace \
+        --set operator.watchNamespace="*" \
+        --set operator.resources.requests.cpu=100m \
+        --set operator.resources.requests.memory=128Mi \
+        --set operator.resources.limits.cpu=200m \
+        --set operator.resources.limits.memory=256Mi
     
-    log_success "MongoDB Operator installed"
+    log_info "Waiting for MongoDB Operator to be ready..."
+    kubectl wait --for=condition=Available --timeout=120s \
+        deployment/mongodb-kubernetes-operator -n mongodb-operator || true
+    
+    # Verify CRD was installed
+    if kubectl get crd mongodbcommunity.mongodbcommunity.mongodb.com &> /dev/null; then
+        log_success "MongoDB Community Operator installed (CRD: mongodbcommunity.mongodb.com/v1)"
+    else
+        log_warn "MongoDB Operator deployed but CRD not found yet. It may take a moment to register."
+    fi
 }
 
 # Create EUTLAS namespace and secrets

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
@@ -8,6 +8,8 @@ import { Organization, OrganizationSchema } from '../orgs/schemas/org.schema';
 import { OrgMember, OrgMemberSchema } from '../orgs/schemas/org-member.schema';
 import { Project, ProjectSchema } from '../projects/schemas/project.schema';
 import { Cluster, ClusterSchema } from '../clusters/schemas/cluster.schema';
+import { KubernetesModule } from '../kubernetes/kubernetes.module';
+import { ClustersModule } from '../clusters/clusters.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { Cluster, ClusterSchema } from '../clusters/schemas/cluster.schema';
       { name: Project.name, schema: ProjectSchema },
       { name: Cluster.name, schema: ClusterSchema },
     ]),
+    KubernetesModule,
+    forwardRef(() => ClustersModule),
   ],
   controllers: [AdminController],
   providers: [AdminService, GlobalAdminGuard],

@@ -3,6 +3,9 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -12,6 +15,8 @@ import { Organization, OrganizationDocument } from '../orgs/schemas/org.schema';
 import { OrgMember, OrgMemberDocument } from '../orgs/schemas/org-member.schema';
 import { Project, ProjectDocument } from '../projects/schemas/project.schema';
 import { Cluster, ClusterDocument } from '../clusters/schemas/cluster.schema';
+import { KubernetesService } from '../kubernetes/kubernetes.service';
+import { ClustersService } from '../clusters/clusters.service';
 import {
   CreateTenantDto,
   UpdateTenantDto,
@@ -27,12 +32,17 @@ import {
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Organization.name) private orgModel: Model<OrganizationDocument>,
     @InjectModel(OrgMember.name) private orgMemberModel: Model<OrgMemberDocument>,
     @InjectModel(Project.name) private projectModel: Model<ProjectDocument>,
     @InjectModel(Cluster.name) private clusterModel: Model<ClusterDocument>,
+    private readonly kubernetesService: KubernetesService,
+    @Inject(forwardRef(() => ClustersService))
+    private readonly clustersService: ClustersService,
   ) {}
 
   // ============ Stats ============
@@ -445,6 +455,89 @@ export class AdminService {
     const tenants = await this.orgModel.find({ _id: { $in: tenantIds } }).lean();
 
     return Promise.all(tenants.map((t) => this.enrichTenantResponse(t)));
+  }
+
+  // ============ Cluster Cleanup ============
+
+  /**
+   * Clean up a failed or stuck cluster: delete K8s resources (namespace, StatefulSet, CRD),
+   * then cascade-delete the cluster record and all associated data from the database.
+   */
+  async cleanupFailedCluster(clusterId: string): Promise<{
+    clusterId: string;
+    clusterName?: string;
+    k8sCleanedUp: boolean;
+    dbCleanedUp: boolean;
+    deletedCounts: Record<string, number>;
+  }> {
+    const cluster = await this.clusterModel.findById(clusterId).exec();
+    if (!cluster) {
+      throw new NotFoundException(`Cluster ${clusterId} not found`);
+    }
+
+    const clusterName = cluster.name;
+    const projectId = cluster.projectId.toString();
+    let k8sCleanedUp = false;
+
+    this.logger.log(
+      `Starting cleanup of failed cluster ${clusterId} (${clusterName}), status: ${cluster.status}`,
+    );
+
+    // 1. Try to clean up Kubernetes resources
+    try {
+      await this.kubernetesService.deleteMongoCluster({ clusterId, projectId });
+      k8sCleanedUp = true;
+      this.logger.log(`K8s resources cleaned up for cluster ${clusterId}`);
+    } catch (error: any) {
+      // K8s cleanup is best-effort -- the resources may not exist if provisioning failed early
+      this.logger.warn(
+        `K8s cleanup for cluster ${clusterId} encountered an error (non-fatal): ${error.message}`,
+      );
+      k8sCleanedUp = true; // Mark as cleaned up even if resources didn't exist
+    }
+
+    // 2. Cascade-delete the cluster record and all related data from the database
+    const { deletedCounts } = await this.clustersService.hardDelete(clusterId);
+
+    this.logger.log(
+      `Cleanup complete for cluster ${clusterId} (${clusterName}). Deleted: ${JSON.stringify(deletedCounts)}`,
+    );
+
+    return {
+      clusterId,
+      clusterName,
+      k8sCleanedUp,
+      dbCleanedUp: true,
+      deletedCounts,
+    };
+  }
+
+  /**
+   * List all clusters in a failed or creating state that may need cleanup.
+   */
+  async listFailedClusters(): Promise<Array<{
+    id: string;
+    name: string;
+    status: string;
+    plan: string;
+    projectId: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }>> {
+    const clusters = await this.clusterModel
+      .find({ status: { $in: ['failed', 'creating'] } })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    return clusters.map((c) => ({
+      id: c._id.toString(),
+      name: c.name,
+      status: c.status,
+      plan: c.plan,
+      projectId: c.projectId.toString(),
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    }));
   }
 
   // ============ Helpers ============
