@@ -4,6 +4,8 @@ metadata:
   name: mongodb
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: mongodb
@@ -17,14 +19,6 @@ spec:
           image: mongo:7.0
           ports:
             - containerPort: 27017
-          args:
-            # Enable encryption at rest using WiredTiger (AES-256-CBC)
-            - "--enableEncryption"
-            - "--encryptionKeyFile=/etc/mongodb/encryption/keyfile"
-            # Enable TLS for client connections
-            - "--tlsMode=preferTLS"
-            - "--tlsCertificateKeyFile=/etc/mongodb/tls/server.pem"
-            - "--tlsCAFile=/etc/mongodb/tls/ca.pem"
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
               value: "eutlas-admin"
@@ -36,47 +30,39 @@ spec:
           volumeMounts:
             - name: mongodb-data
               mountPath: /data/db
-            - name: encryption-key
-              mountPath: /etc/mongodb/encryption
-              readOnly: true
-            - name: tls-certs
-              mountPath: /etc/mongodb/tls
-              readOnly: true
           resources:
             limits:
-              cpu: "1"
-              memory: 2Gi
-            requests:
               cpu: "500m"
               memory: 1Gi
+            requests:
+              cpu: "250m"
+              memory: 512Mi
           livenessProbe:
             exec:
               command:
                 - mongosh
+                - --quiet
                 - --eval
                 - "db.adminCommand('ping')"
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
           readinessProbe:
             exec:
               command:
                 - mongosh
+                - --quiet
                 - --eval
                 - "db.adminCommand('ping')"
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
       volumes:
         - name: mongodb-data
           persistentVolumeClaim:
             claimName: mongodb-data-pvc
-        - name: encryption-key
-          secret:
-            secretName: eutlas-mongodb-encryption-key
-            defaultMode: 0400
-        - name: tls-certs
-          secret:
-            secretName: eutlas-mongodb-tls
-            defaultMode: 0400
 ---
 apiVersion: v1
 kind: Service
@@ -97,20 +83,10 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: hcloud-volumes-fast
+  storageClassName: local-path
   resources:
     requests:
       storage: 20Gi
----
-# Encryption key for MongoDB encryption at rest
-# In production, generate with: openssl rand -base64 32 > encryption-key
-apiVersion: v1
-kind: Secret
-metadata:
-  name: eutlas-mongodb-encryption-key
-type: Opaque
-data:
-  keyfile: "" # Base64 encoded 32-byte key - MUST be generated per deployment
 
 
 
