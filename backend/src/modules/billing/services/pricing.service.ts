@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
 import { Price, PriceDocument } from '../schemas/price.schema';
 import { UsageType } from '../schemas/usage-record.schema';
@@ -49,9 +50,15 @@ export class PricingService implements OnModuleInit {
   constructor(
     @InjectModel(Price.name) private priceModel: Model<PriceDocument>,
     private readonly stripeService: StripeService,
+    private readonly configService: ConfigService,
   ) {}
 
   async onModuleInit() {
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    if (nodeEnv === 'test') {
+      this.logger.log('Skipping price seed in test environment');
+      return;
+    }
     await this.seedDefaultPrices();
     await this.syncStripePrices();
     await this.loadPriceCache();
