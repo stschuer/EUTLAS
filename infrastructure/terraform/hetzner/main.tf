@@ -98,6 +98,14 @@ resource "hcloud_firewall" "k8s" {
     port      = "443"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
+
+  # Kubernetes NodePort range (external MongoDB access, NodePort ingress)
+  rule {
+    direction = "in"
+    protocol  = "tcp"
+    port      = "30000-32767"
+    source_ips = ["0.0.0.0/0", "::/0"]
+  }
 }
 
 # Outputs
