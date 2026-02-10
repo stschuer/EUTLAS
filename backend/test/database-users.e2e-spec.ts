@@ -82,10 +82,10 @@ describe('DatabaseUsersController (e2e)', () => {
     await app.close();
   });
 
-  describe('POST /projects/:projectId/clusters/:clusterId/users', () => {
+  describe('POST /projects/:projectId/clusters/:clusterId/database-users', () => {
     it('should create a database user', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           username: 'test_user',
@@ -103,7 +103,7 @@ describe('DatabaseUsersController (e2e)', () => {
 
     it('should reject duplicate username', async () => {
       await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           username: 'test_user',
@@ -115,7 +115,7 @@ describe('DatabaseUsersController (e2e)', () => {
 
     it('should reject invalid username format', async () => {
       await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           username: '123invalid',
@@ -127,7 +127,7 @@ describe('DatabaseUsersController (e2e)', () => {
 
     it('should reject weak password', async () => {
       await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           username: 'another_user',
@@ -138,10 +138,10 @@ describe('DatabaseUsersController (e2e)', () => {
     });
   });
 
-  describe('GET /projects/:projectId/clusters/:clusterId/users', () => {
+  describe('GET /projects/:projectId/clusters/:clusterId/database-users', () => {
     it('should list database users', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users`)
+        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
@@ -151,10 +151,10 @@ describe('DatabaseUsersController (e2e)', () => {
     });
   });
 
-  describe('GET /projects/:projectId/clusters/:clusterId/users/:userId', () => {
+  describe('GET /projects/:projectId/clusters/:clusterId/database-users/:userId', () => {
     it('should get user details', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users/${testDbUserId}`)
+        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users/${testDbUserId}`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
@@ -167,16 +167,16 @@ describe('DatabaseUsersController (e2e)', () => {
 
     it('should return 404 for non-existent user', async () => {
       await request(app.getHttpServer())
-        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users/000000000000000000000000`)
+        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users/000000000000000000000000`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(404);
     });
   });
 
-  describe('PATCH /projects/:projectId/clusters/:clusterId/users/:userId', () => {
+  describe('PATCH /projects/:projectId/clusters/:clusterId/database-users/:userId', () => {
     it('should update user roles', async () => {
       const res = await request(app.getHttpServer())
-        .patch(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users/${testDbUserId}`)
+        .patch(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users/${testDbUserId}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           roles: [{ role: 'readWrite', db: 'testdb' }, { role: 'read', db: 'otherdb' }],
@@ -189,7 +189,7 @@ describe('DatabaseUsersController (e2e)', () => {
 
     it('should update user password', async () => {
       const res = await request(app.getHttpServer())
-        .patch(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users/${testDbUserId}`)
+        .patch(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users/${testDbUserId}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           password: 'NewSecurePassword456!',
@@ -201,7 +201,7 @@ describe('DatabaseUsersController (e2e)', () => {
 
     it('should disable user', async () => {
       const res = await request(app.getHttpServer())
-        .patch(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users/${testDbUserId}`)
+        .patch(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users/${testDbUserId}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           isActive: false,
@@ -213,11 +213,11 @@ describe('DatabaseUsersController (e2e)', () => {
     });
   });
 
-  describe('DELETE /projects/:projectId/clusters/:clusterId/users/:userId', () => {
+  describe('DELETE /projects/:projectId/clusters/:clusterId/database-users/:userId', () => {
     it('should delete user', async () => {
       // First create a new user to delete
       const createRes = await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           username: 'user_to_delete',
@@ -228,13 +228,13 @@ describe('DatabaseUsersController (e2e)', () => {
       const userToDeleteId = createRes.body.data.id;
 
       await request(app.getHttpServer())
-        .delete(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users/${userToDeleteId}`)
+        .delete(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users/${userToDeleteId}`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
       // Verify user is deleted
       await request(app.getHttpServer())
-        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/users/${userToDeleteId}`)
+        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/database-users/${userToDeleteId}`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(404);
     });
