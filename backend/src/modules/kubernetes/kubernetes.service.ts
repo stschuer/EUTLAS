@@ -382,7 +382,7 @@ export class KubernetesService implements OnModuleInit {
         host: `${serviceName}.${namespace}.svc.cluster.local`,
         port: 27017,
         replicaSet: useOperator ? resourceName : undefined,
-        srv: useOperator ? `mongodb+srv://${serviceName}.${namespace}.svc.cluster.local` : undefined,
+        srv: useOperator ? `${serviceName}.${namespace}.svc.cluster.local` : undefined,
         externalHost: externalEndpoint?.host,
         externalPort: externalEndpoint?.port || 27017,
         qdrant: qdrantInfo,
@@ -745,35 +745,50 @@ export class KubernetesService implements OnModuleInit {
   }
 
   /**
-   * Gets an external IP of any cluster node. Tries ExternalIP first, then
-   * InternalIP as fallback (common on Hetzner where the "internal" IP is
-   * actually a public IP assigned to the server).
+   * Gets the external IP of a cluster node. Resolution order:
+   * 1. NODE_EXTERNAL_IP env var (explicit override — most reliable)
+   * 2. K8s node ExternalIP address
+   * 3. K8s node InternalIP address (on Hetzner bare-metal K3s this IS the public IP)
    */
   private async getNodeExternalIp(): Promise<string | null> {
+    // 1. Explicit override via environment variable (most reliable for bare-metal)
+    const envIp = this.configService.get<string>('NODE_EXTERNAL_IP');
+    if (envIp) {
+      this.logger.log(`Using NODE_EXTERNAL_IP from environment: ${envIp}`);
+      return envIp;
+    }
+
+    // 2. Query the K8s API for node addresses
     try {
       const { body: nodeList } = await this.coreApi.listNode();
+      this.logger.log(`Found ${nodeList.items.length} node(s), checking addresses...`);
+
       for (const node of nodeList.items) {
         const addresses = node.status?.addresses || [];
+        const nodeName = node.metadata?.name || 'unknown';
+        this.logger.log(`Node ${nodeName} addresses: ${JSON.stringify(addresses.map(a => ({ type: a.type, address: a.address })))}`);
+
         // Prefer ExternalIP
         const external = addresses.find((a) => a.type === 'ExternalIP');
         if (external?.address) {
+          this.logger.log(`Found ExternalIP on node ${nodeName}: ${external.address}`);
           return external.address;
         }
-        // Fallback to InternalIP (on Hetzner bare-metal K3s this is the public IP)
-        const internal = addresses.find((a) => a.type === 'InternalIP');
-        if (internal?.address && !internal.address.startsWith('10.') && !internal.address.startsWith('172.') && !internal.address.startsWith('192.168.')) {
-          return internal.address;
-        }
       }
-      // Last resort: return InternalIP even if private
+
+      // 3. Fallback: use InternalIP (on Hetzner bare-metal, this is the public IP)
       for (const node of nodeList.items) {
         const internal = (node.status?.addresses || []).find((a) => a.type === 'InternalIP');
         if (internal?.address) {
+          this.logger.log(`Using InternalIP as external address: ${internal.address}`);
           return internal.address;
         }
       }
+
+      this.logger.warn('No usable node IP found in any node addresses');
     } catch (error: any) {
-      this.logger.error(`Failed to list nodes: ${error.message}`);
+      this.logger.error(`Failed to list nodes (RBAC issue?): ${error.message}`);
+      this.logger.error(`Make sure the backend's service account has permission to list nodes, or set NODE_EXTERNAL_IP env var`);
     }
     return null;
   }
@@ -1860,7 +1875,7 @@ export class KubernetesService implements OnModuleInit {
       host: `${resourceName}-svc.${namespace}.svc.cluster.local`,
       port: 27017,
       replicaSet: resourceName,
-      srv: `mongodb+srv://${resourceName}-svc.${namespace}.svc.cluster.local`,
+      srv: `${resourceName}-svc.${namespace}.svc.cluster.local`,
       externalHost: '203.0.113.1', // Simulated external IP
       externalPort: 30017, // Simulated NodePort
     };
