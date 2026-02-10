@@ -504,6 +504,18 @@ export class ClustersService {
     return clone;
   }
 
+  async updateExternalEndpoint(
+    clusterId: string,
+    externalHost: string,
+    externalPort: number,
+  ): Promise<ClusterDocument | null> {
+    return this.clusterModel.findByIdAndUpdate(
+      clusterId,
+      { $set: { externalHost, externalPort } },
+      { new: true },
+    ).exec();
+  }
+
   private canModifyCluster(status: ClusterStatus): boolean {
     return status === 'ready' || status === 'degraded';
   }

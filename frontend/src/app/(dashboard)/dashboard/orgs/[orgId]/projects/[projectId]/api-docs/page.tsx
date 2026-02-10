@@ -194,7 +194,14 @@ Returns:
 }
 \`\`\`
 
-> **External Access:** Each cluster is exposed via a LoadBalancer with a public IP. Use \`externalConnectionString\` to connect from outside the Kubernetes cluster (e.g. from your own servers). Use \`connectionString\` for services running inside the same K8s cluster.
+> **External Access:** Each cluster is exposed via a NodePort service with a public IP. Use \`externalConnectionString\` to connect from outside the Kubernetes cluster (e.g. from your own servers). Use \`connectionString\` for services running inside the same K8s cluster.
+
+### Enable External Access (for existing clusters)
+\`\`\`
+POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/enable-external-access
+\`\`\`
+
+Creates a NodePort service and returns the external host/port. Use this if \`externalHost\` is null on an older cluster.
 
 ### Resize Cluster
 \`\`\`

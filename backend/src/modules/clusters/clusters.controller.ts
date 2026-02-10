@@ -244,6 +244,45 @@ export class ClustersController {
     };
   }
 
+  @Post(':clusterId/enable-external-access')
+  @ApiOperation({ summary: 'Enable external access for an existing cluster (creates NodePort service)' })
+  async enableExternalAccess(
+    @CurrentUser() user: CurrentUserData,
+    @Param('projectId') projectId: string,
+    @Param('clusterId') clusterId: string,
+  ) {
+    const orgId = await this.projectsService.getOrgIdForProject(projectId);
+    if (!orgId) {
+      throw new NotFoundException('Project not found');
+    }
+
+    await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN']);
+
+    const cluster = await this.clustersService.findById(clusterId);
+    if (!cluster || cluster.projectId.toString() !== projectId) {
+      throw new NotFoundException('Cluster not found');
+    }
+
+    // Create NodePort service and resolve external endpoint
+    const endpoint = await this.kubernetesService.enableExternalAccess(clusterId, projectId);
+
+    // Persist the external endpoint to the cluster document
+    if (endpoint) {
+      await this.clustersService.updateExternalEndpoint(clusterId, endpoint.host, endpoint.port);
+    }
+
+    return {
+      success: true,
+      data: {
+        externalHost: endpoint?.host || null,
+        externalPort: endpoint?.port || null,
+        message: endpoint
+          ? `External access enabled at ${endpoint.host}:${endpoint.port}`
+          : 'NodePort service created but external IP could not be resolved. Check node status.',
+      },
+    };
+  }
+
   @Post(':clusterId/clone')
   @ApiOperation({ summary: 'Clone a cluster' })
   async clone(
