@@ -264,7 +264,7 @@ export class ClustersController {
     }
 
     // Create NodePort service and resolve external endpoint
-    const endpoint = await this.kubernetesService.enableExternalAccess(clusterId, projectId);
+    const endpoint = await this.kubernetesService.enableExternalAccess(clusterId, projectId, cluster.plan);
 
     // Persist the external endpoint to the cluster document
     if (endpoint) {

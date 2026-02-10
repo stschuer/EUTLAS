@@ -370,7 +370,8 @@ export class KubernetesService implements OnModuleInit {
 
       // 6. Create external NodePort service for outside-cluster connectivity
       const externalServiceName = `${resourceName}-external`;
-      await this.createExternalService(namespace, externalServiceName, resourceName);
+      const podAppLabel = useOperator ? `${resourceName}-svc` : resourceName;
+      await this.createExternalService(namespace, externalServiceName, resourceName, podAppLabel);
 
       // 7. Get external endpoint (node IP + assigned NodePort)
       const externalEndpoint = await this.getExternalEndpoint(namespace, externalServiceName);
@@ -521,10 +522,24 @@ export class KubernetesService implements OnModuleInit {
                 },
                 spec: {
                   accessModes: ['ReadWriteOnce'],
-                  storageClassName: 'local-path', // Local path storage (or hcloud-volumes for Hetzner)
+                  storageClassName: 'local-path',
                   resources: {
                     requests: {
                       storage: params.resources.storage,
+                    },
+                  },
+                },
+              },
+              {
+                metadata: {
+                  name: 'logs-volume',
+                },
+                spec: {
+                  accessModes: ['ReadWriteOnce'],
+                  storageClassName: 'local-path',
+                  resources: {
+                    requests: {
+                      storage: '1Gi',
                     },
                   },
                 },
@@ -680,7 +695,11 @@ export class KubernetesService implements OnModuleInit {
     namespace: string,
     externalServiceName: string,
     resourceName: string,
+    podAppLabel?: string,
   ): Promise<void> {
+    // The selector must match the pod's app label.
+    // Operator-managed pods use `app=<resourceName>-svc`, StatefulSet pods use `app=<resourceName>`.
+    const selectorLabel = podAppLabel || resourceName;
     const service: k8s.V1Service = {
       metadata: {
         name: externalServiceName,
@@ -694,7 +713,7 @@ export class KubernetesService implements OnModuleInit {
       },
       spec: {
         type: 'NodePort',
-        selector: { app: resourceName },
+        selector: { app: selectorLabel },
         ports: [{ name: 'mongodb', port: 27017, targetPort: 27017, protocol: 'TCP' }],
       },
     };
@@ -801,6 +820,7 @@ export class KubernetesService implements OnModuleInit {
   async enableExternalAccess(
     clusterId: string,
     projectId: string,
+    plan?: string,
   ): Promise<{ host: string; port: number } | null> {
     const namespace = this.getNamespace(projectId);
     const resourceName = this.getResourceName(clusterId);
@@ -810,8 +830,12 @@ export class KubernetesService implements OnModuleInit {
       return { host: '203.0.113.1', port: 30017 };
     }
 
+    // Determine the correct pod app label based on deployment type
+    const useOperator = plan ? this.isOperatorManaged(plan) : true; // default to operator for safety
+    const podAppLabel = useOperator ? `${resourceName}-svc` : resourceName;
+
     // Create the NodePort service (idempotent — skips if already exists)
-    await this.createExternalService(namespace, externalServiceName, resourceName);
+    await this.createExternalService(namespace, externalServiceName, resourceName, podAppLabel);
 
     // Read the endpoint
     return this.getExternalEndpoint(namespace, externalServiceName);

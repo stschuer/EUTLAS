@@ -277,7 +277,9 @@ jobs:
             echo "namespace=eutlas-${{ needs.set-env.outputs.environment }}" >> $GITHUB_OUTPUT
           fi
 
+      # Production: get kubeconfig from Rancher (existing RKE2 cluster)
       - name: Get kubeconfig from Rancher
+        if: needs.set-env.outputs.environment == 'production'
         run: |
           mkdir -p $HOME/.kube
           curl -s -k \
@@ -285,6 +287,17 @@ jobs:
             "${{ secrets.RANCHER_URL }}/v3/clusters/${{ secrets.RANCHER_CLUSTER_ID }}?action=generateKubeconfig" \
             -X POST | jq -r '.config' > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
+
+      # Staging/Test: use dedicated cluster kubeconfig (from per-environment secret)
+      - name: Configure kubeconfig for dedicated cluster
+        if: needs.set-env.outputs.environment != 'production'
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Verify cluster access
+        run: kubectl get nodes
 
       - name: Deploy with Kustomize
         run: |
