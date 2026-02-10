@@ -82,10 +82,10 @@ describe('NetworkAccessController (e2e)', () => {
     await app.close();
   });
 
-  describe('POST /projects/:projectId/clusters/:clusterId/network/whitelist', () => {
+  describe('POST /projects/:projectId/clusters/:clusterId/network/ip-whitelist', () => {
     it('should add IP to whitelist', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           cidrBlock: '192.168.1.0/24',
@@ -105,7 +105,7 @@ describe('NetworkAccessController (e2e)', () => {
       expiresAt.setDate(expiresAt.getDate() + 1);
 
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           cidrBlock: '10.0.0.1/32',
@@ -122,7 +122,7 @@ describe('NetworkAccessController (e2e)', () => {
 
     it('should reject duplicate CIDR', async () => {
       await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           cidrBlock: '192.168.1.0/24',
@@ -133,7 +133,7 @@ describe('NetworkAccessController (e2e)', () => {
 
     it('should reject invalid CIDR format', async () => {
       await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           cidrBlock: 'invalid-cidr',
@@ -144,7 +144,7 @@ describe('NetworkAccessController (e2e)', () => {
 
     it('should reject temporary without expiration', async () => {
       await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({
           cidrBlock: '10.0.0.5/32',
@@ -154,10 +154,10 @@ describe('NetworkAccessController (e2e)', () => {
     });
   });
 
-  describe('GET /projects/:projectId/clusters/:clusterId/network/whitelist', () => {
+  describe('GET /projects/:projectId/clusters/:clusterId/network/ip-whitelist', () => {
     it('should list whitelist entries', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist`)
+        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
@@ -167,10 +167,10 @@ describe('NetworkAccessController (e2e)', () => {
     });
   });
 
-  describe('POST /projects/:projectId/clusters/:clusterId/network/whitelist/add-current-ip', () => {
+  describe('POST /projects/:projectId/clusters/:clusterId/network/ip-whitelist/add-current-ip', () => {
     it('should add current IP', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist/add-current-ip`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist/add-current-ip`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(201);
 
@@ -179,10 +179,10 @@ describe('NetworkAccessController (e2e)', () => {
     });
   });
 
-  describe('POST /projects/:projectId/clusters/:clusterId/network/whitelist/allow-anywhere', () => {
+  describe('POST /projects/:projectId/clusters/:clusterId/network/ip-whitelist/allow-anywhere', () => {
     it('should allow from anywhere', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist/allow-anywhere`)
+        .post(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist/allow-anywhere`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(201);
 
@@ -191,16 +191,16 @@ describe('NetworkAccessController (e2e)', () => {
     });
   });
 
-  describe('DELETE /projects/:projectId/clusters/:clusterId/network/whitelist/:entryId', () => {
+  describe('DELETE /projects/:projectId/clusters/:clusterId/network/ip-whitelist/:entryId', () => {
     it('should delete whitelist entry', async () => {
       await request(app.getHttpServer())
-        .delete(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist/${testEntryId}`)
+        .delete(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist/${testEntryId}`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(200);
 
       // Verify entry is deleted
       const listRes = await request(app.getHttpServer())
-        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist`)
+        .get(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist`)
         .set('Authorization', `Bearer ${authToken}`);
 
       const entry = listRes.body.data.find((e: any) => e.id === testEntryId);
@@ -209,7 +209,7 @@ describe('NetworkAccessController (e2e)', () => {
 
     it('should return 404 for non-existent entry', async () => {
       await request(app.getHttpServer())
-        .delete(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/whitelist/000000000000000000000000`)
+        .delete(`/api/v1/projects/${testProjectId}/clusters/${testClusterId}/network/ip-whitelist/000000000000000000000000`)
         .set('Authorization', `Bearer ${authToken}`)
         .expect(404);
     });
