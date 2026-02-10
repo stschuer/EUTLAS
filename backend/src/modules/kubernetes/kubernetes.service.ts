@@ -368,12 +368,12 @@ export class KubernetesService implements OnModuleInit {
         this.logger.log(`Qdrant companion service created for cluster ${params.clusterId}`);
       }
 
-      // 6. Create external LoadBalancer service for outside-cluster connectivity
+      // 6. Create external NodePort service for outside-cluster connectivity
       const externalServiceName = `${resourceName}-external`;
       await this.createExternalService(namespace, externalServiceName, resourceName);
 
-      // 7. Wait for external IP (LoadBalancer provisioning)
-      const externalEndpoint = await this.waitForExternalIp(namespace, externalServiceName);
+      // 7. Get external endpoint (node IP + assigned NodePort)
+      const externalEndpoint = await this.getExternalEndpoint(namespace, externalServiceName);
 
       this.logger.log(`MongoDB cluster ${params.clusterId} creation initiated successfully`);
 
@@ -672,8 +672,9 @@ export class KubernetesService implements OnModuleInit {
   }
 
   /**
-   * Creates a LoadBalancer-type Service to expose MongoDB externally.
-   * This gives the cluster a public IP so clients outside Kubernetes can connect.
+   * Creates a NodePort Service to expose MongoDB externally.
+   * NodePort works on any K8s cluster (including K3s on bare metal) without
+   * requiring a cloud controller manager. The external endpoint is <node-ip>:<nodePort>.
    */
   private async createExternalService(
     namespace: string,
@@ -687,16 +688,12 @@ export class KubernetesService implements OnModuleInit {
         labels: {
           'eutlas.eu/managed-by': 'eutlas',
           'eutlas.eu/cluster': resourceName,
+          'eutlas.eu/service-type': 'external-access',
           app: resourceName,
-        },
-        annotations: {
-          // Hetzner Cloud LB annotations (if using Hetzner CCM)
-          'load-balancer.hetzner.cloud/name': externalServiceName,
-          'load-balancer.hetzner.cloud/location': 'fsn1',
         },
       },
       spec: {
-        type: 'LoadBalancer',
+        type: 'NodePort',
         selector: { app: resourceName },
         ports: [{ name: 'mongodb', port: 27017, targetPort: 27017, protocol: 'TCP' }],
       },
@@ -704,7 +701,7 @@ export class KubernetesService implements OnModuleInit {
 
     try {
       await this.coreApi.createNamespacedService(namespace, service);
-      this.logger.log(`Created external LoadBalancer service ${externalServiceName} in ${namespace}`);
+      this.logger.log(`Created external NodePort service ${externalServiceName} in ${namespace}`);
     } catch (error: any) {
       if (error.response?.statusCode !== 409) {
         this.logger.error(`Failed to create external service: ${JSON.stringify(error.response?.body || error.message)}`);
@@ -715,39 +712,94 @@ export class KubernetesService implements OnModuleInit {
   }
 
   /**
-   * Polls the LoadBalancer service until an external IP/hostname is assigned.
-   * Returns null if the IP is not available after the timeout (cluster creation still succeeds).
+   * Reads the NodePort service to get the assigned port, then resolves the
+   * node's external IP. Returns { host, port } or null.
    */
-  private async waitForExternalIp(
+  private async getExternalEndpoint(
     namespace: string,
     serviceName: string,
-    maxAttempts = 30,
-    intervalMs = 5000,
   ): Promise<{ host: string; port: number } | null> {
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const { body: svc } = await this.coreApi.readNamespacedService(serviceName, namespace);
-        const ingress = svc.status?.loadBalancer?.ingress;
+    try {
+      // 1. Read the service to get the assigned NodePort
+      const { body: svc } = await this.coreApi.readNamespacedService(serviceName, namespace);
+      const nodePort = svc.spec?.ports?.[0]?.nodePort;
 
-        if (ingress && ingress.length > 0) {
-          const host = ingress[0].ip || ingress[0].hostname;
-          if (host) {
-            const port = svc.spec?.ports?.[0]?.port || 27017;
-            this.logger.log(`External IP ready for ${serviceName}: ${host}:${port}`);
-            return { host, port };
-          }
+      if (!nodePort) {
+        this.logger.warn(`NodePort not yet assigned for ${serviceName}`);
+        return null;
+      }
+
+      // 2. Get the node's external IP
+      const nodeIp = await this.getNodeExternalIp();
+      if (!nodeIp) {
+        this.logger.warn(`Could not determine node external IP`);
+        return null;
+      }
+
+      this.logger.log(`External endpoint ready: ${nodeIp}:${nodePort}`);
+      return { host: nodeIp, port: nodePort };
+    } catch (error: any) {
+      this.logger.warn(`Failed to resolve external endpoint for ${serviceName}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Gets an external IP of any cluster node. Tries ExternalIP first, then
+   * InternalIP as fallback (common on Hetzner where the "internal" IP is
+   * actually a public IP assigned to the server).
+   */
+  private async getNodeExternalIp(): Promise<string | null> {
+    try {
+      const { body: nodeList } = await this.coreApi.listNode();
+      for (const node of nodeList.items) {
+        const addresses = node.status?.addresses || [];
+        // Prefer ExternalIP
+        const external = addresses.find((a) => a.type === 'ExternalIP');
+        if (external?.address) {
+          return external.address;
         }
-      } catch (error: any) {
-        this.logger.warn(`Attempt ${attempt}/${maxAttempts}: failed to read service ${serviceName}: ${error.message}`);
+        // Fallback to InternalIP (on Hetzner bare-metal K3s this is the public IP)
+        const internal = addresses.find((a) => a.type === 'InternalIP');
+        if (internal?.address && !internal.address.startsWith('10.') && !internal.address.startsWith('172.') && !internal.address.startsWith('192.168.')) {
+          return internal.address;
+        }
       }
+      // Last resort: return InternalIP even if private
+      for (const node of nodeList.items) {
+        const internal = (node.status?.addresses || []).find((a) => a.type === 'InternalIP');
+        if (internal?.address) {
+          return internal.address;
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(`Failed to list nodes: ${error.message}`);
+    }
+    return null;
+  }
 
-      if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      }
+  /**
+   * Enables external access for an existing cluster that was created before
+   * the external-access feature was added. Creates the NodePort service if
+   * missing and returns the external endpoint.
+   */
+  async enableExternalAccess(
+    clusterId: string,
+    projectId: string,
+  ): Promise<{ host: string; port: number } | null> {
+    const namespace = this.getNamespace(projectId);
+    const resourceName = this.getResourceName(clusterId);
+    const externalServiceName = `${resourceName}-external`;
+
+    if (this.shouldSimulate()) {
+      return { host: '203.0.113.1', port: 30017 };
     }
 
-    this.logger.warn(`External IP not available for ${serviceName} after ${maxAttempts} attempts. Will be updated on next status check.`);
-    return null;
+    // Create the NodePort service (idempotent — skips if already exists)
+    await this.createExternalService(namespace, externalServiceName, resourceName);
+
+    // Read the endpoint
+    return this.getExternalEndpoint(namespace, externalServiceName);
   }
 
   private async createDefaultNetworkPolicy(namespace: string, resourceName: string): Promise<void> {
@@ -948,7 +1000,7 @@ export class KubernetesService implements OnModuleInit {
         }
       }
 
-      // Delete external LoadBalancer service
+      // Delete external NodePort service
       try {
         await this.coreApi.deleteNamespacedService(`${resourceName}-external`, namespace);
         this.logger.log(`Deleted external service ${resourceName}-external`);
@@ -1810,7 +1862,7 @@ export class KubernetesService implements OnModuleInit {
       replicaSet: resourceName,
       srv: `mongodb+srv://${resourceName}-svc.${namespace}.svc.cluster.local`,
       externalHost: '203.0.113.1', // Simulated external IP
-      externalPort: 27017,
+      externalPort: 30017, // Simulated NodePort
     };
   }
 
