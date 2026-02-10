@@ -12,6 +12,10 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch", "create", "delete"]
+  # Nodes (read node addresses for external access IP resolution)
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
   # Core resources in tenant namespaces
   - apiGroups: [""]
     resources: ["pods", "services", "configmaps", "secrets", "serviceaccounts", "persistentvolumeclaims"]
