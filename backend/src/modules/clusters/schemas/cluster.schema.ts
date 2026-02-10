@@ -76,6 +76,12 @@ export class Cluster {
   @Prop()
   replicaSetName?: string;
 
+  @Prop()
+  externalHost?: string;
+
+  @Prop()
+  externalPort?: number;
+
   @Prop({ default: 'fsn1' })
   region?: string;
 

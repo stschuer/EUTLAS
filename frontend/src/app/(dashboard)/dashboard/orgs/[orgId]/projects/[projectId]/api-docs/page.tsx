@@ -172,6 +172,30 @@ Set \`"enableVectorSearch": true\` to deploy a Qdrant companion service alongsid
 GET ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}
 \`\`\`
 
+### Get Cluster Credentials & Connection String
+\`\`\`
+GET ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/credentials
+\`\`\`
+
+Returns:
+\`\`\`json
+{
+  "success": true,
+  "data": {
+    "connectionString": "mongodb://admin:***@<internal-host>:27017/<cluster-name>?authSource=admin",
+    "host": "<internal-k8s-host>",
+    "port": 27017,
+    "externalHost": "<public-ip>",
+    "externalPort": 27017,
+    "externalConnectionString": "mongodb://admin:***@<public-ip>:27017/<cluster-name>?authSource=admin&directConnection=true",
+    "username": "admin",
+    "password": "***"
+  }
+}
+\`\`\`
+
+> **External Access:** Each cluster is exposed via a LoadBalancer with a public IP. Use \`externalConnectionString\` to connect from outside the Kubernetes cluster (e.g. from your own servers). Use \`connectionString\` for services running inside the same K8s cluster.
+
 ### Resize Cluster
 \`\`\`
 PATCH ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/resize
@@ -452,10 +476,20 @@ GET ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/performance/s
 
 ### IP Whitelist
 \`\`\`
-GET  ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/network/ip-whitelist
-POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/network/ip-whitelist
+GET    ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/network/ip-whitelist
+POST   ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/network/ip-whitelist
 Body: { "cidr": "203.0.113.0/24", "description": "Office network" }
+DELETE ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/network/ip-whitelist/<entryId>
 \`\`\`
+
+### Quick Access Helpers
+\`\`\`
+POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/network/ip-whitelist/add-current-ip
+POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/network/ip-whitelist/allow-anywhere
+GET  ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/network/my-ip
+\`\`\`
+
+> **Note:** \`allow-anywhere\` adds \`0.0.0.0/0\` — not recommended for production. Use \`add-current-ip\` or specific CIDRs instead.
 
 ---
 
