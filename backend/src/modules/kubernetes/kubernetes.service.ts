@@ -47,6 +47,8 @@ interface ClusterConnectionInfo {
   port: number;
   replicaSet?: string;
   srv?: string;
+  externalHost?: string;
+  externalPort?: number;
   qdrant?: {
     host: string;
     port: number;
@@ -366,6 +368,13 @@ export class KubernetesService implements OnModuleInit {
         this.logger.log(`Qdrant companion service created for cluster ${params.clusterId}`);
       }
 
+      // 6. Create external LoadBalancer service for outside-cluster connectivity
+      const externalServiceName = `${resourceName}-external`;
+      await this.createExternalService(namespace, externalServiceName, resourceName);
+
+      // 7. Wait for external IP (LoadBalancer provisioning)
+      const externalEndpoint = await this.waitForExternalIp(namespace, externalServiceName);
+
       this.logger.log(`MongoDB cluster ${params.clusterId} creation initiated successfully`);
 
       const serviceName = this.getServiceName(resourceName, params.plan);
@@ -374,6 +383,8 @@ export class KubernetesService implements OnModuleInit {
         port: 27017,
         replicaSet: useOperator ? resourceName : undefined,
         srv: useOperator ? `mongodb+srv://${serviceName}.${namespace}.svc.cluster.local` : undefined,
+        externalHost: externalEndpoint?.host,
+        externalPort: externalEndpoint?.port || 27017,
         qdrant: qdrantInfo,
       };
     } catch (error: any) {
@@ -660,6 +671,85 @@ export class KubernetesService implements OnModuleInit {
     }
   }
 
+  /**
+   * Creates a LoadBalancer-type Service to expose MongoDB externally.
+   * This gives the cluster a public IP so clients outside Kubernetes can connect.
+   */
+  private async createExternalService(
+    namespace: string,
+    externalServiceName: string,
+    resourceName: string,
+  ): Promise<void> {
+    const service: k8s.V1Service = {
+      metadata: {
+        name: externalServiceName,
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/cluster': resourceName,
+          app: resourceName,
+        },
+        annotations: {
+          // Hetzner Cloud LB annotations (if using Hetzner CCM)
+          'load-balancer.hetzner.cloud/name': externalServiceName,
+          'load-balancer.hetzner.cloud/location': 'fsn1',
+        },
+      },
+      spec: {
+        type: 'LoadBalancer',
+        selector: { app: resourceName },
+        ports: [{ name: 'mongodb', port: 27017, targetPort: 27017, protocol: 'TCP' }],
+      },
+    };
+
+    try {
+      await this.coreApi.createNamespacedService(namespace, service);
+      this.logger.log(`Created external LoadBalancer service ${externalServiceName} in ${namespace}`);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 409) {
+        this.logger.error(`Failed to create external service: ${JSON.stringify(error.response?.body || error.message)}`);
+        throw error;
+      }
+      this.logger.log(`External service ${externalServiceName} already exists`);
+    }
+  }
+
+  /**
+   * Polls the LoadBalancer service until an external IP/hostname is assigned.
+   * Returns null if the IP is not available after the timeout (cluster creation still succeeds).
+   */
+  private async waitForExternalIp(
+    namespace: string,
+    serviceName: string,
+    maxAttempts = 30,
+    intervalMs = 5000,
+  ): Promise<{ host: string; port: number } | null> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const { body: svc } = await this.coreApi.readNamespacedService(serviceName, namespace);
+        const ingress = svc.status?.loadBalancer?.ingress;
+
+        if (ingress && ingress.length > 0) {
+          const host = ingress[0].ip || ingress[0].hostname;
+          if (host) {
+            const port = svc.spec?.ports?.[0]?.port || 27017;
+            this.logger.log(`External IP ready for ${serviceName}: ${host}:${port}`);
+            return { host, port };
+          }
+        }
+      } catch (error: any) {
+        this.logger.warn(`Attempt ${attempt}/${maxAttempts}: failed to read service ${serviceName}: ${error.message}`);
+      }
+
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    }
+
+    this.logger.warn(`External IP not available for ${serviceName} after ${maxAttempts} attempts. Will be updated on next status check.`);
+    return null;
+  }
+
   private async createDefaultNetworkPolicy(namespace: string, resourceName: string): Promise<void> {
     const policyName = `${resourceName}-network-policy`;
 
@@ -855,6 +945,16 @@ export class KubernetesService implements OnModuleInit {
       } catch (e: any) {
         if (e.response?.statusCode !== 404) {
           this.logger.warn(`Failed to delete Service ${resourceName}: ${e.message}`);
+        }
+      }
+
+      // Delete external LoadBalancer service
+      try {
+        await this.coreApi.deleteNamespacedService(`${resourceName}-external`, namespace);
+        this.logger.log(`Deleted external service ${resourceName}-external`);
+      } catch (e: any) {
+        if (e.response?.statusCode !== 404) {
+          this.logger.warn(`Failed to delete external service: ${e.message}`);
         }
       }
 
@@ -1709,6 +1809,8 @@ export class KubernetesService implements OnModuleInit {
       port: 27017,
       replicaSet: resourceName,
       srv: `mongodb+srv://${resourceName}-svc.${namespace}.svc.cluster.local`,
+      externalHost: '203.0.113.1', // Simulated external IP
+      externalPort: 27017,
     };
   }
 

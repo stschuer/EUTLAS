@@ -31,7 +31,7 @@ export class NetworkAccessController {
     private readonly orgsService: OrgsService,
   ) {}
 
-  @Post('whitelist')
+  @Post('ip-whitelist')
   @ApiOperation({ summary: 'Add an IP address or CIDR range to the whitelist' })
   async create(
     @CurrentUser() user: CurrentUserData,
@@ -55,7 +55,7 @@ export class NetworkAccessController {
     };
   }
 
-  @Get('whitelist')
+  @Get('ip-whitelist')
   @ApiOperation({ summary: 'List all IP whitelist entries for a cluster' })
   async findAll(
     @CurrentUser() user: CurrentUserData,
@@ -72,7 +72,7 @@ export class NetworkAccessController {
     };
   }
 
-  @Delete('whitelist/:entryId')
+  @Delete('ip-whitelist/:entryId')
   @ApiOperation({ summary: 'Remove an IP whitelist entry' })
   async remove(
     @CurrentUser() user: CurrentUserData,
@@ -95,7 +95,7 @@ export class NetworkAccessController {
     };
   }
 
-  @Post('whitelist/add-current-ip')
+  @Post('ip-whitelist/add-current-ip')
   @ApiOperation({ summary: 'Add the current IP address to the whitelist' })
   async addCurrentIp(
     @CurrentUser() user: CurrentUserData,
@@ -123,7 +123,7 @@ export class NetworkAccessController {
     };
   }
 
-  @Post('whitelist/allow-anywhere')
+  @Post('ip-whitelist/allow-anywhere')
   @ApiOperation({ summary: 'Allow access from any IP address (0.0.0.0/0)' })
   async allowFromAnywhere(
     @CurrentUser() user: CurrentUserData,

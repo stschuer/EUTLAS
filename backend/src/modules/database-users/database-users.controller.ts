@@ -24,7 +24,7 @@ import { UpdateDatabaseUserDto } from './dto/update-database-user.dto';
 @ApiTags('Database Users')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller('projects/:projectId/clusters/:clusterId/users')
+@Controller('projects/:projectId/clusters/:clusterId/database-users')
 export class DatabaseUsersController {
   constructor(
     private readonly dbUsersService: DatabaseUsersService,
