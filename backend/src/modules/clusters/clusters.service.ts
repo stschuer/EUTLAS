@@ -530,6 +530,8 @@ export class ClustersService {
 
     // Build SRV connection string if available (replica set / operator-managed clusters)
     if (cluster.srvHost) {
+      // Strip any existing mongodb+srv:// prefix (older records may have it baked in)
+      const srvHostname = cluster.srvHost.replace(/^mongodb\+srv:\/\//, '');
       const params = new URLSearchParams();
       params.set('authSource', 'admin');
       params.set('retryWrites', 'true');
@@ -537,7 +539,7 @@ export class ClustersService {
       if (cluster.replicaSetName) {
         params.set('replicaSet', cluster.replicaSetName);
       }
-      return `mongodb+srv://${credentials.username}:${credentials.password}@${cluster.srvHost}/${cluster.name}?${params.toString()}`;
+      return `mongodb+srv://${credentials.username}:${credentials.password}@${srvHostname}/${cluster.name}?${params.toString()}`;
     }
 
     // Standard connection string with full options
