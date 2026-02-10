@@ -132,12 +132,14 @@ export class JobProcessorService implements OnModuleInit {
       vectorSearchEnabled: vectorSearchEnabled || false,
     });
 
-    // Update cluster with connection info (including replicaSet, SRV, and Qdrant if enabled)
+    // Update cluster with connection info (including replicaSet, SRV, external endpoint, and Qdrant if enabled)
     await this.clustersService.updateStatus(clusterId, 'ready', {
       host: result.host,
       port: result.port,
       replicaSet: result.replicaSet,
       srv: result.srv,
+      externalHost: result.externalHost,
+      externalPort: result.externalPort,
       qdrant: result.qdrant,
     });
 
@@ -157,7 +159,9 @@ export class JobProcessorService implements OnModuleInit {
         const user = await this.usersService.findById(createdBy);
         const project = await this.projectsService.findById(projectId);
         if (user?.email) {
-          const connectionString = `mongodb://${credentials?.username || 'admin'}:****@${result.host}:${result.port}`;
+          const displayHost = result.externalHost || result.host;
+          const displayPort = result.externalPort || result.port;
+          const connectionString = `mongodb://${credentials?.username || 'admin'}:****@${displayHost}:${displayPort}`;
           await this.emailService.sendClusterReady(
             user.email,
             clusterName || clusterId,

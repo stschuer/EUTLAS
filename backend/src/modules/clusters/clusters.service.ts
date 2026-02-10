@@ -108,6 +108,9 @@ export class ClustersService {
         connectionString: this.buildConnectionString(cluster, credentials),
         host: cluster.connectionHost || 'pending',
         port: cluster.connectionPort || 27017,
+        externalHost: cluster.externalHost || null,
+        externalPort: cluster.externalPort || 27017,
+        externalConnectionString: this.buildExternalConnectionString(cluster, credentials),
         username: credentials.username,
         password: credentials.password,
       },
@@ -188,6 +191,8 @@ export class ClustersService {
       port: number;
       replicaSet?: string;
       srv?: string;
+      externalHost?: string;
+      externalPort?: number;
       qdrant?: { host: string; port: number };
     },
   ): Promise<ClusterDocument> {
@@ -201,6 +206,12 @@ export class ClustersService {
       }
       if (connectionInfo.srv) {
         updateData.srvHost = connectionInfo.srv;
+      }
+      if (connectionInfo.externalHost) {
+        updateData.externalHost = connectionInfo.externalHost;
+      }
+      if (connectionInfo.externalPort) {
+        updateData.externalPort = connectionInfo.externalPort;
       }
       if (connectionInfo.qdrant) {
         updateData.vectorDbHost = connectionInfo.qdrant.host;
@@ -527,6 +538,23 @@ export class ClustersService {
     }
 
     return `mongodb://${credentials.username}:${credentials.password}@${cluster.connectionHost}:${cluster.connectionPort || 27017}/${cluster.name}?${params.toString()}`;
+  }
+
+  private buildExternalConnectionString(
+    cluster: ClusterDocument,
+    credentials: { username: string; password: string },
+  ): string {
+    if (!cluster.externalHost) {
+      return 'pending';
+    }
+
+    const params = new URLSearchParams();
+    params.set('authSource', 'admin');
+    params.set('retryWrites', 'true');
+    params.set('w', 'majority');
+    params.set('directConnection', 'true');
+
+    return `mongodb://${credentials.username}:${credentials.password}@${cluster.externalHost}:${cluster.externalPort || 27017}/${cluster.name}?${params.toString()}`;
   }
 }
 
