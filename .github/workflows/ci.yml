@@ -302,5 +302,19 @@ jobs:
       - name: Deploy with Kustomize
         run: |
           kubectl apply -k infrastructure/k8s/environments/${{ needs.set-env.outputs.environment }}
-          kubectl rollout restart deployment/eutlas-backend -n ${{ steps.ns.outputs.namespace }}
-          kubectl rollout restart deployment/eutlas-frontend -n ${{ steps.ns.outputs.namespace }}
+          
+          # Pin deployments to immutable image tags for this exact commit.
+          kubectl set image deployment/eutlas-backend \
+            backend=${{ env.BACKEND_IMAGE }}:${{ github.sha }} \
+            -n ${{ steps.ns.outputs.namespace }}
+          kubectl set image deployment/eutlas-frontend \
+            frontend=${{ env.FRONTEND_IMAGE }}:${{ github.sha }} \
+            -n ${{ steps.ns.outputs.namespace }}
+          
+          # Wait for rollout completion to avoid "green CI but stale runtime" situations.
+          kubectl rollout status deployment/eutlas-backend -n ${{ steps.ns.outputs.namespace }} --timeout=300s
+          kubectl rollout status deployment/eutlas-frontend -n ${{ steps.ns.outputs.namespace }} --timeout=300s
+          
+          # Print deployed images for audit/debugging.
+          kubectl get deployment eutlas-backend -n ${{ steps.ns.outputs.namespace }} -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
+          kubectl get deployment eutlas-frontend -n ${{ steps.ns.outputs.namespace }} -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
