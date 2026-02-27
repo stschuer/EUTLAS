@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, staging, test]
+    branches: [main, production, staging, test]
   pull_request:
-    branches: [main, staging, test]
+    branches: [main, production, staging, test]
 
 env:
   REGISTRY: ghcr.io
@@ -172,7 +172,7 @@ jobs:
       - name: Set environment
         id: set-env
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          if [[ "${{ github.ref }}" == "refs/heads/production" || "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "environment=production" >> $GITHUB_OUTPUT
             echo "image_tag=latest" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then

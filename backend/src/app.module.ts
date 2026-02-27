@@ -50,6 +50,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { MigrationModule } from './modules/migration/migration.module';
 import { GdprModule } from './modules/gdpr/gdpr.module';
 import { SeedModule } from './modules/seed/seed.module';
+import { TemplatesModule } from './modules/templates/templates.module';
 
 @Module({
   imports: [
@@ -129,6 +130,7 @@ import { SeedModule } from './modules/seed/seed.module';
     MigrationModule,
     GdprModule,
     SeedModule,
+    TemplatesModule,
   ],
   providers: [
     // Global exception filter

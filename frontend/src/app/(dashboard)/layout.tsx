@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/tooltip";
 import { apiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { ImpersonationBanner } from "@/components/auth/impersonation-banner";
 
 export default function DashboardLayout({
   children,
@@ -202,6 +203,9 @@ export default function DashboardLayout({
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-h-screen">
+        {/* Impersonation Banner */}
+        <ImpersonationBanner />
+        
         {/* Mobile header */}
         <header className="lg:hidden sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur p-4 flex items-center gap-4">
           <Tooltip>

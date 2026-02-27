@@ -3,16 +3,22 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { ImpersonateUserDto } from './dto/impersonate.dto';
+import { User, UserDocument } from '../users/schemas/user.schema';
+import { ImpersonationLog, ImpersonationLogDocument } from './schemas/impersonation-log.schema';
 
 @Injectable()
 export class AuthService {
@@ -23,6 +29,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(ImpersonationLog.name) private impersonationLogModel: Model<ImpersonationLogDocument>,
   ) {}
 
   async signup(signupDto: SignupDto) {
@@ -185,6 +193,158 @@ export class AuthService {
 
   async validateUser(userId: string) {
     return this.usersService.findById(userId);
+  }
+
+  /**
+   * Impersonate a user (Global Admin only)
+   * Creates a new JWT token for the target user with impersonation metadata
+   */
+  async impersonateUser(
+    adminUserId: string,
+    dto: ImpersonateUserDto,
+    clientIp?: string,
+    userAgent?: string,
+  ) {
+    // 1. Verify admin user
+    const adminUser = await this.userModel.findById(adminUserId).lean();
+    if (!adminUser) {
+      throw new UnauthorizedException('Admin user not found');
+    }
+
+    if (!adminUser.isGlobalAdmin) {
+      throw new ForbiddenException('Only global admins can impersonate users');
+    }
+
+    // 2. Verify target user exists
+    const targetUser = await this.userModel.findById(dto.userId).lean();
+    if (!targetUser) {
+      throw new BadRequestException('Target user not found');
+    }
+
+    // 3. Prevent impersonating other global admins
+    if (targetUser.isGlobalAdmin) {
+      throw new ForbiddenException('Cannot impersonate other global administrators');
+    }
+
+    // 4. Prevent impersonating inactive users
+    if (!targetUser.isActive) {
+      throw new BadRequestException('Cannot impersonate inactive users');
+    }
+
+    // 5. Create audit log entry
+    const logEntry = await this.impersonationLogModel.create({
+      adminUserId: adminUser._id,
+      adminEmail: adminUser.email,
+      impersonatedUserId: targetUser._id,
+      impersonatedEmail: targetUser.email,
+      startedAt: new Date(),
+      isActive: true,
+      clientIp,
+      userAgent,
+    });
+
+    this.logger.warn(
+      `IMPERSONATION STARTED: Admin ${adminUser.email} (${adminUserId}) is impersonating ${targetUser.email} (${dto.userId})`,
+    );
+
+    // 6. Generate JWT with impersonation metadata
+    const payload = {
+      sub: targetUser._id.toString(),
+      email: targetUser.email,
+      verified: targetUser.verified,
+      // Impersonation metadata
+      impersonatedBy: adminUser._id.toString(),
+      impersonatedByEmail: adminUser.email,
+      impersonationLogId: logEntry._id.toString(),
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+
+    return {
+      success: true,
+      data: {
+        accessToken,
+        expiresIn: this.getExpiresInSeconds(),
+        user: {
+          id: targetUser._id.toString(),
+          email: targetUser.email,
+          name: targetUser.name,
+          verified: targetUser.verified,
+        },
+        impersonatedBy: {
+          id: adminUser._id.toString(),
+          email: adminUser.email,
+          name: adminUser.name,
+        },
+      },
+    };
+  }
+
+  /**
+   * Stop impersonating and return to admin session
+   */
+  async stopImpersonating(impersonationLogId: string, adminUserId: string) {
+    // Find and mark the log entry as ended
+    const logEntry = await this.impersonationLogModel.findById(impersonationLogId);
+    
+    if (logEntry) {
+      logEntry.endedAt = new Date();
+      logEntry.isActive = false;
+      await logEntry.save();
+
+      this.logger.log(
+        `IMPERSONATION ENDED: ${logEntry.adminEmail} stopped impersonating ${logEntry.impersonatedEmail}`,
+      );
+    }
+
+    // Return fresh admin token
+    const adminUser = await this.userModel.findById(adminUserId).lean();
+    if (!adminUser) {
+      throw new UnauthorizedException('Admin user not found');
+    }
+
+    const payload = {
+      sub: adminUser._id.toString(),
+      email: adminUser.email,
+      verified: adminUser.verified,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+
+    return {
+      success: true,
+      data: {
+        accessToken,
+        expiresIn: this.getExpiresInSeconds(),
+        user: {
+          id: adminUser._id.toString(),
+          email: adminUser.email,
+          name: adminUser.name,
+          verified: adminUser.verified,
+        },
+      },
+    };
+  }
+
+  /**
+   * Get impersonation logs (for admin audit)
+   */
+  async getImpersonationLogs(page = 1, limit = 50) {
+    const [logs, total] = await Promise.all([
+      this.impersonationLogModel
+        .find()
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      this.impersonationLogModel.countDocuments(),
+    ]);
+
+    return {
+      logs,
+      total,
+      pages: Math.ceil(total / limit),
+    };
   }
 
   private getExpiresInSeconds(): number {

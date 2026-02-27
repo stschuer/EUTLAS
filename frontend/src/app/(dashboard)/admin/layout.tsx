@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Users, Building2, BarChart3, Settings } from "lucide-react";
+import { Shield, Users, Building2, BarChart3, Settings, FileText } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ const adminNavItems = [
   { href: "/admin", label: "Dashboard", icon: BarChart3 },
   { href: "/admin/tenants", label: "Tenants", icon: Building2 },
   { href: "/admin/users", label: "Users", icon: Users },
+  { href: "/admin/templates", label: "Templates", icon: FileText },
 ];
 
 export default function AdminLayout({

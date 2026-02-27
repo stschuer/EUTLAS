@@ -673,3 +673,83 @@ export const clusterOpsApi = {
     apiClient.post(`/projects/${projectId}/clusters/${clusterId}/clone`, { name, targetProjectId, plan }),
 };
 
+// Templates API (Admin)
+export const templatesApi = {
+  // Admin endpoints
+  list: (params?: Record<string, any>) => {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          searchParams.set(key, String(value));
+        }
+      });
+    }
+    return apiClient.get(`/admin/templates?${searchParams.toString()}`);
+  },
+
+  getById: (templateId: string) =>
+    apiClient.get(`/admin/templates/${templateId}`),  create: (data: {
+    name: string;
+    description?: string;
+    type: 'dashboard' | 'schema' | 'document' | 'report';
+    category: string;
+    visibility?: 'global' | 'tenant' | 'private';
+    tenantId?: string;
+    content?: Record<string, any>;
+    tags?: string[];
+    isFeatured?: boolean;
+    metadata?: Record<string, any>;
+  }) => apiClient.post('/admin/templates', data),  update: (templateId: string, data: {
+    name?: string;
+    description?: string;
+    category?: string;
+    visibility?: 'global' | 'tenant' | 'private';
+    content?: Record<string, any>;
+    tags?: string[];
+    isFeatured?: boolean;
+    isActive?: boolean;
+    metadata?: Record<string, any>;
+  }) => apiClient.put(`/admin/templates/${templateId}`, data),
+
+  delete: (templateId: string) =>
+    apiClient.delete(`/admin/templates/${templateId}`),  duplicate: (templateId: string, newName?: string) =>
+    apiClient.post(`/admin/templates/${templateId}/duplicate`, { name: newName }),
+
+  uploadFile: (templateId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetch(`${API_BASE_URL}/admin/templates/${templateId}/upload`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiClient.getToken()}`,
+      },
+      body: formData,
+    });
+  },
+
+  incrementUsage: (templateId: string) =>
+    apiClient.post(`/admin/templates/${templateId}/increment-usage`),
+
+  getStats: () =>
+    apiClient.get('/admin/templates/stats'),
+
+  // Tenant endpoints (for regular users)
+  listForTenant: (params?: Record<string, any>) => {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          searchParams.set(key, String(value));
+        }
+      });
+    }
+    return apiClient.get(`/tenant/templates?${searchParams.toString()}`);
+  },
+
+  getByIdForTenant: (templateId: string) =>
+    apiClient.get(`/tenant/templates/${templateId}`),
+
+  incrementUsageForTenant: (templateId: string) =>
+    apiClient.post(`/tenant/templates/${templateId}/increment-usage`),
+};

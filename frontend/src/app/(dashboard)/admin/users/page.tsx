@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { 
   Users, 
   Plus, 
@@ -15,8 +16,11 @@ import {
   Eye,
   Building2,
   CheckCircle,
-  XCircle
+  XCircle,
+  LogIn
 } from "lucide-react";
+import { useAuthStore } from "@/stores/auth-store";
+import { apiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -61,6 +65,8 @@ interface User {
 }
 
 export default function UsersPage() {
+  const router = useRouter();
+  const { setAuth } = useAuthStore();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -68,6 +74,7 @@ export default function UsersPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [impersonating, setImpersonating] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -375,6 +382,14 @@ export default function UsersPage() {
                           <DropdownMenuItem onClick={() => openEditDialog(user)}>
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem 
+                            onClick={() => handleImpersonateUser(user)}
+                            disabled={impersonating || user.isGlobalAdmin || !user.isActive}
+                          >
+                            <LogIn className="h-4 w-4 mr-2" />
+                            Login as User
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => toggleUserStatus(user, 'isGlobalAdmin')}>

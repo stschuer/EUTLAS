@@ -463,7 +463,73 @@ POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/backups/<bac
 
 ---
 
-## 7. Monitoring & Metrics
+## 7. Data Migration
+
+Migrate data from an external MongoDB (Atlas or self-hosted) into an EUTLAS cluster.  
+Flow: **analyze source** -> **start migration** -> **poll progress** -> optional **logs/retry/cancel**.
+
+### Analyze Source
+\`\`\`
+POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/migrations/analyze
+Content-Type: application/json
+
+{
+  "sourceUri": "mongodb+srv://user:pass@source.mongodb.net/?retryWrites=true&w=majority"
+}
+\`\`\`
+
+Returns analysis details (databases, collections, indexes, document counts, estimated runtime).
+
+### Start Migration
+\`\`\`
+POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/migrations
+Content-Type: application/json
+
+{
+  "sourceUri": "mongodb+srv://user:pass@source.mongodb.net/?retryWrites=true&w=majority",
+  "sourceProvider": "atlas",
+  "databases": ["appdb", "analytics"],
+  "excludeDatabases": ["admin", "local", "config"],
+  "collections": {
+    "appdb": ["users", "orders"]
+  },
+  "options": {
+    "preserveIndexOptions": true,
+    "dropTargetCollections": false
+  }
+}
+\`\`\`
+
+Starts a background migration job and returns a migration record/id.
+
+### List Migrations
+\`\`\`
+GET ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/migrations
+\`\`\`
+
+### Get Migration Status
+\`\`\`
+GET ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/migrations/<migrationId>
+\`\`\`
+
+### Get Migration Logs
+\`\`\`
+GET ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/migrations/<migrationId>/logs
+\`\`\`
+
+### Retry Failed/Cancelled Migration
+\`\`\`
+POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/migrations/<migrationId>/retry
+\`\`\`
+
+### Cancel In-Progress Migration
+\`\`\`
+DELETE ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/migrations/<migrationId>
+\`\`\`
+
+---
+
+## 8. Monitoring & Metrics
 
 ### Get Cluster Metrics
 \`\`\`
@@ -479,7 +545,7 @@ GET ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/performance/s
 
 ---
 
-## 8. Network & Security
+## 9. Network & Security
 
 ### IP Whitelist
 \`\`\`

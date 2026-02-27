@@ -1,20 +1,27 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
   HttpCode,
   HttpStatus,
   UseGuards,
+  Req,
+  Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
+import { JwtAuthGuard } from '../../common/guards/auth.guard';
+import { GlobalAdminGuard } from '../admin/guards/global-admin.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { ImpersonateUserDto, ImpersonationResponseDto } from './dto/impersonate.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -79,6 +86,74 @@ export class AuthController {
       resetPasswordDto.token,
       resetPasswordDto.password,
     );
+  }
+
+  // ============ Impersonation (Global Admin Only) ============
+
+  @Post('impersonate')
+  @UseGuards(JwtAuthGuard, GlobalAdminGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 impersonations per minute
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Impersonate a user (Global Admin only)',
+    description: 'Allows a global admin to log in as another user for support purposes. All impersonation events are logged.',
+  })
+  @ApiResponse({ status: 200, description: 'Successfully impersonating user', type: ImpersonationResponseDto })
+  @ApiResponse({ status: 403, description: 'Not authorized - global admin access required' })
+  @ApiResponse({ status: 400, description: 'Target user not found or cannot be impersonated' })
+  @ApiResponse({ status: 429, description: 'Too many impersonation attempts' })
+  async impersonateUser(
+    @CurrentUser('userId') adminUserId: string,
+    @Body() dto: ImpersonateUserDto,
+    @Req() req: any,
+  ) {
+    const clientIp = req.ip || req.connection?.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+
+    return this.authService.impersonateUser(adminUserId, dto, clientIp, userAgent);
+  }
+
+  @Post('stop-impersonating')
+  @UseGuards(JwtAuthGuard)
+  @SkipThrottle()
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Stop impersonating and return to admin session',
+    description: 'Ends the impersonation session and returns a fresh token for the admin user.',
+  })
+  @ApiResponse({ status: 200, description: 'Successfully stopped impersonating' })
+  @ApiResponse({ status: 401, description: 'Not authenticated' })
+  async stopImpersonating(@Req() req: any) {
+    const impersonationLogId = req.user?.impersonationLogId;
+    const adminUserId = req.user?.impersonatedBy;
+
+    if (!impersonationLogId || !adminUserId) {
+      // Not currently impersonating - just return current token info
+      return {
+        success: true,
+        message: 'Not currently impersonating',
+      };
+    }
+
+    return this.authService.stopImpersonating(impersonationLogId, adminUserId);
+  }
+
+  @Get('impersonation-logs')
+  @UseGuards(JwtAuthGuard, GlobalAdminGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get impersonation audit logs (Global Admin only)',
+    description: 'Retrieves a paginated list of all impersonation events for audit purposes.',
+  })
+  @ApiResponse({ status: 200, description: 'Impersonation logs retrieved' })
+  @ApiResponse({ status: 403, description: 'Not authorized - global admin access required' })
+  async getImpersonationLogs(
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.authService.getImpersonationLogs(page || 1, limit || 50);
   }
 }
 
