@@ -8,11 +8,15 @@ import { TemplatesService } from './templates.service';
 import { TemplatesController, TenantTemplatesController } from './templates.controller';
 import { SeedTemplatesService } from './seed-templates.service';
 import { AdminModule } from '../admin/admin.module';
+import { User, UserSchema } from '../users/schemas/user.schema';
 
 @Module({
   imports: [
     AdminModule,
-    MongooseModule.forFeature([{ name: Template.name, schema: TemplateSchema }]),
+    MongooseModule.forFeature([
+      { name: Template.name, schema: TemplateSchema },
+      { name: User.name, schema: UserSchema },
+    ]),
     MulterModule.register({
       storage: diskStorage({
         destination: './uploads/templates',
