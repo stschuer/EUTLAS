@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
+import type { Request } from 'express';
 import { extname } from 'path';
 import { Template, TemplateSchema } from './schemas/template.schema';
 import { TemplatesService } from './templates.service';
@@ -20,7 +21,11 @@ import { User, UserSchema } from '../users/schemas/user.schema';
     MulterModule.register({
       storage: diskStorage({
         destination: './uploads/templates',
-        filename: (req, file, cb) => {
+        filename: (
+          req: Request,
+          file: Express.Multer.File,
+          cb: (error: Error | null, filename: string) => void,
+        ) => {
           const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
           cb(null, `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`);
         },
