@@ -230,7 +230,7 @@ export class MigrationService {
     sourceProvider: string;
     targetClusterId: string;
     projectId: string;
-    orgId: string;
+    orgId?: string;
     userId: string;
     databases?: string[];
     excludeDatabases?: string[];
@@ -255,10 +255,17 @@ export class MigrationService {
         `Target cluster must be in "ready" state (current: ${cluster.status})`,
       );
     }
+    const targetClusterObjectId = this.toObjectId(
+      params.targetClusterId,
+      'targetClusterId',
+    );
+    const targetProjectObjectId = this.toObjectId(params.projectId, 'projectId');
+    const resolvedOrgId = params.orgId || cluster.orgId?.toString();
+    const targetOrgObjectId = this.toObjectId(resolvedOrgId, 'orgId');
 
     // Check no other active migration for this cluster
     const activeMigration = await this.migrationModel.findOne({
-      targetClusterId: new Types.ObjectId(params.targetClusterId),
+      targetClusterId: targetClusterObjectId,
       status: { $in: ['pending', 'validating', 'analyzing', 'dumping', 'restoring', 'verifying'] },
     });
     if (activeMigration) {
@@ -296,9 +303,9 @@ export class MigrationService {
 
     // Create the migration record
     const migration = await this.migrationModel.create({
-      targetClusterId: new Types.ObjectId(params.targetClusterId),
-      targetProjectId: new Types.ObjectId(params.projectId),
-      targetOrgId: new Types.ObjectId(params.orgId),
+      targetClusterId: targetClusterObjectId,
+      targetProjectId: targetProjectObjectId,
+      targetOrgId: targetOrgObjectId,
       sourceUri: params.sourceUri,
       sourceProvider: params.sourceProvider,
       status: 'pending',
@@ -360,7 +367,7 @@ export class MigrationService {
       type: 'MIGRATE_CLUSTER',
       targetClusterId: params.targetClusterId,
       targetProjectId: params.projectId,
-      targetOrgId: params.orgId,
+      targetOrgId: targetOrgObjectId.toString(),
       payload: {
         migrationId: migration.id,
         sourceUri: params.sourceUri,
@@ -376,7 +383,7 @@ export class MigrationService {
     });
 
     await this.eventsService.createEvent({
-      orgId: params.orgId,
+      orgId: targetOrgObjectId.toString(),
       projectId: params.projectId,
       clusterId: params.targetClusterId,
       type: 'MIGRATION_STARTED' as any,
@@ -791,10 +798,10 @@ export class MigrationService {
   ): Promise<MigrationDocument[]> {
     const filter: any = {};
     if (targetClusterId) {
-      filter.targetClusterId = new Types.ObjectId(targetClusterId);
+      filter.targetClusterId = this.toObjectId(targetClusterId, 'targetClusterId');
     }
     if (orgId) {
-      filter.targetOrgId = new Types.ObjectId(orgId);
+      filter.targetOrgId = this.toObjectId(orgId, 'orgId');
     }
     return this.migrationModel
       .find(filter)
@@ -989,6 +996,13 @@ export class MigrationService {
     if (ms < 3600000)
       return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
     return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
+  }
+
+  private toObjectId(value: string | undefined, fieldName: string): Types.ObjectId {
+    if (!value || !Types.ObjectId.isValid(value)) {
+      throw new BadRequestException(`Invalid ${fieldName}: must be a 24 character hex string`);
+    }
+    return new Types.ObjectId(value);
   }
 }
 

@@ -65,7 +65,7 @@ export class MigrationController {
       sourceProvider: body.sourceProvider,
       targetClusterId: clusterId,
       projectId,
-      orgId: (user as any).orgId || 'system',
+      orgId: (user as any).orgId,
       userId: user.userId,
       databases: body.databases,
       excludeDatabases: body.excludeDatabases,
