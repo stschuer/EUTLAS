@@ -7,6 +7,7 @@ import { Migration, MigrationSchema } from './schemas/migration.schema';
 import { EventsModule } from '../events/events.module';
 import { ClustersModule } from '../clusters/clusters.module';
 import { JobsModule } from '../jobs/jobs.module';
+import { ProjectsModule } from '../projects/projects.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { JobsModule } from '../jobs/jobs.module';
     EventsModule,
     forwardRef(() => ClustersModule),
     forwardRef(() => JobsModule),
+    ProjectsModule,
   ],
   controllers: [MigrationController],
   providers: [MigrationService],

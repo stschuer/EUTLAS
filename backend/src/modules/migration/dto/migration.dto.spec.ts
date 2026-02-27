@@ -109,12 +109,23 @@ describe('Migration DTOs', () => {
     it('should pass with valid options', async () => {
       const dto = plainToInstance(MigrationOptionsDto, {
         dropExisting: true,
+        dropTargetCollections: true,
         preserveUUIDs: false,
         numParallelCollections: 4,
         oplogReplay: false,
         includeIndexes: true,
+        preserveIndexOptions: true,
         includeGridFS: true,
         compressTransfer: true,
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should pass with legacy option aliases only', async () => {
+      const dto = plainToInstance(MigrationOptionsDto, {
+        dropTargetCollections: false,
+        preserveIndexOptions: true,
       });
       const errors = await validate(dto);
       expect(errors.length).toBe(0);

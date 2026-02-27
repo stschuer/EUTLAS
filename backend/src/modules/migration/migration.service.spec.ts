@@ -8,6 +8,7 @@ import { Migration } from './schemas/migration.schema';
 import { EventsService } from '../events/events.service';
 import { ClustersService } from '../clusters/clusters.service';
 import { JobsService } from '../jobs/jobs.service';
+import { ProjectsService } from '../projects/projects.service';
 
 describe('MigrationService', () => {
   let service: MigrationService;
@@ -15,6 +16,7 @@ describe('MigrationService', () => {
   let clustersService: any;
   let jobsService: any;
   let eventsService: any;
+  let projectsService: any;
 
   // Use valid ObjectId strings for tests
   const CLUSTER_ID = new Types.ObjectId().toString();
@@ -51,6 +53,10 @@ describe('MigrationService', () => {
     get: jest.fn().mockReturnValue('development'),
   };
 
+  const mockProjectsService = {
+    findById: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -60,6 +66,7 @@ describe('MigrationService', () => {
         { provide: EventsService, useValue: mockEventsService },
         { provide: ClustersService, useValue: mockClustersService },
         { provide: JobsService, useValue: mockJobsService },
+        { provide: ProjectsService, useValue: mockProjectsService },
       ],
     }).compile();
 
@@ -68,9 +75,14 @@ describe('MigrationService', () => {
     clustersService = module.get(ClustersService);
     jobsService = module.get(JobsService);
     eventsService = module.get(EventsService);
+    projectsService = module.get(ProjectsService);
 
     // Reset all mocks
     jest.clearAllMocks();
+    mockProjectsService.findById.mockResolvedValue({
+      _id: PROJECT_ID,
+      orgId: { toString: () => ORG_ID },
+    });
   });
 
   describe('analyzeSource', () => {

@@ -26,6 +26,15 @@ export class MigrationOptionsDto {
   @IsBoolean()
   dropExisting?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'Legacy alias for dropExisting. Kept for backward compatibility with older API docs/clients.',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  dropTargetCollections?: boolean;
+
   @ApiPropertyOptional({ description: 'Preserve UUIDs from source (requires matching MongoDB versions)', default: false })
   @IsOptional()
   @IsBoolean()
@@ -47,6 +56,15 @@ export class MigrationOptionsDto {
   @IsOptional()
   @IsBoolean()
   includeIndexes?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Legacy alias for includeIndexes. Kept for backward compatibility with older API docs/clients.',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  preserveIndexOptions?: boolean;
 
   @ApiPropertyOptional({ description: 'Include GridFS buckets in migration', default: true })
   @IsOptional()

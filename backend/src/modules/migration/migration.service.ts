@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventsService } from '../events/events.service';
 import { ClustersService } from '../clusters/clusters.service';
 import { JobsService } from '../jobs/jobs.service';
+import { ProjectsService } from '../projects/projects.service';
 import {
   Migration,
   MigrationDocument,
@@ -27,6 +28,7 @@ export class MigrationService {
     private readonly eventsService: EventsService,
     private readonly clustersService: ClustersService,
     private readonly jobsService: JobsService,
+    private readonly projectsService: ProjectsService,
   ) {}
 
   // ================================================================
@@ -237,10 +239,12 @@ export class MigrationService {
     collections?: string[];
     options?: {
       dropExisting?: boolean;
+      dropTargetCollections?: boolean;
       preserveUUIDs?: boolean;
       numParallelCollections?: number;
       oplogReplay?: boolean;
       includeIndexes?: boolean;
+      preserveIndexOptions?: boolean;
       includeGridFS?: boolean;
       compressTransfer?: boolean;
     };
@@ -260,7 +264,11 @@ export class MigrationService {
       'targetClusterId',
     );
     const targetProjectObjectId = this.toObjectId(params.projectId, 'projectId');
-    const resolvedOrgId = params.orgId || cluster.orgId?.toString();
+    const resolvedOrgId = await this.resolveOrgId({
+      inputOrgId: params.orgId,
+      clusterOrgId: cluster.orgId?.toString(),
+      projectId: params.projectId,
+    });
     const targetOrgObjectId = this.toObjectId(resolvedOrgId, 'orgId');
 
     // Check no other active migration for this cluster
@@ -322,11 +330,17 @@ export class MigrationService {
       excludeDatabases: params.excludeDatabases,
       collections: params.collections,
       options: {
-        dropExisting: params.options?.dropExisting ?? true,
+        dropExisting:
+          params.options?.dropExisting ??
+          params.options?.dropTargetCollections ??
+          true,
         preserveUUIDs: params.options?.preserveUUIDs ?? false,
         numParallelCollections: params.options?.numParallelCollections ?? 4,
         oplogReplay: params.options?.oplogReplay ?? false,
-        includeIndexes: params.options?.includeIndexes ?? true,
+        includeIndexes:
+          params.options?.includeIndexes ??
+          params.options?.preserveIndexOptions ??
+          true,
         includeGridFS: params.options?.includeGridFS ?? true,
         compressTransfer: params.options?.compressTransfer ?? true,
       },
@@ -1003,6 +1017,30 @@ export class MigrationService {
       throw new BadRequestException(`Invalid ${fieldName}: must be a 24 character hex string`);
     }
     return new Types.ObjectId(value);
+  }
+
+  private async resolveOrgId(params: {
+    inputOrgId?: string;
+    clusterOrgId?: string;
+    projectId: string;
+  }): Promise<string> {
+    if (params.inputOrgId && Types.ObjectId.isValid(params.inputOrgId)) {
+      return params.inputOrgId;
+    }
+
+    if (params.clusterOrgId && Types.ObjectId.isValid(params.clusterOrgId)) {
+      return params.clusterOrgId;
+    }
+
+    const project = await this.projectsService.findById(params.projectId);
+    const projectOrgId = project?.orgId?.toString();
+    if (projectOrgId && Types.ObjectId.isValid(projectOrgId)) {
+      return projectOrgId;
+    }
+
+    throw new BadRequestException(
+      'Could not resolve a valid organization ID for this migration request',
+    );
   }
 }
 
