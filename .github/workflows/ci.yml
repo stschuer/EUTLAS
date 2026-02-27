@@ -218,6 +218,7 @@ jobs:
           images: ${{ env.BACKEND_IMAGE }}
           tags: |
             type=raw,value=${{ needs.set-env.outputs.image_tag }}
+            type=raw,value=${{ github.sha }}
             type=sha,prefix=
 
       - name: Build and push Backend
@@ -238,6 +239,7 @@ jobs:
           images: ${{ env.FRONTEND_IMAGE }}
           tags: |
             type=raw,value=${{ needs.set-env.outputs.image_tag }}
+            type=raw,value=${{ github.sha }}
             type=sha,prefix=
 
       - name: Build and push Frontend
