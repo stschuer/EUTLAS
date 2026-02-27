@@ -311,9 +311,29 @@ jobs:
             frontend=${{ env.FRONTEND_IMAGE }}:${{ github.sha }} \
             -n ${{ steps.ns.outputs.namespace }}
           
-          # Wait for rollout completion to avoid "green CI but stale runtime" situations.
-          kubectl rollout status deployment/eutlas-backend -n ${{ steps.ns.outputs.namespace }} --timeout=300s
-          kubectl rollout status deployment/eutlas-frontend -n ${{ steps.ns.outputs.namespace }} --timeout=300s
+          rollout_with_recovery () {
+            DEPLOYMENT_NAME="$1"
+            APP_LABEL="$2"
+            NAMESPACE="${{ steps.ns.outputs.namespace }}"
+          
+            if kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "${NAMESPACE}" --timeout=300s; then
+              return 0
+            fi
+          
+            echo "Rollout timeout for ${DEPLOYMENT_NAME}. Collecting diagnostics..."
+            kubectl get deployment "${DEPLOYMENT_NAME}" -n "${NAMESPACE}" -o wide || true
+            kubectl describe deployment "${DEPLOYMENT_NAME}" -n "${NAMESPACE}" || true
+            kubectl get pods -n "${NAMESPACE}" -l "app=${APP_LABEL}" -o wide || true
+            kubectl describe pods -n "${NAMESPACE}" -l "app=${APP_LABEL}" || true
+          
+            echo "Forcing old pod cleanup for ${DEPLOYMENT_NAME} and retrying rollout..."
+            kubectl delete pods -n "${NAMESPACE}" -l "app=${APP_LABEL}" --grace-period=0 --force || true
+            kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "${NAMESPACE}" --timeout=300s
+          }
+          
+          # Wait for rollout completion with recovery if pods get stuck terminating.
+          rollout_with_recovery "eutlas-backend" "eutlas-backend"
+          rollout_with_recovery "eutlas-frontend" "eutlas-frontend"
           
           # Print deployed images for audit/debugging.
           kubectl get deployment eutlas-backend -n ${{ steps.ns.outputs.namespace }} -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
