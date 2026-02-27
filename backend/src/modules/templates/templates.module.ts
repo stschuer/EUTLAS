@@ -7,9 +7,11 @@ import { Template, TemplateSchema } from './schemas/template.schema';
 import { TemplatesService } from './templates.service';
 import { TemplatesController, TenantTemplatesController } from './templates.controller';
 import { SeedTemplatesService } from './seed-templates.service';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
+    AdminModule,
     MongooseModule.forFeature([{ name: Template.name, schema: TemplateSchema }]),
     MulterModule.register({
       storage: diskStorage({

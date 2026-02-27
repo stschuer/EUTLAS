@@ -46,6 +46,7 @@
     "helmet": "^8.1.0",
     "mongodb": "^7.0.0",
     "mongoose": "^8.1.0",
+    "multer": "^2.0.2",
     "nodemailer": "^6.9.8",
     "openid-client": "^6.8.1",
     "passport": "^0.7.0",

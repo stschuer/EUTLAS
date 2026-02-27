@@ -10,9 +10,11 @@ import { LocalStrategy } from './strategies/local.strategy';
 import { UsersModule } from '../users/users.module';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { ImpersonationLog, ImpersonationLogSchema } from './schemas/impersonation-log.schema';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
+    AdminModule,
     UsersModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
