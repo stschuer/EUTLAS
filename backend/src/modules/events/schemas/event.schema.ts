@@ -43,7 +43,11 @@ export type EventType =
   | 'SSO_CONFIG_DELETED'
   | 'SSO_LOGIN'
   | 'VECTOR_INDEX_CREATED'
-  | 'VECTOR_INDEX_DELETED';
+  | 'VECTOR_INDEX_DELETED'
+  | 'MIGRATION_STARTED'
+  | 'MIGRATION_COMPLETED'
+  | 'MIGRATION_FAILED'
+  | 'MIGRATION_CANCELLED';
 
 export type EventSeverity = 'info' | 'warning' | 'error';
 
@@ -118,6 +122,10 @@ export class Event {
       'SSO_LOGIN',
       'VECTOR_INDEX_CREATED',
       'VECTOR_INDEX_DELETED',
+      'MIGRATION_STARTED',
+      'MIGRATION_COMPLETED',
+      'MIGRATION_FAILED',
+      'MIGRATION_CANCELLED',
     ],
   })
   type: EventType;
