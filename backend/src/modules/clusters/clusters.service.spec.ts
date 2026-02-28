@@ -146,6 +146,33 @@ describe('ClustersService', () => {
       expect(connStr).toContain('replicaSet=myReplicaSet');
     });
 
+    it('should URL-encode credentials with reserved URI characters', async () => {
+      const cluster = {
+        id: 'cluster-encoding',
+        name: 'encoded-db',
+        connectionHost: 'mongo.example.com',
+        connectionPort: 27017,
+        srvHost: null,
+        replicaSetName: null,
+        credentialsEncrypted: 'encrypted',
+      };
+
+      mockCredentialsService.decryptCredentials.mockResolvedValueOnce({
+        username: 'admin+ops',
+        password: 'p@ss#word:with/slash?',
+      });
+      mockClusterModel.findById = jest.fn().mockReturnValue({
+        exec: jest.fn().mockResolvedValue(cluster),
+      });
+
+      const result = await service.findByIdWithCredentials('cluster-encoding');
+
+      const connStr = result!.credentials.connectionString;
+      expect(connStr).toContain(
+        'mongodb://admin%2Bops:p%40ss%23word%3Awith%2Fslash%3F@mongo.example.com:27017/encoded-db',
+      );
+    });
+
     it('should return null when cluster is not found', async () => {
       mockClusterModel.findById = jest.fn().mockReturnValue({
         exec: jest.fn().mockResolvedValue(null),
