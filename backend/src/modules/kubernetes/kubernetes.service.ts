@@ -152,6 +152,7 @@ const MONGODB_KIND = 'MongoDBCommunity';
 export class KubernetesService implements OnModuleInit {
   private readonly logger = new Logger(KubernetesService.name);
   private readonly namespacePrefix: string;
+  private readonly controlPlaneNamespace: string;
   private kc: k8s.KubeConfig;
   private coreApi: k8s.CoreV1Api;
   private appsApi: k8s.AppsV1Api;
@@ -163,6 +164,10 @@ export class KubernetesService implements OnModuleInit {
 
   constructor(private readonly configService: ConfigService) {
     this.namespacePrefix = this.configService.get<string>('K8S_NAMESPACE_PREFIX', 'eutlas-');
+    this.controlPlaneNamespace = this.configService.get<string>(
+      'K8S_CONTROL_PLANE_NAMESPACE',
+      'eutlas',
+    );
     this.devMode = this.configService.get<string>('NODE_ENV') !== 'production';
   }
 
@@ -862,12 +867,19 @@ export class KubernetesService implements OnModuleInit {
         policyTypes: ['Ingress'],
         ingress: [
           {
-            // Allow from same namespace by default
+            // Allow from same tenant namespace and control plane namespace.
             from: [
               {
                 namespaceSelector: {
                   matchLabels: {
-                    name: namespace,
+                    'kubernetes.io/metadata.name': namespace,
+                  },
+                },
+              },
+              {
+                namespaceSelector: {
+                  matchLabels: {
+                    'kubernetes.io/metadata.name': this.controlPlaneNamespace,
                   },
                 },
               },
@@ -1357,7 +1369,14 @@ export class KubernetesService implements OnModuleInit {
           {
             namespaceSelector: {
               matchLabels: {
-                name: namespace,
+                'kubernetes.io/metadata.name': namespace,
+              },
+            },
+          },
+          {
+            namespaceSelector: {
+              matchLabels: {
+                'kubernetes.io/metadata.name': this.controlPlaneNamespace,
               },
             },
           },
