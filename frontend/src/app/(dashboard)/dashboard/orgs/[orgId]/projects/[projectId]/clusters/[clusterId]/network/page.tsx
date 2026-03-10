@@ -63,9 +63,9 @@ export default function NetworkAccessPage() {
   useEffect(() => {
     const fetchMyIp = async () => {
       try {
-        const response = await apiClient.get('/network/my-ip');
-        if (response.data.success) {
-          setMyIp(response.data.data.ip);
+        const response = await apiClient.get<{ ip: string; timestamp: string }>('/network/my-ip');
+        if (response.success && response.data?.ip) {
+          setMyIp(response.data.ip);
         }
       } catch (error) {
         // Try public endpoint
@@ -87,19 +87,36 @@ export default function NetworkAccessPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['ip-whitelist', clusterId],
     queryFn: async () => {
-      const response = await apiClient.get(`/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist`);
-      return response.data.data as IpWhitelistEntry[];
+      const response = await apiClient.get<IpWhitelistEntry[]>(
+        `/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist`
+      );
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to load IP whitelist');
+      }
+      return response.data || [];
     },
   });
 
   // Create entry mutation
   const createMutation = useMutation({
     mutationFn: async (entryData: typeof newEntry) => {
+      const trimmedExpiresAt = entryData.expiresAt.trim();
+      const payload = {
+        cidrBlock: entryData.cidrBlock.trim(),
+        comment: entryData.comment.trim() || undefined,
+        isTemporary: entryData.isTemporary,
+        ...(entryData.isTemporary && trimmedExpiresAt
+          ? { expiresAt: new Date(trimmedExpiresAt).toISOString() }
+          : {}),
+      };
       const response = await apiClient.post(
         `/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist`,
-        entryData
+        payload
       );
-      return response.data;
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to add IP');
+      }
+      return response;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ip-whitelist', clusterId] });
@@ -113,7 +130,7 @@ export default function NetworkAccessPage() {
     onError: (error: any) => {
       toast({
         title: 'Error',
-        description: error.response?.data?.message || 'Failed to add IP',
+        description: error?.message || 'Failed to add IP',
         variant: 'destructive',
       });
     },
@@ -125,19 +142,23 @@ export default function NetworkAccessPage() {
       const response = await apiClient.post(
         `/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist/add-current-ip`
       );
-      return response.data;
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to add current IP');
+      }
+      return response;
     },
-    onSuccess: (data) => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['ip-whitelist', clusterId] });
+      const message = (response as { message?: string }).message;
       toast({
         title: 'IP added',
-        description: data.message || 'Your current IP has been whitelisted.',
+        description: message || 'Your current IP has been whitelisted.',
       });
     },
     onError: (error: any) => {
       toast({
         title: 'Error',
-        description: error.response?.data?.message || 'Failed to add current IP',
+        description: error?.message || 'Failed to add current IP',
         variant: 'destructive',
       });
     },
@@ -149,21 +170,25 @@ export default function NetworkAccessPage() {
       const response = await apiClient.post(
         `/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist/allow-anywhere`
       );
-      return response.data;
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to allow access');
+      }
+      return response;
     },
-    onSuccess: (data) => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['ip-whitelist', clusterId] });
       setShowAllowAnywhere(false);
+      const message = (response as { message?: string }).message;
       toast({
         title: 'Access opened',
-        description: data.message,
+        description: message || 'Cluster is now accessible from any IP address.',
         variant: 'destructive',
       });
     },
     onError: (error: any) => {
       toast({
         title: 'Error',
-        description: error.response?.data?.message || 'Failed to allow access',
+        description: error?.message || 'Failed to allow access',
         variant: 'destructive',
       });
     },
@@ -172,7 +197,10 @@ export default function NetworkAccessPage() {
   // Delete entry mutation
   const deleteMutation = useMutation({
     mutationFn: async (entryId: string) => {
-      await apiClient.delete(`/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist/${entryId}`);
+      const response = await apiClient.delete(`/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist/${entryId}`);
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to remove entry');
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ip-whitelist', clusterId] });
@@ -185,7 +213,7 @@ export default function NetworkAccessPage() {
     onError: (error: any) => {
       toast({
         title: 'Error',
-        description: error.response?.data?.message || 'Failed to remove entry',
+        description: error?.message || 'Failed to remove entry',
         variant: 'destructive',
       });
     },

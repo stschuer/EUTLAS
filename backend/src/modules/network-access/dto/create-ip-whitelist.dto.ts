@@ -1,5 +1,6 @@
 import { IsString, IsOptional, IsBoolean, IsDateString, Matches, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 
 export class CreateIpWhitelistDto {
   @ApiProperty({ 
@@ -24,6 +25,7 @@ export class CreateIpWhitelistDto {
   isTemporary?: boolean;
 
   @ApiProperty({ required: false, example: '2024-12-31T23:59:59Z', description: 'Expiration date for temporary access' })
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? undefined : value))
   @IsOptional()
   @IsDateString()
   expiresAt?: string;
