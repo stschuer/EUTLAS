@@ -87,7 +87,7 @@ export default function NetworkAccessPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['ip-whitelist', clusterId],
     queryFn: async () => {
-      const response = await apiClient.get(`/projects/${projectId}/clusters/${clusterId}/network/whitelist`);
+      const response = await apiClient.get(`/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist`);
       return response.data.data as IpWhitelistEntry[];
     },
   });
@@ -96,7 +96,7 @@ export default function NetworkAccessPage() {
   const createMutation = useMutation({
     mutationFn: async (entryData: typeof newEntry) => {
       const response = await apiClient.post(
-        `/projects/${projectId}/clusters/${clusterId}/network/whitelist`,
+        `/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist`,
         entryData
       );
       return response.data;
@@ -123,7 +123,7 @@ export default function NetworkAccessPage() {
   const addCurrentIpMutation = useMutation({
     mutationFn: async () => {
       const response = await apiClient.post(
-        `/projects/${projectId}/clusters/${clusterId}/network/whitelist/add-current-ip`
+        `/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist/add-current-ip`
       );
       return response.data;
     },
@@ -147,7 +147,7 @@ export default function NetworkAccessPage() {
   const allowAnywhereMutation = useMutation({
     mutationFn: async () => {
       const response = await apiClient.post(
-        `/projects/${projectId}/clusters/${clusterId}/network/whitelist/allow-anywhere`
+        `/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist/allow-anywhere`
       );
       return response.data;
     },
@@ -172,7 +172,7 @@ export default function NetworkAccessPage() {
   // Delete entry mutation
   const deleteMutation = useMutation({
     mutationFn: async (entryId: string) => {
-      await apiClient.delete(`/projects/${projectId}/clusters/${clusterId}/network/whitelist/${entryId}`);
+      await apiClient.delete(`/projects/${projectId}/clusters/${clusterId}/network/ip-whitelist/${entryId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ip-whitelist', clusterId] });
