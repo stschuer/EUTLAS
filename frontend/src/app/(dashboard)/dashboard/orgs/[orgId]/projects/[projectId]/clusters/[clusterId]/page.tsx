@@ -481,9 +481,13 @@ export default function ClusterDetailsPage() {
         <ConnectionStringBuilder
           clusterName={(cluster as any).name}
           credentials={{
-            connectionString: (credentials as any).connectionString,
-            host: (credentials as any).host,
-            port: (credentials as any).port,
+            connectionString:
+              (credentials as any).externalConnectionString &&
+              (credentials as any).externalConnectionString !== 'pending'
+                ? (credentials as any).externalConnectionString
+                : (credentials as any).connectionString,
+            host: (credentials as any).externalHost || (credentials as any).host,
+            port: (credentials as any).externalPort || (credentials as any).port,
             username: (credentials as any).username,
             password: (credentials as any).password,
           }}
