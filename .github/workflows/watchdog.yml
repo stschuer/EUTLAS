@@ -15,7 +15,8 @@ jobs:
       - name: Check EUTLAS health
         id: check
         run: |
-          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu || echo "000")
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu 2>/dev/null)
+          [ -z "$STATUS" ] && STATUS="000"
           echo "status=$STATUS" >> $GITHUB_OUTPUT
           echo "HTTP status: $STATUS"
 
@@ -50,8 +51,12 @@ jobs:
             ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
               -i ~/.ssh/id_ed25519 root@46.224.9.177 \
               "export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+               export PATH=\$PATH:/var/lib/rancher/rke2/bin
+               echo '=== Cleaning up completed MongoDB pods ==='
+               kubectl delete pods -n eutlas -l app=mongodb --field-selector=status.phase=Succeeded 2>/dev/null || true
+               kubectl delete pods -n eutlas -l app=mongodb --field-selector=status.phase=Failed 2>/dev/null || true
                echo '=== Pod Status ==='
-               kubectl get pods -A | grep -v Running | grep -v Completed
+               kubectl get pods -A | grep -Ev 'Running|Completed|Succeeded'
                echo '=== Restarting ingress ==='
                kubectl rollout restart deployment/ingress-nginx-controller -n ingress-nginx 2>/dev/null || true
                echo '=== Restarting Rancher agent ==='
@@ -73,7 +78,8 @@ jobs:
         if: steps.check.outputs.status != '200'
         id: recheck
         run: |
-          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu || echo "000")
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu 2>/dev/null)
+          [ -z "$STATUS" ] && STATUS="000"
           echo "status=$STATUS" >> $GITHUB_OUTPUT
           echo "Status after SSH recovery: $STATUS"
 
@@ -93,7 +99,8 @@ jobs:
       - name: Final health check
         if: steps.check.outputs.status != '200'
         run: |
-          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 15 https://mongo.eutlas.eu || echo "000")
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 15 https://mongo.eutlas.eu 2>/dev/null)
+          [ -z "$STATUS" ] && STATUS="000"
           echo "Final status: $STATUS"
           if [ "$STATUS" != "200" ]; then
             echo "::error::EUTLAS is still DOWN after recovery attempts! Manual intervention required."
