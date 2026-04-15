@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
+  - priority-classes.yaml
   - mongodb.yaml
   - redis.yaml
   - secrets.yaml
@@ -10,6 +11,7 @@ resources:
   - frontend.yaml
   - ingress.yaml
   - rbac.yaml
+  - pod-disruption-budgets.yaml
 
 
 

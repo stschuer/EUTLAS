@@ -12,6 +12,9 @@ spec:
       labels:
         app: eutlas-frontend
     spec:
+      priorityClassName: eutlas-high
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
       containers:
         - name: frontend
           image: ghcr.io/stschuer/eutlas-frontend:latest
@@ -25,22 +28,32 @@ spec:
               value: "pk_test_51SxmcXKnx0cXDf0xpJWlROztmN3XE5fbaYySIug0ihk3oezYgXP2nKIzoYGg9Sub0KctY3PN14C9Tfni29SifL1g00yJ8PmhSY"
           resources:
             limits:
-              cpu: "250m"
-              memory: 256Mi
+              cpu: "500m"
+              memory: 512Mi
             requests:
               cpu: "100m"
-              memory: 128Mi
+              memory: 256Mi
           livenessProbe:
             httpGet:
               path: /
               port: 3000
             initialDelaySeconds: 30
             periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /
               port: 3000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 3
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            failureThreshold: 30
             periodSeconds: 5
 ---
 apiVersion: v1

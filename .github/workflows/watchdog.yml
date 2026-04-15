@@ -1,0 +1,103 @@
+name: Watchdog
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes
+  workflow_dispatch:          # manual trigger
+
+jobs:
+  health-check:
+    name: Health Check & Auto-Recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: Check EUTLAS health
+        id: check
+        run: |
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu || echo "000")
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "HTTP status: $STATUS"
+
+      - name: Check MongoDB port
+        id: mongo
+        run: |
+          if nc -zv -w 10 46.224.9.177 31876 2>&1 | grep -q "succeeded"; then
+            echo "reachable=true" >> $GITHUB_OUTPUT
+            echo "MongoDB: reachable"
+          else
+            echo "reachable=false" >> $GITHUB_OUTPUT
+            echo "MongoDB: NOT reachable"
+          fi
+
+      - name: All healthy - done
+        if: steps.check.outputs.status == '200' && steps.mongo.outputs.reachable == 'true'
+        run: echo "Everything OK - HTTP 200, MongoDB reachable"
+
+      - name: Recovery - Try SSH restart first
+        if: steps.check.outputs.status != '200'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+        run: |
+          echo "EUTLAS is DOWN (HTTP: ${{ steps.check.outputs.status }}). Attempting recovery..."
+
+          if [ -n "$SSH_PRIVATE_KEY" ]; then
+            echo "Trying SSH recovery..."
+            mkdir -p ~/.ssh
+            echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+            chmod 600 ~/.ssh/id_ed25519
+
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+              -i ~/.ssh/id_ed25519 root@46.224.9.177 \
+              "export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+               echo '=== Pod Status ==='
+               kubectl get pods -A | grep -v Running | grep -v Completed
+               echo '=== Restarting ingress ==='
+               kubectl rollout restart deployment/ingress-nginx-controller -n ingress-nginx 2>/dev/null || true
+               echo '=== Restarting Rancher agent ==='
+               kubectl rollout restart deployment/cattle-cluster-agent -n cattle-system 2>/dev/null || true
+               echo '=== Restarting EUTLAS ==='
+               kubectl rollout restart deployment/eutlas-backend deployment/eutlas-frontend -n eutlas 2>/dev/null || true
+               kubectl rollout status deployment/eutlas-backend -n eutlas --timeout=120s || true
+              " 2>&1
+            echo "SSH recovery attempted."
+          else
+            echo "No SSH key configured, skipping SSH recovery."
+          fi
+
+      - name: Wait after SSH recovery
+        if: steps.check.outputs.status != '200'
+        run: sleep 30
+
+      - name: Re-check after SSH recovery
+        if: steps.check.outputs.status != '200'
+        id: recheck
+        run: |
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu || echo "000")
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "Status after SSH recovery: $STATUS"
+
+      - name: Recovery - Reboot via Hetzner API (last resort)
+        if: steps.check.outputs.status != '200' && steps.recheck.outputs.status != '200'
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          echo "SSH recovery failed. Rebooting prod node via Hetzner API..."
+          RESULT=$(curl -s -X POST \
+            -H "Authorization: Bearer $HCLOUD_TOKEN" \
+            "https://api.hetzner.cloud/v1/servers/119889168/actions/reboot")
+          echo "Reboot result: $(echo $RESULT | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("action",{}).get("status","?"))')"
+          echo "Waiting 3 minutes for server to come back..."
+          sleep 180
+
+      - name: Final health check
+        if: steps.check.outputs.status != '200'
+        run: |
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 15 https://mongo.eutlas.eu || echo "000")
+          echo "Final status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::EUTLAS is still DOWN after recovery attempts! Manual intervention required."
+            exit 1
+          else
+            echo "Recovery successful! EUTLAS is back online."
+          fi

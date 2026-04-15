@@ -1,0 +1,29 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: eutlas-backend-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: eutlas-backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: eutlas-frontend-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: eutlas-frontend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: eutlas-redis-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: eutlas-redis
