@@ -9,6 +9,8 @@ import { EmailService } from '../email/email.service';
 import { UsersService } from '../users/users.service';
 import { ProjectsService } from '../projects/projects.service';
 import { MigrationService } from '../migration/migration.service';
+import { HetznerProvisionerService } from '../hetzner/hetzner-provisioner.service';
+import { CredentialsService } from '../credentials/credentials.service';
 import { JobDocument } from './schemas/job.schema';
 
 @Injectable()
@@ -30,6 +32,8 @@ export class JobProcessorService implements OnModuleInit {
     private readonly projectsService: ProjectsService,
     @Inject(forwardRef(() => MigrationService))
     private readonly migrationService: MigrationService,
+    private readonly hetznerProvisioner: HetznerProvisionerService,
+    private readonly credentialsService: CredentialsService,
   ) {}
 
   onModuleInit() {
@@ -115,11 +119,36 @@ export class JobProcessorService implements OnModuleInit {
   }
 
   private async processCreateCluster(job: JobDocument) {
-    const { plan, mongoVersion, credentials, clusterName, createdBy, vectorSearchEnabled } = job.payload as any;
+    const { plan, mongoVersion, credentials, clusterName, createdBy, vectorSearchEnabled, region } = job.payload as any;
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
     const orgId = job.targetOrgId!.toString();
-    
+
+    // ── Dedicated server provisioning (LARGE+ plans) ──────────────────────
+    let dedicatedKubeconfig: string | undefined;
+
+    if (this.hetznerProvisioner.needsDedicatedServer(plan)) {
+      this.logger.log(`[${clusterId}] Plan ${plan} requires a dedicated server — provisioning via Hetzner`);
+
+      const serverInfo = await this.hetznerProvisioner.provisionClusterServer(
+        clusterId,
+        region || 'fsn1',
+        plan,
+      );
+
+      // Encrypt the kubeconfig before persisting it
+      const kubeconfigEncrypted = this.credentialsService.encryptString(serverInfo.kubeconfig);
+
+      await this.clustersService.updateDedicatedServer(clusterId, {
+        serverId: serverInfo.serverId,
+        serverIp: serverInfo.serverIp,
+        kubeconfigEncrypted,
+      });
+
+      dedicatedKubeconfig = serverInfo.kubeconfig;
+      this.logger.log(`[${clusterId}] Dedicated server ${serverInfo.serverId} provisioned at ${serverInfo.serverIp}`);
+    }
+
     // Create K8s resources (MongoDB + optional Qdrant companion)
     const result = await this.kubernetesService.createMongoCluster({
       clusterId,
@@ -130,6 +159,7 @@ export class JobProcessorService implements OnModuleInit {
       mongoVersion,
       credentials,
       vectorSearchEnabled: vectorSearchEnabled || false,
+      dedicatedKubeconfig,
     });
 
     // Update cluster with connection info (including replicaSet, SRV, external endpoint, and Qdrant if enabled)
@@ -208,11 +238,37 @@ export class JobProcessorService implements OnModuleInit {
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
 
-    // Delete K8s resources
-    await this.kubernetesService.deleteMongoCluster({ clusterId, projectId });
+    // Look up dedicated server info (if any) before we hard-delete the record
+    const clusterDoc = await this.clustersService.findById(clusterId);
+    const dedicatedServerId: number | undefined = (clusterDoc as any)?.dedicatedServerId;
+    const dedicatedKubeconfigEncrypted: string | undefined = (clusterDoc as any)?.dedicatedKubeconfigEncrypted;
+
+    // Decrypt kubeconfig if present
+    let dedicatedKubeconfig: string | undefined;
+    if (dedicatedKubeconfigEncrypted) {
+      try {
+        dedicatedKubeconfig = this.credentialsService.decryptString(dedicatedKubeconfigEncrypted);
+      } catch (e) {
+        this.logger.warn(`[${clusterId}] Failed to decrypt dedicated kubeconfig: ${e}`);
+      }
+    }
+
+    // Delete K8s resources (on the dedicated server if applicable)
+    await this.kubernetesService.deleteMongoCluster({ clusterId, projectId, dedicatedKubeconfig });
 
     // Hard delete cluster from database
     await this.clustersService.hardDelete(clusterId);
+
+    // Deprovision the dedicated Hetzner server (after K8s cleanup and DB deletion)
+    if (dedicatedServerId) {
+      this.logger.log(`[${clusterId}] Deprovisioning dedicated Hetzner server ${dedicatedServerId}`);
+      try {
+        await this.hetznerProvisioner.deprovisionServer(dedicatedServerId);
+      } catch (e: any) {
+        this.logger.error(`[${clusterId}] Failed to delete Hetzner server ${dedicatedServerId}: ${e.message}`);
+        // Don't throw — cluster DB record is already deleted; log and move on
+      }
+    }
 
     // Create event
     await this.eventsService.createEvent({

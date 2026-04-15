@@ -51,6 +51,7 @@ import { MigrationModule } from './modules/migration/migration.module';
 import { GdprModule } from './modules/gdpr/gdpr.module';
 import { SeedModule } from './modules/seed/seed.module';
 import { TemplatesModule } from './modules/templates/templates.module';
+import { HetznerModule } from './modules/hetzner/hetzner.module';
 
 @Module({
   imports: [
@@ -131,6 +132,7 @@ import { TemplatesModule } from './modules/templates/templates.module';
     GdprModule,
     SeedModule,
     TemplatesModule,
+    HetznerModule,
   ],
   providers: [
     // Global exception filter

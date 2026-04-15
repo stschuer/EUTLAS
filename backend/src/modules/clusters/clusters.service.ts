@@ -232,6 +232,27 @@ export class ClustersService {
     return cluster;
   }
 
+  /** Persists dedicated-server metadata after a Hetzner node has been provisioned. */
+  async updateDedicatedServer(
+    clusterId: string,
+    info: { serverId: number; serverIp: string; kubeconfigEncrypted: string },
+  ): Promise<ClusterDocument> {
+    const cluster = await this.clusterModel.findByIdAndUpdate(
+      clusterId,
+      {
+        $set: {
+          dedicatedServerId: info.serverId,
+          dedicatedServerIp: info.serverIp,
+          dedicatedKubeconfigEncrypted: info.kubeconfigEncrypted,
+        },
+      },
+      { new: true },
+    ).exec();
+
+    if (!cluster) throw new NotFoundException('Cluster not found');
+    return cluster;
+  }
+
   async updatePlan(clusterId: string, plan: ClusterPlan): Promise<ClusterDocument> {
     const cluster = await this.clusterModel.findByIdAndUpdate(
       clusterId,

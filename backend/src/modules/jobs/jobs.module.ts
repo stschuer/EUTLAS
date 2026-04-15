@@ -10,6 +10,8 @@ import { BackupsModule } from '../backups/backups.module';
 import { UsersModule } from '../users/users.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { MigrationModule } from '../migration/migration.module';
+import { HetznerModule } from '../hetzner/hetzner.module';
+import { CredentialsModule } from '../credentials/credentials.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { MigrationModule } from '../migration/migration.module';
     KubernetesModule,
     EventsModule,
     UsersModule,
+    HetznerModule,
+    CredentialsModule,
   ],
   providers: [JobsService, JobProcessorService],
   exports: [JobsService],

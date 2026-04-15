@@ -59,6 +59,15 @@ export class CredentialsService {
     throw new Error('Production credential retrieval not implemented');
   }
 
+  /** Public wrappers for encrypting/decrypting arbitrary strings (e.g. kubeconfigs). */
+  encryptString(text: string): string {
+    return this.encrypt(text);
+  }
+
+  decryptString(encrypted: string): string {
+    return this.decrypt(encrypted);
+  }
+
   private encrypt(text: string): string {
     const key = this.getEncryptionKey();
     const iv = crypto.randomBytes(this.ivLength);

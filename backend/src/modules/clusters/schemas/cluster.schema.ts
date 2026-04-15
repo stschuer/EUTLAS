@@ -103,6 +103,19 @@ export class Cluster {
   @Prop()
   vectorDbPort?: number;
 
+  // ── Dedicated-server fields (LARGE+ plans) ────────────────────────────────
+  /** Hetzner server ID of the dedicated node for this cluster (LARGE+ plans). */
+  @Prop()
+  dedicatedServerId?: number;
+
+  /** Public IPv4 of the dedicated node. */
+  @Prop()
+  dedicatedServerIp?: string;
+
+  /** Kubeconfig for the dedicated node, AES-256-GCM encrypted (same key as credentials). */
+  @Prop()
+  dedicatedKubeconfigEncrypted?: string;
+
   @Prop({ type: Types.ObjectId, ref: 'Cluster' })
   clonedFrom?: Types.ObjectId;
 

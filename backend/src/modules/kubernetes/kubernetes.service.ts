@@ -17,6 +17,8 @@ interface CreateClusterParams {
     username: string;
     password: string;
   };
+  /** Raw kubeconfig YAML for a dedicated Hetzner node (LARGE+ plans). */
+  dedicatedKubeconfig?: string;
 }
 
 interface ResizeClusterParams {
@@ -28,6 +30,8 @@ interface ResizeClusterParams {
 interface DeleteClusterParams {
   clusterId: string;
   projectId: string;
+  /** Raw kubeconfig YAML for a dedicated Hetzner node (LARGE+ plans). */
+  dedicatedKubeconfig?: string;
 }
 
 interface PauseClusterParams {
@@ -319,6 +323,11 @@ export class KubernetesService implements OnModuleInit {
   // ========== MongoDB Cluster Management ==========
 
   async createMongoCluster(params: CreateClusterParams): Promise<ClusterConnectionInfo> {
+    if (params.dedicatedKubeconfig) {
+      const { dedicatedKubeconfig, ...rest } = params;
+      return this.withDedicatedClients(dedicatedKubeconfig, () => this.createMongoCluster(rest));
+    }
+
     this.logger.log(`Creating MongoDB cluster ${params.clusterId} (${params.clusterName})`);
 
     const namespace = await this.ensureNamespace(params.projectId);
@@ -989,6 +998,11 @@ export class KubernetesService implements OnModuleInit {
   }
 
   async deleteMongoCluster(params: DeleteClusterParams): Promise<void> {
+    if (params.dedicatedKubeconfig) {
+      const { dedicatedKubeconfig, ...rest } = params;
+      return this.withDedicatedClients(dedicatedKubeconfig, () => this.deleteMongoCluster(rest));
+    }
+
     this.logger.log(`Deleting cluster ${params.clusterId}`);
 
     const namespace = this.getNamespace(params.projectId);
@@ -1875,6 +1889,47 @@ export class KubernetesService implements OnModuleInit {
       }
     } catch (error: any) {
       this.logger.warn(`Failed to clean up Qdrant PVCs: ${error.message}`);
+    }
+  }
+
+  // ========== Dedicated-server client swapping ==========
+
+  /**
+   * Temporarily replaces the shared K8s API clients with ones built from `kubeconfigYaml`,
+   * runs `fn`, then restores the original clients.
+   *
+   * This is safe because the job processor processes one job at a time (isProcessing guard).
+   */
+  private async withDedicatedClients<T>(kubeconfigYaml: string, fn: () => Promise<T>): Promise<T> {
+    const saved = {
+      kc:         this.kc,
+      coreApi:    this.coreApi,
+      appsApi:    this.appsApi,
+      networkApi: this.networkApi,
+      customApi:  this.customApi,
+      rbacApi:    this.rbacApi,
+      connected:  this.isConnected,
+    };
+
+    try {
+      const kc = new k8s.KubeConfig();
+      kc.loadFromString(kubeconfigYaml);
+      this.kc         = kc;
+      this.coreApi    = kc.makeApiClient(k8s.CoreV1Api);
+      this.appsApi    = kc.makeApiClient(k8s.AppsV1Api);
+      this.networkApi = kc.makeApiClient(k8s.NetworkingV1Api);
+      this.customApi  = kc.makeApiClient(k8s.CustomObjectsApi);
+      this.rbacApi    = kc.makeApiClient(k8s.RbacAuthorizationV1Api);
+      this.isConnected = true;
+      return await fn();
+    } finally {
+      this.kc         = saved.kc;
+      this.coreApi    = saved.coreApi;
+      this.appsApi    = saved.appsApi;
+      this.networkApi = saved.networkApi;
+      this.customApi  = saved.customApi;
+      this.rbacApi    = saved.rbacApi;
+      this.isConnected = saved.connected;
     }
   }
 
