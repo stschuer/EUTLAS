@@ -15,7 +15,7 @@ jobs:
       - name: Check EUTLAS health
         id: check
         run: |
-          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu 2>/dev/null)
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu 2>/dev/null) || STATUS="000"
           [ -z "$STATUS" ] && STATUS="000"
           echo "status=$STATUS" >> $GITHUB_OUTPUT
           echo "HTTP status: $STATUS"
@@ -78,7 +78,7 @@ jobs:
         if: steps.check.outputs.status != '200'
         id: recheck
         run: |
-          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu 2>/dev/null)
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://mongo.eutlas.eu 2>/dev/null) || STATUS="000"
           [ -z "$STATUS" ] && STATUS="000"
           echo "status=$STATUS" >> $GITHUB_OUTPUT
           echo "Status after SSH recovery: $STATUS"
@@ -99,7 +99,7 @@ jobs:
       - name: Final health check
         if: steps.check.outputs.status != '200'
         run: |
-          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 15 https://mongo.eutlas.eu 2>/dev/null)
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 15 https://mongo.eutlas.eu 2>/dev/null) || STATUS="000"
           [ -z "$STATUS" ] && STATUS="000"
           echo "Final status: $STATUS"
           if [ "$STATUS" != "200" ]; then
