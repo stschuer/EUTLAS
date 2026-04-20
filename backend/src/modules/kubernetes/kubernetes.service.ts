@@ -17,7 +17,7 @@ interface CreateClusterParams {
     username: string;
     password: string;
   };
-  /** Raw kubeconfig YAML for a dedicated Hetzner node (LARGE+ plans). */
+  /** Raw kubeconfig YAML for the cluster's dedicated Hetzner node. */
   dedicatedKubeconfig?: string;
 }
 
@@ -30,7 +30,7 @@ interface ResizeClusterParams {
 interface DeleteClusterParams {
   clusterId: string;
   projectId: string;
-  /** Raw kubeconfig YAML for a dedicated Hetzner node (LARGE+ plans). */
+  /** Raw kubeconfig YAML for the cluster's dedicated Hetzner node. */
   dedicatedKubeconfig?: string;
 }
 
@@ -129,6 +129,37 @@ export const PLAN_RESOURCES: Record<string, {
   DEDICATED_XL: { cpu: '8000m', memory: '16Gi', storage: '500Gi', replicas: 3, cpuLimit: '16000m', memoryLimit: '32Gi' },
 };
 
+// Aggregate storage budget (sum of requests.storage across all PVCs) per plan.
+// Enforced via a per-namespace ResourceQuota so a single cluster cannot request
+// unbounded PVCs and so the dedicated node's disk is protected.
+// Values account for data × replicas + 1 Gi logs/replica + 5 Gi backups + Qdrant + headroom.
+export const PLAN_NAMESPACE_STORAGE_QUOTA: Record<string, string> = {
+  DEV:          '15Gi',
+  SMALL:        '25Gi',
+  MEDIUM:       '40Gi',
+  LARGE:        '120Gi',
+  XLARGE:       '220Gi',
+  XXL:          '400Gi',
+  XXXL:         '900Gi',
+  DEDICATED_L:  '1Ti',
+  DEDICATED_XL: '2Ti',
+};
+
+// Maximum PVC request that a single PersistentVolumeClaim may declare in the
+// namespace. Prevents a user/operator from asking for a multi-TB volume on a
+// small-plan node.
+export const PLAN_MAX_PVC_SIZE: Record<string, string> = {
+  DEV:          '5Gi',
+  SMALL:        '10Gi',
+  MEDIUM:       '20Gi',
+  LARGE:        '50Gi',
+  XLARGE:       '100Gi',
+  XXL:          '200Gi',
+  XXXL:         '500Gi',
+  DEDICATED_L:  '500Gi',
+  DEDICATED_XL: '1Ti',
+};
+
 // Qdrant companion service resource sizing (opt-in, only when vectorSearchEnabled)
 export const QDRANT_RESOURCES: Record<string, {
   cpu: string;
@@ -151,6 +182,27 @@ export const QDRANT_RESOURCES: Record<string, {
 // MongoDB Community Operator CRD API Version
 const MONGODB_API_VERSION = 'mongodbcommunity.mongodb.com/v1';
 const MONGODB_KIND = 'MongoDBCommunity';
+
+/** Parse a Kubernetes memory string ("512Mi", "1Gi", "1000m", …) to GB (decimal). */
+function parseMemoryToGB(mem: string): number {
+  const m = mem.trim().match(/^(\d+(?:\.\d+)?)\s*(Ki|Mi|Gi|Ti|K|M|G|T)?$/);
+  if (!m) return 1;
+  const n = parseFloat(m[1]);
+  const unit = m[2] || '';
+  const factorMi: Record<string, number> = {
+    Ki: 1 / 1024,
+    Mi: 1,
+    Gi: 1024,
+    Ti: 1024 * 1024,
+    K: 1 / 1024,
+    M: 1,
+    G: 1024,
+    T: 1024 * 1024,
+    '': 1 / (1024 * 1024), // raw bytes
+  };
+  const mib = n * (factorMi[unit] ?? 1);
+  return mib / 1024; // GB (GiB)
+}
 
 @Injectable()
 export class KubernetesService implements OnModuleInit {
@@ -302,6 +354,119 @@ export class KubernetesService implements OnModuleInit {
     }
   }
 
+  /**
+   * Applies / updates the namespace ResourceQuota + LimitRange for the given plan.
+   * Idempotent — safe to call on every create/resize.
+   *
+   * Prevents PVC sprawl by capping the total `requests.storage` in the
+   * namespace and the maximum size of any single PVC. Even though
+   * local-path-provisioner does not enforce write limits inside a PVC, this
+   * still guarantees that no customer namespace can request more total
+   * storage than the dedicated node can absorb.
+   */
+  async applyNamespaceQuota(namespace: string, plan: string): Promise<void> {
+    if (this.shouldSimulate()) {
+      this.logger.debug(`[SIM] Would apply ResourceQuota for ${namespace} (plan=${plan})`);
+      return;
+    }
+
+    const storageQuota = PLAN_NAMESPACE_STORAGE_QUOTA[plan] || PLAN_NAMESPACE_STORAGE_QUOTA.DEV;
+    const maxPvc = PLAN_MAX_PVC_SIZE[plan] || PLAN_MAX_PVC_SIZE.DEV;
+    const resources = PLAN_RESOURCES[plan] || PLAN_RESOURCES.DEV;
+
+    // ── ResourceQuota ────────────────────────────────────────────────────
+    const quotaBody: any = {
+      apiVersion: 'v1',
+      kind: 'ResourceQuota',
+      metadata: {
+        name: 'eutlas-plan-quota',
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/plan': plan,
+        },
+      },
+      spec: {
+        hard: {
+          // Total sum of all PVC `requests.storage` in this namespace
+          'requests.storage': storageQuota,
+          // Hard cap on number of PVCs — prevents runaway PVC creation
+          persistentvolumeclaims: String(Math.max(10, resources.replicas * 4)),
+        },
+      },
+    };
+
+    try {
+      await this.coreApi.replaceNamespacedResourceQuota(
+        'eutlas-plan-quota',
+        namespace,
+        quotaBody,
+      );
+      this.logger.log(`Updated ResourceQuota for ${namespace} (plan=${plan}, storage=${storageQuota})`);
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        await this.coreApi.createNamespacedResourceQuota(namespace, quotaBody);
+        this.logger.log(`Created ResourceQuota for ${namespace} (plan=${plan}, storage=${storageQuota})`);
+      } else {
+        this.logger.warn(`Failed to apply ResourceQuota in ${namespace}: ${error.message}`);
+      }
+    }
+
+    // ── LimitRange (per-PVC ceiling) ──────────────────────────────────────
+    const limitRangeBody: any = {
+      apiVersion: 'v1',
+      kind: 'LimitRange',
+      metadata: {
+        name: 'eutlas-pvc-limits',
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/plan': plan,
+        },
+      },
+      spec: {
+        limits: [
+          {
+            type: 'PersistentVolumeClaim',
+            max: { storage: maxPvc },
+            min: { storage: '10Mi' },
+          },
+        ],
+      },
+    };
+
+    try {
+      await this.coreApi.replaceNamespacedLimitRange(
+        'eutlas-pvc-limits',
+        namespace,
+        limitRangeBody,
+      );
+      this.logger.log(`Updated LimitRange for ${namespace} (max PVC=${maxPvc})`);
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        await this.coreApi.createNamespacedLimitRange(namespace, limitRangeBody);
+        this.logger.log(`Created LimitRange for ${namespace} (max PVC=${maxPvc})`);
+      } else {
+        this.logger.warn(`Failed to apply LimitRange in ${namespace}: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Returns the WiredTiger cache size (GB) for a given plan, capped so the
+   * mongod container cannot exceed its memory limit.
+   *
+   * Rule: min(50% of memoryLimit, memoryLimit - 1 GB), floored at 0.25 GB.
+   */
+  private cacheSizeGBForPlan(plan: string): number {
+    const resources = PLAN_RESOURCES[plan] || PLAN_RESOURCES.DEV;
+    const memGB = parseMemoryToGB(resources.memoryLimit);
+    const candidate = Math.min(memGB * 0.5, Math.max(memGB - 1, 0.25));
+    // Round down to nearest 0.25 GB for a stable value
+    const rounded = Math.max(0.25, Math.floor(candidate * 4) / 4);
+    return rounded;
+  }
+
   async deleteNamespace(projectId: string): Promise<void> {
     const namespace = this.getNamespace(projectId);
 
@@ -334,6 +499,13 @@ export class KubernetesService implements OnModuleInit {
     const resourceName = this.getResourceName(params.clusterId);
     const resources = PLAN_RESOURCES[params.plan] || PLAN_RESOURCES.DEV;
 
+    // Apply plan-based storage quota / PVC limit range before creating PVCs.
+    try {
+      await this.applyNamespaceQuota(namespace, params.plan);
+    } catch (err: any) {
+      this.logger.warn(`Quota setup failed for ${namespace}: ${err.message}`);
+    }
+
     if (this.shouldSimulate()) {
       await this.simulateDelay(2000);
       const simInfo = this.getSimulatedConnectionInfo(resourceName, namespace);
@@ -364,7 +536,7 @@ export class KubernetesService implements OnModuleInit {
       } else {
         // Use simple StatefulSet for DEV/SMALL plans (single node)
         this.logger.log(`Using simple StatefulSet for plan ${params.plan}`);
-        await this.createSimpleMongoDBStatefulSet(namespace, resourceName, params.credentials, resources);
+        await this.createSimpleMongoDBStatefulSet(namespace, resourceName, params.credentials, resources, params.plan);
       }
 
       // 3. Create NetworkPolicy for security
@@ -506,6 +678,11 @@ export class KubernetesService implements OnModuleInit {
         ],
         additionalMongodConfig: {
           'storage.wiredTiger.engineConfig.journalCompressor': 'zlib',
+          // Cap WiredTiger cache so mongod stays within its memory limit.
+          'storage.wiredTiger.engineConfig.cacheSizeGB': this.cacheSizeGBForPlan(params.plan),
+          // zstd gives better compression ratio than snappy at similar CPU cost —
+          // keeps on-disk footprint smaller.
+          'storage.wiredTiger.collectionConfig.blockCompressor': 'zstd',
           'net.maxIncomingConnections': 1000,
         },
         statefulSet: {
@@ -609,9 +786,11 @@ export class KubernetesService implements OnModuleInit {
     resourceName: string,
     credentials: { username: string; password: string },
     resources: typeof PLAN_RESOURCES.DEV,
+    plan: string = 'DEV',
   ): Promise<void> {
     // Create a simple StatefulSet for DEV/SMALL plans (single node, no operator)
     const secretName = `${resourceName}-admin-password`;
+    const cacheGB = this.cacheSizeGBForPlan(plan);
 
     // Create StatefulSet
     const statefulSet: k8s.V1StatefulSet = {
@@ -639,6 +818,12 @@ export class KubernetesService implements OnModuleInit {
                 name: 'mongodb',
                 image: 'mongo:7.0',
                 ports: [{ containerPort: 27017 }],
+                args: [
+                  '--bind_ip_all',
+                  '--wiredTigerCacheSizeGB', String(cacheGB),
+                  '--wiredTigerCollectionBlockCompressor', 'zstd',
+                  '--wiredTigerJournalCompressor', 'zlib',
+                ],
                 env: [
                   { name: 'MONGO_INITDB_ROOT_USERNAME', value: credentials.username },
                   { name: 'MONGO_INITDB_ROOT_PASSWORD', valueFrom: { secretKeyRef: { name: secretName, key: 'password' } } },
@@ -920,6 +1105,13 @@ export class KubernetesService implements OnModuleInit {
     if (this.shouldSimulate()) {
       await this.simulateDelay(1500);
       return;
+    }
+
+    // Update storage quota / PVC limits for the new plan before expanding.
+    try {
+      await this.applyNamespaceQuota(namespace, params.newPlan);
+    } catch (err: any) {
+      this.logger.warn(`Quota update failed for ${namespace}: ${err.message}`);
     }
 
     const currentIsOperator = params.currentPlan ? this.isOperatorManaged(params.currentPlan) : false;

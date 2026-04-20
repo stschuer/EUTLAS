@@ -3,8 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { Client as SshClient } from 'ssh2';
 
-// Hetzner server type per EUTLAS plan
+// Hetzner server type per EUTLAS plan.
+// Every plan (including DEV/SMALL/MEDIUM) runs on its own dedicated Hetzner
+// server so a single misbehaving customer cluster cannot impact any other.
 const PLAN_SERVER_TYPES: Record<string, string> = {
+  DEV:          'cx22',   // 2 vCPU shared, 4 GB RAM, 40 GB NVMe  (~€4/mo)
+  SMALL:        'cx22',   // 2 vCPU shared, 4 GB RAM, 40 GB NVMe  (~€4/mo)
+  MEDIUM:       'cx32',   // 4 vCPU shared, 8 GB RAM, 80 GB NVMe  (~€7/mo)
   LARGE:        'cx31',   // 2 vCPU, 8 GB RAM, 80 GB SSD  (~€14/mo)
   XLARGE:       'cx41',   // 4 vCPU, 16 GB RAM, 160 GB SSD (~€30/mo)
   XXL:          'cx51',   // 8 vCPU, 32 GB RAM, 240 GB SSD (~€60/mo)
@@ -13,8 +18,8 @@ const PLAN_SERVER_TYPES: Record<string, string> = {
   DEDICATED_XL: 'ccx53',  // 32 vCPU, 128 GB RAM dedicated
 };
 
-// Plans that must run on a dedicated Hetzner server
-const DEDICATED_PLANS = new Set(['LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL']);
+// Fallback server type for unknown plans — small shared AMD node.
+const DEFAULT_SERVER_TYPE = 'cx22';
 
 export interface DedicatedServerInfo {
   serverId: number;
@@ -35,9 +40,14 @@ export class HetznerProvisionerService {
     this.sshKeyName   = this.configService.get<string>('HETZNER_SSH_KEY_NAME', 'eutlas-cluster-key');
   }
 
-  /** Returns true if this plan requires a dedicated Hetzner node. */
-  needsDedicatedServer(plan: string): boolean {
-    return DEDICATED_PLANS.has(plan);
+  /**
+   * Returns true if this plan requires a dedicated Hetzner node.
+   * Since 2026-04 every plan runs on its own node — this always returns true,
+   * but the method is kept for backward compatibility with existing callers
+   * and to make the intent explicit at the call site.
+   */
+  needsDedicatedServer(_plan: string): boolean {
+    return true;
   }
 
   /**
@@ -51,7 +61,7 @@ export class HetznerProvisionerService {
       throw new Error('HCLOUD_TOKEN is not configured — cannot provision dedicated server');
     }
 
-    const serverType = PLAN_SERVER_TYPES[plan] ?? 'cx31';
+    const serverType = PLAN_SERVER_TYPES[plan] ?? DEFAULT_SERVER_TYPE;
     const serverName = `eutlas-cluster-${clusterId}`;
 
     this.logger.log(`[${clusterId}] Provisioning dedicated server (plan=${plan}, type=${serverType}, region=${region})`);

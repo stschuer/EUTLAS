@@ -103,8 +103,8 @@ export class Cluster {
   @Prop()
   vectorDbPort?: number;
 
-  // ── Dedicated-server fields (LARGE+ plans) ────────────────────────────────
-  /** Hetzner server ID of the dedicated node for this cluster (LARGE+ plans). */
+  // ── Dedicated-server fields (every cluster runs on its own node) ─────────
+  /** Hetzner server ID of the dedicated node for this cluster. */
   @Prop()
   dedicatedServerId?: number;
 

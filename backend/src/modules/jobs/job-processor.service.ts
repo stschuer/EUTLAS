@@ -124,7 +124,7 @@ export class JobProcessorService implements OnModuleInit {
     const projectId = job.targetProjectId!.toString();
     const orgId = job.targetOrgId!.toString();
 
-    // ── Dedicated server provisioning (LARGE+ plans) ──────────────────────
+    // ── Dedicated server provisioning (every plan gets its own node) ──────
     let dedicatedKubeconfig: string | undefined;
 
     if (this.hetznerProvisioner.needsDedicatedServer(plan)) {
