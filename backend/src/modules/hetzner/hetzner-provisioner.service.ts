@@ -6,20 +6,24 @@ import { Client as SshClient } from 'ssh2';
 // Hetzner server type per EUTLAS plan.
 // Every plan (including DEV/SMALL/MEDIUM) runs on its own dedicated Hetzner
 // server so a single misbehaving customer cluster cannot impact any other.
+//
+// Hetzner deprecated the old Intel cx22/cx32/cx31/cx41/cx51 line in 2026-Q1;
+// these mappings use the successor Intel (cx23/cx33/cx43/cx53) and AMD
+// dedicated (ccx*) families. Prices as of 2026-04 (gross, excl. VAT).
 const PLAN_SERVER_TYPES: Record<string, string> = {
-  DEV:          'cx22',   // 2 vCPU shared, 4 GB RAM, 40 GB NVMe  (~€4/mo)
-  SMALL:        'cx22',   // 2 vCPU shared, 4 GB RAM, 40 GB NVMe  (~€4/mo)
-  MEDIUM:       'cx32',   // 4 vCPU shared, 8 GB RAM, 80 GB NVMe  (~€7/mo)
-  LARGE:        'cx31',   // 2 vCPU, 8 GB RAM, 80 GB SSD  (~€14/mo)
-  XLARGE:       'cx41',   // 4 vCPU, 16 GB RAM, 160 GB SSD (~€30/mo)
-  XXL:          'cx51',   // 8 vCPU, 32 GB RAM, 240 GB SSD (~€60/mo)
-  XXXL:         'ccx33',  // 8 vCPU, 32 GB RAM dedicated   (~€80/mo)
-  DEDICATED_L:  'ccx43',  // 16 vCPU, 64 GB RAM dedicated
-  DEDICATED_XL: 'ccx53',  // 32 vCPU, 128 GB RAM dedicated
+  DEV:          'cx23',   // 2 vCPU Intel shared, 4 GB RAM,  40 GB SSD  (~€4.75/mo)
+  SMALL:        'cx23',   // 2 vCPU Intel shared, 4 GB RAM,  40 GB SSD  (~€4.75/mo)
+  MEDIUM:       'cx33',   // 4 vCPU Intel shared, 8 GB RAM,  80 GB SSD  (~€7.72/mo)
+  LARGE:        'cx43',   // 8 vCPU Intel shared, 16 GB RAM, 160 GB SSD (~€14.27/mo)
+  XLARGE:       'cx53',   // 16 vCPU Intel shared, 32 GB RAM, 320 GB SSD (~€26.76/mo)
+  XXL:          'cpx51',  // 16 vCPU AMD shared,  32 GB RAM, 360 GB NVMe (~€84.48/mo)
+  XXXL:         'ccx33',  // 8 vCPU dedicated,    32 GB RAM, 240 GB NVMe (~€74.36/mo)
+  DEDICATED_L:  'ccx43',  // 16 vCPU dedicated,   64 GB RAM, 360 GB NVMe (~€148.74/mo)
+  DEDICATED_XL: 'ccx53',  // 32 vCPU dedicated,  128 GB RAM, 600 GB NVMe (~€297.49/mo)
 };
 
-// Fallback server type for unknown plans — small shared AMD node.
-const DEFAULT_SERVER_TYPE = 'cx22';
+// Fallback server type for unknown plans — cheapest current-gen Intel.
+const DEFAULT_SERVER_TYPE = 'cx23';
 
 export interface DedicatedServerInfo {
   serverId: number;
