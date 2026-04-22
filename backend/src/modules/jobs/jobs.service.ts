@@ -9,6 +9,12 @@ interface CreateJobData {
   targetProjectId?: string;
   targetOrgId?: string;
   payload?: Record<string, unknown>;
+  /**
+   * Maximum number of automatic retries (default 3). Set to 1 for one-shot
+   * jobs where a retry would duplicate expensive side effects, e.g. a
+   * dedicated-server relocation that provisions new Hetzner hardware.
+   */
+  maxAttempts?: number;
 }
 
 @Injectable()
@@ -28,7 +34,7 @@ export class JobsService {
       payload: data.payload,
       status: 'pending' as JobStatus,
       attempts: 0,
-      maxAttempts: 3,
+      maxAttempts: data.maxAttempts ?? 3,
     });
 
     await job.save();

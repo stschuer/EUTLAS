@@ -19,6 +19,13 @@ interface CreateClusterParams {
   };
   /** Raw kubeconfig YAML for the cluster's dedicated Hetzner node. */
   dedicatedKubeconfig?: string;
+  /**
+   * Additional external IPv4 CIDRs that should be permitted to connect to this
+   * cluster's MongoDB on port 27017 at creation time. Useful during a relocation
+   * migration so the source cluster's node IP can reach the new cluster before
+   * the customer's own whitelist is restored.
+   */
+  additionalIngressIps?: string[];
 }
 
 interface ResizeClusterParams {
@@ -540,7 +547,7 @@ export class KubernetesService implements OnModuleInit {
       }
 
       // 3. Create NetworkPolicy for security
-      await this.createDefaultNetworkPolicy(namespace, resourceName);
+      await this.createDefaultNetworkPolicy(namespace, resourceName, params.additionalIngressIps);
 
       // 4. Create backup PVC for this cluster
       await this.ensureBackupPvc(namespace, resourceName);
@@ -889,6 +896,12 @@ export class KubernetesService implements OnModuleInit {
    * Creates a NodePort Service to expose MongoDB externally.
    * NodePort works on any K8s cluster (including K3s on bare metal) without
    * requiring a cloud controller manager. The external endpoint is <node-ip>:<nodePort>.
+   *
+   * `externalTrafficPolicy: Local` preserves the original client source IP — this
+   * is required so the per-cluster NetworkPolicy IP whitelist (e.g. the customer's
+   * office IP) can actually match incoming connections. With the default `Cluster`
+   * policy, kube-proxy SNATs external traffic to an in-cluster IP, which bypasses
+   * any real client-IP whitelist.
    */
   private async createExternalService(
     namespace: string,
@@ -912,6 +925,7 @@ export class KubernetesService implements OnModuleInit {
       },
       spec: {
         type: 'NodePort',
+        externalTrafficPolicy: 'Local',
         selector: { app: selectorLabel },
         ports: [{ name: 'mongodb', port: 27017, targetPort: 27017, protocol: 'TCP' }],
       },
@@ -1040,8 +1054,44 @@ export class KubernetesService implements OnModuleInit {
     return this.getExternalEndpoint(namespace, externalServiceName);
   }
 
-  private async createDefaultNetworkPolicy(namespace: string, resourceName: string): Promise<void> {
+  private async createDefaultNetworkPolicy(
+    namespace: string,
+    resourceName: string,
+    additionalIngressIps?: string[],
+  ): Promise<void> {
     const policyName = `${resourceName}-network-policy`;
+
+    const ingressRules: k8s.V1NetworkPolicyIngressRule[] = [
+      {
+        // Allow from same tenant namespace and control plane namespace.
+        from: [
+          {
+            namespaceSelector: {
+              matchLabels: {
+                'kubernetes.io/metadata.name': namespace,
+              },
+            },
+          },
+          {
+            namespaceSelector: {
+              matchLabels: {
+                'kubernetes.io/metadata.name': this.controlPlaneNamespace,
+              },
+            },
+          },
+        ],
+        ports: [
+          { protocol: 'TCP', port: 27017 },
+        ],
+      },
+    ];
+
+    for (const cidr of additionalIngressIps || []) {
+      ingressRules.push({
+        from: [{ ipBlock: { cidr } }],
+        ports: [{ protocol: 'TCP', port: 27017 }],
+      });
+    }
 
     const networkPolicy: k8s.V1NetworkPolicy = {
       metadata: {
@@ -1059,30 +1109,7 @@ export class KubernetesService implements OnModuleInit {
           },
         },
         policyTypes: ['Ingress'],
-        ingress: [
-          {
-            // Allow from same tenant namespace and control plane namespace.
-            from: [
-              {
-                namespaceSelector: {
-                  matchLabels: {
-                    'kubernetes.io/metadata.name': namespace,
-                  },
-                },
-              },
-              {
-                namespaceSelector: {
-                  matchLabels: {
-                    'kubernetes.io/metadata.name': this.controlPlaneNamespace,
-                  },
-                },
-              },
-            ],
-            ports: [
-              { protocol: 'TCP', port: 27017 },
-            ],
-          },
-        ],
+        ingress: ingressRules,
       },
     };
 

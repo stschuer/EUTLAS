@@ -162,6 +162,34 @@ export class AdminController {
     return this.adminService.cleanupFailedCluster(clusterId);
   }
 
+  // ============ Cluster Relocation (shared -> dedicated) ============
+
+  @Get('clusters/shared')
+  @ApiOperation({
+    summary:
+      'List clusters still running on the shared prod node (no dedicated server) — candidates for migration',
+  })
+  @ApiResponse({ status: 200 })
+  async listSharedClusters() {
+    return this.adminService.listSharedClusters();
+  }
+
+  @Post('clusters/:clusterId/relocate-to-dedicated')
+  @ApiOperation({
+    summary:
+      "Relocate a cluster from the shared prod node onto its own dedicated Hetzner server. Provisions new server, copies all data, swaps endpoint — customer's password stays the same, only host/port change.",
+  })
+  @ApiResponse({ status: 202, description: 'Relocation job queued' })
+  @HttpCode(HttpStatus.ACCEPTED)
+  async relocateClusterToDedicated(
+    @Param('clusterId') clusterId: string,
+    @Body() body?: { keepOldMongo?: boolean },
+  ) {
+    return this.adminService.relocateClusterToDedicated(clusterId, {
+      keepOldMongo: body?.keepOldMongo === true,
+    });
+  }
+
   // ============ Users ============
 
   @Get('users')

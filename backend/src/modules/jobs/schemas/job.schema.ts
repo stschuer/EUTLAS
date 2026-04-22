@@ -10,6 +10,7 @@ export type JobType =
   | 'BACKUP_CLUSTER'
   | 'RESTORE_CLUSTER'
   | 'MIGRATE_CLUSTER'
+  | 'MIGRATE_TO_DEDICATED'
   | 'SYNC_STATUS';
 
 export type JobStatus =
@@ -47,6 +48,7 @@ export class Job {
       'BACKUP_CLUSTER',
       'RESTORE_CLUSTER',
       'MIGRATE_CLUSTER',
+      'MIGRATE_TO_DEDICATED',
       'SYNC_STATUS',
     ],
   })

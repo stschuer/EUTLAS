@@ -10,6 +10,7 @@ import { Project, ProjectSchema } from '../projects/schemas/project.schema';
 import { Cluster, ClusterSchema } from '../clusters/schemas/cluster.schema';
 import { KubernetesModule } from '../kubernetes/kubernetes.module';
 import { ClustersModule } from '../clusters/clusters.module';
+import { JobsModule } from '../jobs/jobs.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ClustersModule } from '../clusters/clusters.module';
     ]),
     KubernetesModule,
     forwardRef(() => ClustersModule),
+    forwardRef(() => JobsModule),
   ],
   controllers: [AdminController],
   providers: [AdminService, GlobalAdminGuard],

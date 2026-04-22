@@ -17,6 +17,7 @@ import { Project, ProjectDocument } from '../projects/schemas/project.schema';
 import { Cluster, ClusterDocument } from '../clusters/schemas/cluster.schema';
 import { KubernetesService } from '../kubernetes/kubernetes.service';
 import { ClustersService } from '../clusters/clusters.service';
+import { JobsService } from '../jobs/jobs.service';
 import {
   CreateTenantDto,
   UpdateTenantDto,
@@ -43,6 +44,8 @@ export class AdminService {
     private readonly kubernetesService: KubernetesService,
     @Inject(forwardRef(() => ClustersService))
     private readonly clustersService: ClustersService,
+    @Inject(forwardRef(() => JobsService))
+    private readonly jobsService: JobsService,
   ) {}
 
   // ============ Stats ============
@@ -538,6 +541,92 @@ export class AdminService {
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     }));
+  }
+
+  /**
+   * Lists all clusters that are still running on the shared prod node
+   * (no `dedicatedServerId` set). Useful for picking migration candidates.
+   */
+  async listSharedClusters(): Promise<Array<{
+    id: string;
+    name: string;
+    status: string;
+    plan: string;
+    projectId: string;
+    orgId: string;
+    externalHost?: string;
+    externalPort?: number;
+    createdAt: Date;
+  }>> {
+    const clusters = await this.clusterModel
+      .find({
+        dedicatedServerId: { $exists: false },
+        status: { $nin: ['deleting', 'failed'] },
+      })
+      .sort({ createdAt: 1 })
+      .lean();
+
+    return clusters.map((c) => ({
+      id: c._id.toString(),
+      name: c.name,
+      status: c.status,
+      plan: c.plan,
+      projectId: c.projectId.toString(),
+      orgId: c.orgId.toString(),
+      externalHost: c.externalHost,
+      externalPort: c.externalPort,
+      createdAt: c.createdAt,
+    }));
+  }
+
+  /**
+   * Enqueues a MIGRATE_TO_DEDICATED job for the given cluster. The actual
+   * Hetzner provisioning + data copy + endpoint swap is handled asynchronously
+   * by JobProcessorService.processMigrateToDedicated.
+   */
+  async relocateClusterToDedicated(
+    clusterId: string,
+    opts: { keepOldMongo?: boolean } = {},
+  ): Promise<{ jobId: string; clusterId: string; status: string }> {
+    const cluster = await this.clusterModel.findById(clusterId).exec();
+    if (!cluster) {
+      throw new NotFoundException(`Cluster ${clusterId} not found`);
+    }
+    if (cluster.dedicatedServerId) {
+      throw new BadRequestException(
+        `Cluster ${clusterId} is already on a dedicated server (id ${cluster.dedicatedServerId})`,
+      );
+    }
+    if (cluster.status !== 'ready') {
+      throw new BadRequestException(
+        `Cluster must be in 'ready' state to migrate — currently '${cluster.status}'`,
+      );
+    }
+
+    // Mark the cluster as 'updating' so the UI reflects the in-flight migration.
+    cluster.status = 'updating';
+    await cluster.save();
+
+    const job = await this.jobsService.createJob({
+      type: 'MIGRATE_TO_DEDICATED',
+      targetClusterId: clusterId,
+      targetProjectId: cluster.projectId.toString(),
+      targetOrgId: cluster.orgId.toString(),
+      payload: {
+        keepOldMongo: opts.keepOldMongo === true,
+      },
+      maxAttempts: 1, // one-shot; failures surface immediately for manual inspection
+    });
+
+    this.logger.log(
+      `Enqueued MIGRATE_TO_DEDICATED job ${job.id} for cluster ${clusterId} (keepOldMongo=${opts.keepOldMongo === true})`,
+    );
+
+    return {
+      jobId: job.id,
+      clusterId,
+      status: 'queued',
+    };
   }
 
   // ============ Helpers ============
