@@ -696,6 +696,34 @@ export class KubernetesService implements OnModuleInit {
           spec: {
             template: {
               spec: {
+                initContainers: [
+                  {
+                    name: 'mongod-posthook',
+                    resources: {
+                      requests: {
+                        cpu: '10m',
+                        memory: '32Mi',
+                      },
+                      limits: {
+                        cpu: '250m',
+                        memory: '128Mi',
+                      },
+                    },
+                  },
+                  {
+                    name: 'mongodb-agent-readinessprobe',
+                    resources: {
+                      requests: {
+                        cpu: '10m',
+                        memory: '32Mi',
+                      },
+                      limits: {
+                        cpu: '250m',
+                        memory: '128Mi',
+                      },
+                    },
+                  },
+                ],
                 containers: [
                   {
                     name: 'mongod',
@@ -707,6 +735,21 @@ export class KubernetesService implements OnModuleInit {
                       limits: {
                         cpu: params.resources.cpuLimit,
                         memory: params.resources.memoryLimit,
+                      },
+                    },
+                  },
+                  {
+                    name: 'mongodb-agent',
+                    resources: {
+                      // The operator defaults this sidecar to 500m/400M requests,
+                      // which can block customer DB recovery on tight nodes after a restart.
+                      requests: {
+                        cpu: '25m',
+                        memory: '64Mi',
+                      },
+                      limits: {
+                        cpu: '500m',
+                        memory: '500M',
                       },
                     },
                   },

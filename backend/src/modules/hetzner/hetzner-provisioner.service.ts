@@ -278,10 +278,10 @@ export class HetznerProvisionerService {
       'echo "=== Installing MongoDB Community Operator ==="',
       'helm repo add mongodb https://mongodb.github.io/helm-charts --force-update',
       'helm repo update',
-      'helm upgrade --install community-operator mongodb/community-operator',
-      '  --namespace mongodb-operator',
-      '  --create-namespace',
-      '  --wait',
+      'helm upgrade --install community-operator mongodb/community-operator \\',
+      '  --namespace mongodb-operator \\',
+      '  --create-namespace \\',
+      '  --wait \\',
       '  --timeout 5m',
 
       // ── Output kubeconfig as base64 (last line, easy to parse) ────────────
