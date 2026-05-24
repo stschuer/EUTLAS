@@ -279,15 +279,30 @@ jobs:
             echo "namespace=eutlas-${{ needs.set-env.outputs.environment }}" >> $GITHUB_OUTPUT
           fi
 
-      # Production: get kubeconfig from Rancher (existing RKE2 cluster)
-      - name: Get kubeconfig from Rancher
+      # Production: use SSH tunnel to the existing RKE2 control plane.
+      # Rancher's generateKubeconfig endpoint may return an empty config when the
+      # Rancher API/session is unhealthy; the node-local kubeconfig is the source
+      # of truth for the production cluster.
+      - name: Configure production kubeconfig over SSH tunnel
         if: needs.set-env.outputs.environment == 'production'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
         run: |
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 \
+            -f -N -L 127.0.0.1:6443:127.0.0.1:6443 root@46.224.9.177
+
           mkdir -p $HOME/.kube
-          curl -s -k \
-            -H "Authorization: Bearer ${{ secrets.RANCHER_BEARER_TOKEN }}" \
-            "${{ secrets.RANCHER_URL }}/v3/clusters/${{ secrets.RANCHER_CLUSTER_ID }}?action=generateKubeconfig" \
-            -X POST | jq -r '.config' > $HOME/.kube/config
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 root@46.224.9.177 \
+            "cat /etc/rancher/rke2/rke2.yaml" \
+            | sed -E 's#server: https://[^:]+:[0-9]+#server: https://127.0.0.1:6443#' \
+            > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
       # Staging/Test: use dedicated cluster kubeconfig (from per-environment secret)
