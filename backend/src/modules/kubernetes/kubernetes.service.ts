@@ -219,6 +219,7 @@ export class KubernetesService implements OnModuleInit {
   private kc: k8s.KubeConfig;
   private coreApi: k8s.CoreV1Api;
   private appsApi: k8s.AppsV1Api;
+  private batchApi: k8s.BatchV1Api;
   private networkApi: k8s.NetworkingV1Api;
   private customApi: k8s.CustomObjectsApi;
   private rbacApi: k8s.RbacAuthorizationV1Api;
@@ -264,6 +265,7 @@ export class KubernetesService implements OnModuleInit {
 
       this.coreApi = this.kc.makeApiClient(k8s.CoreV1Api);
       this.appsApi = this.kc.makeApiClient(k8s.AppsV1Api);
+      this.batchApi = this.kc.makeApiClient(k8s.BatchV1Api);
       this.networkApi = this.kc.makeApiClient(k8s.NetworkingV1Api);
       this.customApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
       this.rbacApi = this.kc.makeApiClient(k8s.RbacAuthorizationV1Api);
@@ -565,6 +567,9 @@ export class KubernetesService implements OnModuleInit {
       const externalServiceName = `${resourceName}-external`;
       const podAppLabel = useOperator ? `${resourceName}-svc` : resourceName;
       await this.createExternalService(namespace, externalServiceName, resourceName, podAppLabel);
+      if (useOperator) {
+        await this.ensurePrimaryExternalServiceSync(namespace, resourceName, externalServiceName, podAppLabel);
+      }
 
       // 7. Get external endpoint (node IP + assigned NodePort)
       const externalEndpoint = await this.getExternalEndpoint(namespace, externalServiceName);
@@ -983,6 +988,196 @@ export class KubernetesService implements OnModuleInit {
         throw error;
       }
       this.logger.log(`External service ${externalServiceName} already exists`);
+    }
+  }
+
+  /**
+   * Keeps the public NodePort service for an operator-managed replica set pinned
+   * to the writable primary. This preserves the existing directConnection=true
+   * customer URI contract while avoiding random routing to secondaries after
+   * elections.
+   */
+  private async ensurePrimaryExternalServiceSync(
+    namespace: string,
+    resourceName: string,
+    externalServiceName: string,
+    podAppLabel: string,
+  ): Promise<void> {
+    const serviceAccountName = `${resourceName}-primary-sync`;
+    const roleName = `${resourceName}-primary-sync`;
+    const cronJobName = `${resourceName}-primary-sync`;
+
+    try {
+      await this.coreApi.createNamespacedServiceAccount(namespace, {
+        metadata: {
+          name: serviceAccountName,
+          namespace,
+          labels: {
+            'eutlas.eu/managed-by': 'eutlas',
+            'eutlas.eu/cluster': resourceName,
+          },
+        },
+      });
+    } catch (error: any) {
+      if (error.response?.statusCode !== 409) {
+        throw error;
+      }
+    }
+
+    const role: k8s.V1Role = {
+      metadata: {
+        name: roleName,
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/cluster': resourceName,
+        },
+      },
+      rules: [
+        { apiGroups: [''], resources: ['secrets'], verbs: ['get'] },
+        { apiGroups: [''], resources: ['services'], verbs: ['get', 'patch'] },
+        { apiGroups: [''], resources: ['pods'], verbs: ['get'] },
+        { apiGroups: [''], resources: ['pods/exec'], verbs: ['create'] },
+      ],
+    };
+
+    try {
+      await this.rbacApi.createNamespacedRole(namespace, role);
+    } catch (error: any) {
+      if (error.response?.statusCode === 409) {
+        await this.rbacApi.replaceNamespacedRole(roleName, namespace, role);
+      } else {
+        throw error;
+      }
+    }
+
+    const roleBinding: k8s.V1RoleBinding = {
+      metadata: {
+        name: roleName,
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/cluster': resourceName,
+        },
+      },
+      roleRef: {
+        apiGroup: 'rbac.authorization.k8s.io',
+        kind: 'Role',
+        name: roleName,
+      },
+      subjects: [
+        {
+          kind: 'ServiceAccount',
+          name: serviceAccountName,
+          namespace,
+        },
+      ],
+    };
+
+    try {
+      await this.rbacApi.createNamespacedRoleBinding(namespace, roleBinding);
+    } catch (error: any) {
+      if (error.response?.statusCode === 409) {
+        await this.rbacApi.replaceNamespacedRoleBinding(roleName, namespace, roleBinding);
+      } else {
+        throw error;
+      }
+    }
+
+    const syncScript = [
+      'set -eu',
+      `NS="${namespace}"`,
+      `CID="${resourceName}"`,
+      `SVC="${externalServiceName}"`,
+      `APP_LABEL="${podAppLabel}"`,
+      'PW="$(kubectl get secret -n "$NS" "$CID-admin-password" -o jsonpath="{.data.password}" | base64 -d)"',
+      'PRIMARY="$(kubectl exec -n "$NS" "$CID-0" -c mongod -- mongosh --quiet --host 127.0.0.1 --port 27017 -u admin -p "$PW" --authenticationDatabase admin --eval "const p=db.hello().primary || \'\'; print(p.split(\'.\')[0]);" 2>/dev/null)"',
+      'if [ -z "$PRIMARY" ]; then',
+      '  echo "Could not determine MongoDB primary" >&2',
+      '  exit 1',
+      'fi',
+      'CURRENT="$(kubectl get svc -n "$NS" "$SVC" -o jsonpath="{.spec.selector.statefulset\\.kubernetes\\.io/pod-name}" 2>/dev/null || true)"',
+      'if [ "$CURRENT" = "$PRIMARY" ]; then',
+      '  echo "$SVC already points to $PRIMARY"',
+      '  exit 0',
+      'fi',
+      'PATCH="$(printf \'{"spec":{"selector":{"app":"%s","statefulset.kubernetes.io/pod-name":"%s"}}}\' "$APP_LABEL" "$PRIMARY")"',
+      'kubectl patch svc -n "$NS" "$SVC" --type merge -p "$PATCH"',
+      'echo "Patched $SVC selector from ${CURRENT:-<none>} to $PRIMARY"',
+    ].join('\n');
+
+    const cronJob: k8s.V1CronJob = {
+      apiVersion: 'batch/v1',
+      kind: 'CronJob',
+      metadata: {
+        name: cronJobName,
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/cluster': resourceName,
+        },
+      },
+      spec: {
+        schedule: '* * * * *',
+        concurrencyPolicy: 'Forbid',
+        successfulJobsHistoryLimit: 1,
+        failedJobsHistoryLimit: 3,
+        jobTemplate: {
+          spec: {
+            backoffLimit: 1,
+            template: {
+              metadata: {
+                labels: {
+                  'eutlas.eu/managed-by': 'eutlas',
+                  'eutlas.eu/cluster': resourceName,
+                  app: cronJobName,
+                },
+              },
+              spec: {
+                serviceAccountName,
+                restartPolicy: 'Never',
+                containers: [
+                  {
+                    name: 'primary-sync',
+                    image: 'rancher/mirrored-library-busybox:1.37.0',
+                    imagePullPolicy: 'IfNotPresent',
+                    volumeMounts: [
+                      {
+                        name: 'kubectl',
+                        mountPath: '/usr/local/bin/kubectl',
+                        readOnly: true,
+                      },
+                    ],
+                    command: ['/bin/sh', '-ec', syncScript],
+                  },
+                ],
+                volumes: [
+                  {
+                    name: 'kubectl',
+                    hostPath: {
+                      path: '/usr/local/bin/k3s',
+                      type: 'File',
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    };
+
+    try {
+      await this.batchApi.createNamespacedCronJob(namespace, cronJob);
+      this.logger.log(`Created MongoDB primary sync CronJob ${cronJobName} in ${namespace}`);
+    } catch (error: any) {
+      if (error.response?.statusCode === 409) {
+        await this.batchApi.replaceNamespacedCronJob(cronJobName, namespace, cronJob);
+        this.logger.log(`Updated MongoDB primary sync CronJob ${cronJobName} in ${namespace}`);
+      } else {
+        this.logger.error(`Failed to create primary sync CronJob: ${JSON.stringify(error.response?.body || error.message)}`);
+        throw error;
+      }
     }
   }
 
@@ -2167,6 +2362,7 @@ export class KubernetesService implements OnModuleInit {
       kc:         this.kc,
       coreApi:    this.coreApi,
       appsApi:    this.appsApi,
+      batchApi:   this.batchApi,
       networkApi: this.networkApi,
       customApi:  this.customApi,
       rbacApi:    this.rbacApi,
@@ -2179,6 +2375,7 @@ export class KubernetesService implements OnModuleInit {
       this.kc         = kc;
       this.coreApi    = kc.makeApiClient(k8s.CoreV1Api);
       this.appsApi    = kc.makeApiClient(k8s.AppsV1Api);
+      this.batchApi   = kc.makeApiClient(k8s.BatchV1Api);
       this.networkApi = kc.makeApiClient(k8s.NetworkingV1Api);
       this.customApi  = kc.makeApiClient(k8s.CustomObjectsApi);
       this.rbacApi    = kc.makeApiClient(k8s.RbacAuthorizationV1Api);
@@ -2188,6 +2385,7 @@ export class KubernetesService implements OnModuleInit {
       this.kc         = saved.kc;
       this.coreApi    = saved.coreApi;
       this.appsApi    = saved.appsApi;
+      this.batchApi   = saved.batchApi;
       this.networkApi = saved.networkApi;
       this.customApi  = saved.customApi;
       this.rbacApi    = saved.rbacApi;
