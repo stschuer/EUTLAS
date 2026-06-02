@@ -9,12 +9,13 @@ env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/eutlas-backend
   FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/eutlas-frontend
+  BUILDKIT_IMAGE: moby/buildkit:v0.19.0
 
 jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 20
     permissions:
       contents: write
       packages: write
@@ -27,6 +28,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=${{ env.BUILDKIT_IMAGE }}
 
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -40,32 +44,46 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Build and push Backend (Release)
-        uses: docker/build-push-action@v5
+        uses: nick-fields/retry@v3
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         with:
-          context: .
-          file: ./backend/Dockerfile
-          push: true
-          tags: |
-            ${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.VERSION }}
-            ${{ env.BACKEND_IMAGE }}:latest
-            ${{ env.BACKEND_IMAGE }}:stable
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          max_attempts: 3
+          retry_wait_seconds: 45
+          timeout_minutes: 15
+          command: |
+            set -euo pipefail
+            docker buildx build \
+              --file ./backend/Dockerfile \
+              --push \
+              --cache-from type=gha \
+              --cache-to type=gha,mode=min \
+              --tag "${{ env.BACKEND_IMAGE }}:${VERSION}" \
+              --tag "${{ env.BACKEND_IMAGE }}:latest" \
+              --tag "${{ env.BACKEND_IMAGE }}:stable" \
+              .
 
       - name: Build and push Frontend (Release)
-        uses: docker/build-push-action@v5
+        uses: nick-fields/retry@v3
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
         with:
-          context: .
-          file: ./frontend/Dockerfile
-          push: true
-          tags: |
-            ${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.VERSION }}
-            ${{ env.FRONTEND_IMAGE }}:latest
-            ${{ env.FRONTEND_IMAGE }}:stable
-          build-args: |
-            NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          max_attempts: 3
+          retry_wait_seconds: 45
+          timeout_minutes: 15
+          command: |
+            set -euo pipefail
+            docker buildx build \
+              --file ./frontend/Dockerfile \
+              --push \
+              --cache-from type=gha \
+              --cache-to type=gha,mode=min \
+              --build-arg "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}" \
+              --tag "${{ env.FRONTEND_IMAGE }}:${VERSION}" \
+              --tag "${{ env.FRONTEND_IMAGE }}:latest" \
+              --tag "${{ env.FRONTEND_IMAGE }}:stable" \
+              .
 
       - name: Generate Changelog
         id: changelog
