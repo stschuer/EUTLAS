@@ -103,7 +103,7 @@ export default function BackupsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const clusterId = params.clusterId as string;
-  const projectId = searchParams.get('projectId') || '';
+  const projectId = params.projectId as string;
   const { toast } = useToast();
   const queryClient = useQueryClient();
 

@@ -44,7 +44,7 @@ export default function OnlineArchivePage() {
   const { toast } = useToast();
 
   const clusterId = params.clusterId as string;
-  const projectId = searchParams.get('projectId') || '';
+  const projectId = params.projectId as string;
   const clusterName = searchParams.get('clusterName') || 'Cluster';
 
   const [showCreateForm, setShowCreateForm] = useState(false);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/layout/page-header';
 import { Button } from '@/components/ui/button';
@@ -82,13 +82,13 @@ const formatBytes = (bytes: number): string => {
 
 export default function DataExplorerPage() {
   const params = useParams();
-  const searchParams = useSearchParams();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const orgId = params.orgId as string;
+  const projectId = params.projectId as string;
   const clusterId = params.clusterId as string;
-  const projectId = searchParams.get('projectId') || '';
 
   const [selectedDb, setSelectedDb] = useState<string | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
@@ -120,7 +120,8 @@ export default function DataExplorerPage() {
     queryKey: ['explorer-dbs', clusterId],
     queryFn: async () => {
       const res = await apiClient.get(`${baseUrl}/databases`);
-      return res.data.data as DatabaseInfo[];
+      if (!res.success) throw new Error(res.error?.message || 'Failed to load databases');
+      return (res.data ?? []) as DatabaseInfo[];
     },
     enabled: !!projectId,
   });
@@ -131,7 +132,8 @@ export default function DataExplorerPage() {
     queryFn: async () => {
       if (!selectedDb) return [];
       const res = await apiClient.get(`${baseUrl}/databases/${selectedDb}/collections`);
-      return res.data.data as CollectionInfo[];
+      if (!res.success) throw new Error(res.error?.message || 'Failed to load collections');
+      return (res.data ?? []) as CollectionInfo[];
     },
     enabled: !!selectedDb && !!projectId,
   });
@@ -152,7 +154,8 @@ export default function DataExplorerPage() {
         limit: queryLimit,
         skip: querySkip,
       });
-      return res.data.data as QueryResult;
+      if (!res.success) throw new Error(res.error?.message || 'Failed to load documents');
+      return res.data as QueryResult;
     },
     enabled: !!selectedDb && !!selectedCollection && view === 'browse' && !!projectId,
   });
@@ -163,7 +166,8 @@ export default function DataExplorerPage() {
     queryFn: async () => {
       if (!selectedDb || !selectedCollection) return [];
       const res = await apiClient.get(`${baseUrl}/databases/${selectedDb}/collections/${selectedCollection}/indexes`);
-      return res.data.data as IndexInfo[];
+      if (!res.success) throw new Error(res.error?.message || 'Failed to load indexes');
+      return (res.data ?? []) as IndexInfo[];
     },
     enabled: !!selectedDb && !!selectedCollection && view === 'indexes' && !!projectId,
   });
@@ -297,23 +301,20 @@ export default function DataExplorerPage() {
     }
   };
 
-  if (!projectId) {
-    return (
-      <EmptyState
-        icon={<Database className="h-12 w-12" />}
-        title="Missing Project ID"
-        description="Please navigate to this page from the cluster detail page."
-      />
-    );
-  }
-
   return (
     <div className="space-y-4">
       <PageHeader
         title="Data Explorer"
         description="Browse and manage your MongoDB data"
-        action={
-          <Button variant="outline" onClick={() => router.back()}>
+        actions={
+          <Button
+            variant="outline"
+            onClick={() =>
+              router.push(
+                `/dashboard/orgs/${orgId}/projects/${projectId}/clusters/${clusterId}`,
+              )
+            }
+          >
             <ArrowLeft className="h-4 w-4 mr-2" /> Back to Cluster
           </Button>
         }

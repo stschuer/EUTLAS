@@ -119,7 +119,7 @@ export default function PerformanceAdvisorPage() {
   const { toast } = useToast();
 
   const clusterId = params.clusterId as string;
-  const projectId = searchParams.get('projectId') || '';
+  const projectId = params.projectId as string;
   const baseUrl = `/projects/${projectId}/clusters/${clusterId}/performance`;
 
   const [showAnalyzeDialog, setShowAnalyzeDialog] = useState(false);
@@ -215,16 +215,6 @@ export default function PerformanceAdvisorPage() {
       toast({ title: 'Suggestion dismissed' });
     },
   });
-
-  if (!projectId) {
-    return (
-      <EmptyState
-        icon={<Gauge className="h-12 w-12" />}
-        title="Missing Project ID"
-        description="Please navigate to this page from the cluster detail page."
-      />
-    );
-  }
 
   return (
     <div className="space-y-6">

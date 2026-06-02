@@ -41,7 +41,7 @@ export default function SchemaValidationPage() {
   const { toast } = useToast();
 
   const clusterId = params.clusterId as string;
-  const projectId = searchParams.get('projectId') || '';
+  const projectId = params.projectId as string;
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedSchema, setSelectedSchema] = useState<any>(null);

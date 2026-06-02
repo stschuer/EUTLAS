@@ -172,7 +172,7 @@ export default function MetricsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const clusterId = params.clusterId as string;
-  const projectId = searchParams.get('projectId') || '';
+  const projectId = params.projectId as string;
   const [period, setPeriod] = useState<'1h' | '6h' | '24h' | '7d' | '30d'>('24h');
   const [activeTab, setActiveTab] = useState<'realtime' | 'historical'>('realtime');
 

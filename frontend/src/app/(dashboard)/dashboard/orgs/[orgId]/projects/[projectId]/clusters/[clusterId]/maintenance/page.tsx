@@ -15,7 +15,7 @@ export default function MaintenancePage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
 
   const clusterId = params.clusterId as string;
-  const projectId = searchParams.get('projectId') || '';
+  const projectId = params.projectId as string;
   const clusterName = searchParams.get('clusterName') || 'Cluster';
 
   return (
