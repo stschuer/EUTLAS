@@ -81,7 +81,7 @@ export class PrivateNetworksService {
       orgId,
       projectId,
       action: 'CREATE',
-      resourceType: 'cluster', // Using existing type for now
+      resourceType: 'private_network',
       resourceId: network.id,
       resourceName: dto.name,
       actorId: userId,
@@ -241,7 +241,7 @@ export class PrivateNetworksService {
       orgId: network.orgId.toString(),
       projectId: network.projectId.toString(),
       action: 'DELETE',
-      resourceType: 'cluster',
+      resourceType: 'private_network',
       resourceId: network.id,
       resourceName: network.name,
       actorId: userId,

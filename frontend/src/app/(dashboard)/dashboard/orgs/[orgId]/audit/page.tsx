@@ -10,13 +10,12 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { auditApi } from '@/lib/api-client';
+import { auditApi, apiClient } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
   Search,
   Download,
-  Filter,
   ChevronLeft,
   ChevronRight,
   User,
@@ -26,6 +25,35 @@ import {
   Clock,
   FileText,
 } from 'lucide-react';
+import { useToast } from '@/components/ui/use-toast';
+
+type AuditLogEntry = {
+  id: string;
+  action: string;
+  resourceType: string;
+  resourceName?: string;
+  description?: string;
+  actorType?: string;
+  actorEmail?: string;
+  ipAddress?: string;
+  timestamp: string;
+};
+
+type AuditLogsResult = {
+  data: AuditLogEntry[];
+  page: number;
+  totalPages: number;
+  total: number;
+};
+
+type AuditStats = {
+  totalEvents: number;
+  byAction: Record<string, number>;
+};
+
+function sumActions(byAction: Record<string, number> | undefined, keys: string[]): number {
+  return keys.reduce((sum, key) => sum + (byAction?.[key] ?? 0), 0);
+}
 
 const actionColors: Record<string, string> = {
   CREATE: 'bg-green-100 text-green-800',
@@ -40,6 +68,7 @@ const actionColors: Record<string, string> = {
 export default function AuditLogsPage() {
   const params = useParams();
   const orgId = params.orgId as string;
+  const { toast } = useToast();
 
   const [search, setSearch] = useState('');
   const [actionFilter, setActionFilter] = useState<string>('all');
@@ -48,36 +77,36 @@ export default function AuditLogsPage() {
 
   const { data: logs, isLoading } = useQuery({
     queryKey: ['audit-logs', orgId, search, actionFilter, resourceFilter, page],
-    queryFn: async () => {
-      const params: Record<string, any> = { page, limit: 25 };
-      if (search) params.search = search;
-      if (actionFilter && actionFilter !== 'all') params.actions = actionFilter;
-      if (resourceFilter && resourceFilter !== 'all') params.resourceTypes = resourceFilter;
-      try {
-        const res = await auditApi.query(orgId, params);
-        // Return empty data structure if API call wasn't successful
-        if (!res.success) {
-          return { data: [], page: 1, totalPages: 1, total: 0 };
-        }
-        return res;
-      } catch (error) {
-        // Return empty data on error so empty state shows instead of error
-        console.warn('Failed to load audit logs:', error);
+    queryFn: async (): Promise<AuditLogsResult> => {
+      const queryParams: Record<string, string | number> = { page, limit: 25 };
+      if (search) queryParams.search = search;
+      if (actionFilter && actionFilter !== 'all') queryParams.actions = actionFilter;
+      if (resourceFilter && resourceFilter !== 'all') queryParams.resourceTypes = resourceFilter;
+
+      const res = await auditApi.query(orgId, queryParams);
+      if (!res.success) {
         return { data: [], page: 1, totalPages: 1, total: 0 };
       }
+
+      const payload = res as AuditLogsResult & { success: boolean };
+      return {
+        data: Array.isArray(payload.data) ? payload.data : [],
+        page: payload.page ?? 1,
+        totalPages: payload.totalPages ?? 1,
+        total: payload.total ?? 0,
+      };
     },
     enabled: !!orgId,
   });
 
   const { data: stats } = useQuery({
     queryKey: ['audit-stats', orgId],
-    queryFn: async () => {
+    queryFn: async (): Promise<AuditStats> => {
       const res = await auditApi.getStats(orgId);
-      // Return default stats if not successful
-      if (!res.success) {
+      if (!res.success || !res.data) {
         return { totalEvents: 0, byAction: {} };
       }
-      return res.data || { totalEvents: 0, byAction: {} };
+      return res.data as AuditStats;
     },
     enabled: !!orgId,
   });
@@ -102,18 +131,52 @@ export default function AuditLogsPage() {
     staleTime: Infinity,
   });
 
-  const handleExport = (format: 'json' | 'csv') => {
+  const handleExport = async (format: 'json' | 'csv') => {
     const endDate = new Date().toISOString().split('T')[0];
     const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    window.open(auditApi.exportUrl(orgId, startDate, endDate, format), '_blank');
+    const token = apiClient.getToken();
+
+    try {
+      const response = await fetch(auditApi.exportUrl(orgId, startDate, endDate, format), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `audit-logs-${startDate}-${endDate}.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({
+        title: 'Export failed',
+        description: 'Could not download audit logs. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
+
+  const createCount = sumActions(stats?.byAction, [
+    'CREATE', 'CLUSTER_CREATED', 'API_KEY_CREATED', 'BACKUP_CREATED',
+  ]);
+  const updateCount = sumActions(stats?.byAction, [
+    'UPDATE', 'CLUSTER_RESIZED', 'SETTINGS_CHANGED', 'ROLE_CHANGED',
+  ]);
+  const deleteCount = sumActions(stats?.byAction, [
+    'DELETE', 'CLUSTER_DELETED', 'API_KEY_DELETED', 'BACKUP_DELETED',
+  ]);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Audit Logs"
         description="Track all actions and changes in your organization"
-        action={
+        actions={
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => handleExport('csv')}>
               <Download className="h-4 w-4 mr-2" />
@@ -138,19 +201,19 @@ export default function AuditLogsPage() {
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-green-600">{stats.byAction?.CREATE ?? 0}</div>
+              <div className="text-2xl font-bold text-green-600">{createCount}</div>
               <p className="text-sm text-muted-foreground">Creates</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-blue-600">{stats.byAction?.UPDATE ?? 0}</div>
+              <div className="text-2xl font-bold text-blue-600">{updateCount}</div>
               <p className="text-sm text-muted-foreground">Updates</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold text-red-600">{stats.byAction?.DELETE ?? 0}</div>
+              <div className="text-2xl font-bold text-red-600">{deleteCount}</div>
               <p className="text-sm text-muted-foreground">Deletes</p>
             </CardContent>
           </Card>
@@ -209,7 +272,7 @@ export default function AuditLogsPage() {
         />
       ) : (
         <div className="space-y-2">
-          {logs.data.map((log: any) => (
+          {logs.data.map((log: AuditLogEntry) => (
             <Card key={log.id} className="hover:bg-muted/30 transition-colors">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between">

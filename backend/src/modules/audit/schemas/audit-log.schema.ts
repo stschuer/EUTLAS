@@ -18,7 +18,7 @@ export type AuditResourceType =
   | 'organization' | 'project' | 'cluster' | 'user'
   | 'database_user' | 'ip_whitelist' | 'backup' | 'api_key'
   | 'alert_rule' | 'notification_channel' | 'invitation'
-  | 'archive_rule' | 'maintenance_window' | 'log_forwarding';
+  | 'archive_rule' | 'maintenance_window' | 'log_forwarding' | 'private_network';
 
 @Schema({
   timestamps: true,

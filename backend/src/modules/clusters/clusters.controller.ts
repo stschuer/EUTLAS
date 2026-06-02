@@ -20,6 +20,15 @@ import { CreateClusterDto, CloneClusterDto } from './dto/create-cluster.dto';
 import { ResizeClusterDto } from './dto/resize-cluster.dto';
 import { UpdateClusterDto } from './dto/update-cluster.dto';
 import { PauseClusterDto, ResumeClusterDto } from './dto/pause-cluster.dto';
+import { AuditService } from '../audit/audit.service';
+
+function auditActor(user: CurrentUserData) {
+  return {
+    actorId: user.userId,
+    actorEmail: user.email,
+    actorType: 'user' as const,
+  };
+}
 
 @ApiTags('Clusters')
 @ApiBearerAuth()
@@ -31,6 +40,7 @@ export class ClustersController {
     private readonly projectsService: ProjectsService,
     private readonly orgsService: OrgsService,
     private readonly kubernetesService: KubernetesService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Post()
@@ -53,6 +63,18 @@ export class ClustersController {
       createClusterDto,
       user.userId, // Pass userId for email notification
     );
+
+    await this.auditService.safeLog({
+      orgId,
+      projectId,
+      clusterId: cluster.id,
+      action: 'CLUSTER_CREATED',
+      resourceType: 'cluster',
+      resourceId: cluster.id,
+      resourceName: cluster.name,
+      ...auditActor(user),
+      description: `Created cluster "${cluster.name}" (${createClusterDto.plan})`,
+    });
     
     return {
       success: true,
@@ -182,6 +204,21 @@ export class ClustersController {
     }
 
     const updated = await this.clustersService.resize(clusterId, resizeClusterDto);
+
+    await this.auditService.safeLog({
+      orgId,
+      projectId,
+      clusterId,
+      action: 'CLUSTER_RESIZED',
+      resourceType: 'cluster',
+      resourceId: clusterId,
+      resourceName: cluster.name,
+      ...auditActor(user),
+      description: `Resized cluster "${cluster.name}" to ${resizeClusterDto.plan}`,
+      previousState: { plan: cluster.plan },
+      newState: { plan: resizeClusterDto.plan },
+    });
+
     return {
       success: true,
       data: updated,
@@ -209,6 +246,19 @@ export class ClustersController {
     }
 
     const updated = await this.clustersService.pause(clusterId, pauseDto.reason);
+
+    await this.auditService.safeLog({
+      orgId,
+      projectId,
+      clusterId,
+      action: 'CLUSTER_PAUSED',
+      resourceType: 'cluster',
+      resourceId: clusterId,
+      resourceName: cluster.name,
+      ...auditActor(user),
+      description: `Paused cluster "${cluster.name}"`,
+    });
+
     return {
       success: true,
       data: updated,
@@ -237,6 +287,19 @@ export class ClustersController {
     }
 
     const updated = await this.clustersService.resume(clusterId, resumeDto.reason);
+
+    await this.auditService.safeLog({
+      orgId,
+      projectId,
+      clusterId,
+      action: 'CLUSTER_RESUMED',
+      resourceType: 'cluster',
+      resourceId: clusterId,
+      resourceName: cluster.name,
+      ...auditActor(user),
+      description: `Resumed cluster "${cluster.name}"`,
+    });
+
     return {
       success: true,
       data: updated,
@@ -311,6 +374,19 @@ export class ClustersController {
       body.plan,
     );
 
+    await this.auditService.safeLog({
+      orgId,
+      projectId: targetProjectId,
+      clusterId: clone.id,
+      action: 'CLUSTER_CREATED',
+      resourceType: 'cluster',
+      resourceId: clone.id,
+      resourceName: clone.name,
+      ...auditActor(user),
+      description: `Cloned cluster "${sourceCluster.name}" to "${clone.name}"`,
+      metadata: { sourceClusterId: clusterId },
+    });
+
     return {
       success: true,
       data: clone,
@@ -339,6 +415,21 @@ export class ClustersController {
     }
 
     const updated = await this.clustersService.update(clusterId, updateClusterDto);
+
+    await this.auditService.safeLog({
+      orgId,
+      projectId,
+      clusterId,
+      action: 'UPDATE',
+      resourceType: 'cluster',
+      resourceId: clusterId,
+      resourceName: updated.name,
+      ...auditActor(user),
+      description: `Updated cluster "${cluster.name}"`,
+      previousState: { name: cluster.name },
+      newState: { name: updated.name },
+    });
+
     return {
       success: true,
       data: updated,
@@ -365,6 +456,19 @@ export class ClustersController {
     }
 
     await this.clustersService.delete(clusterId);
+
+    await this.auditService.safeLog({
+      orgId,
+      projectId,
+      clusterId,
+      action: 'CLUSTER_DELETED',
+      resourceType: 'cluster',
+      resourceId: clusterId,
+      resourceName: cluster.name,
+      ...auditActor(user),
+      description: `Deleted cluster "${cluster.name}"`,
+    });
+
     return {
       success: true,
       message: 'Cluster deletion initiated. Related data will be removed.',

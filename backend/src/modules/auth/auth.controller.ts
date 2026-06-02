@@ -47,8 +47,11 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   @ApiResponse({ status: 429, description: 'Too many login attempts' })
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(@Body() loginDto: LoginDto, @Req() req: { ip?: string; headers?: Record<string, string> }) {
+    return this.authService.login(loginDto, {
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    });
   }
 
   @Public()

@@ -46,6 +46,15 @@ export class AuditService {
     @InjectModel(AuditLog.name) private auditLogModel: Model<AuditLogDocument>,
   ) {}
 
+  /** Write audit log without failing the caller on persistence errors. */
+  async safeLog(entry: AuditLogEntry): Promise<void> {
+    try {
+      await this.log(entry);
+    } catch (error) {
+      this.logger.warn(`Failed to persist audit log: ${(error as Error).message}`);
+    }
+  }
+
   async log(entry: AuditLogEntry): Promise<AuditLog> {
     // Calculate changes if both states provided
     let changes: Record<string, { from: any; to: any }> | undefined;
@@ -167,7 +176,7 @@ export class AuditService {
       'organization', 'project', 'cluster', 'user',
       'database_user', 'ip_whitelist', 'backup', 'api_key',
       'alert_rule', 'notification_channel', 'invitation',
-      'archive_rule', 'maintenance_window', 'log_forwarding',
+      'archive_rule', 'maintenance_window', 'log_forwarding', 'private_network',
     ];
   }
 

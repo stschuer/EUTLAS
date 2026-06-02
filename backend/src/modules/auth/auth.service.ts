@@ -19,6 +19,8 @@ import { LoginDto } from './dto/login.dto';
 import { ImpersonateUserDto } from './dto/impersonate.dto';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { ImpersonationLog, ImpersonationLogDocument } from './schemas/impersonation-log.schema';
+import { OrgsService } from '../orgs/orgs.service';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class AuthService {
@@ -31,6 +33,8 @@ export class AuthService {
     private readonly emailService: EmailService,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(ImpersonationLog.name) private impersonationLogModel: Model<ImpersonationLogDocument>,
+    private readonly orgsService: OrgsService,
+    private readonly auditService: AuditService,
   ) {}
 
   async signup(signupDto: SignupDto) {
@@ -84,11 +88,12 @@ export class AuthService {
     };
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, meta?: { ipAddress?: string; userAgent?: string }) {
     const { email, password } = loginDto;
 
     const user = await this.usersService.findByEmail(email);
     if (!user) {
+      await this.logFailedLogin(email, meta);
       throw new UnauthorizedException({
         code: 'INVALID_CREDENTIALS',
         message: 'Invalid email or password',
@@ -97,11 +102,14 @@ export class AuthService {
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
+      await this.logFailedLogin(email, meta, user.id);
       throw new UnauthorizedException({
         code: 'INVALID_CREDENTIALS',
         message: 'Invalid email or password',
       });
     }
+
+    await this.logSuccessfulLogin(user.id, user.email, meta);
 
     // Generate tokens
     const payload = {
@@ -345,6 +353,73 @@ export class AuthService {
       total,
       pages: Math.ceil(total / limit),
     };
+  }
+
+  private async logSuccessfulLogin(
+    userId: string,
+    email: string,
+    meta?: { ipAddress?: string; userAgent?: string },
+  ): Promise<void> {
+    const orgs = await this.orgsService.findAllByUser(userId);
+    const targets = orgs.length > 0 ? orgs : [null];
+
+    await Promise.all(
+      targets.map((org) =>
+        this.auditService.safeLog({
+          orgId: org?.id,
+          action: 'LOGIN',
+          resourceType: 'user',
+          resourceId: userId,
+          resourceName: email,
+          actorId: userId,
+          actorEmail: email,
+          actorType: 'user',
+          ipAddress: meta?.ipAddress,
+          userAgent: meta?.userAgent,
+          description: `User logged in${org ? ` (${org.name})` : ''}`,
+        }),
+      ),
+    );
+  }
+
+  private async logFailedLogin(
+    email: string,
+    meta?: { ipAddress?: string; userAgent?: string },
+    userId?: string,
+  ): Promise<void> {
+    if (userId) {
+      const orgs = await this.orgsService.findAllByUser(userId);
+      await Promise.all(
+        orgs.map((org) =>
+          this.auditService.safeLog({
+            orgId: org.id,
+            action: 'LOGIN_FAILED',
+            resourceType: 'user',
+            resourceId: userId,
+            resourceName: email,
+            actorEmail: email,
+            actorType: 'user',
+            ipAddress: meta?.ipAddress,
+            userAgent: meta?.userAgent,
+            status: 'failure',
+            description: 'Failed login attempt',
+          }),
+        ),
+      );
+      return;
+    }
+
+    await this.auditService.safeLog({
+      action: 'LOGIN_FAILED',
+      resourceType: 'user',
+      resourceName: email,
+      actorEmail: email,
+      actorType: 'user',
+      ipAddress: meta?.ipAddress,
+      userAgent: meta?.userAgent,
+      status: 'failure',
+      description: 'Failed login attempt for unknown user',
+    });
   }
 
   private getExpiresInSeconds(): number {

@@ -18,6 +18,15 @@ import { UsersService } from '../users/users.service';
 import { CreateOrgDto } from './dto/create-org.dto';
 import { UpdateOrgDto } from './dto/update-org.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
+import { AuditService } from '../audit/audit.service';
+
+function auditActor(user: CurrentUserData) {
+  return {
+    actorId: user.userId,
+    actorEmail: user.email,
+    actorType: 'user' as const,
+  };
+}
 
 @ApiTags('Organizations')
 @ApiBearerAuth()
@@ -27,6 +36,7 @@ export class OrgsController {
   constructor(
     private readonly orgsService: OrgsService,
     private readonly usersService: UsersService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Post()
@@ -36,6 +46,17 @@ export class OrgsController {
     @Body() createOrgDto: CreateOrgDto,
   ) {
     const org = await this.orgsService.create(user.userId, createOrgDto);
+
+    await this.auditService.safeLog({
+      orgId: org.id,
+      action: 'CREATE',
+      resourceType: 'organization',
+      resourceId: org.id,
+      resourceName: org.name,
+      ...auditActor(user),
+      description: `Created organization "${org.name}"`,
+    });
+
     return {
       success: true,
       data: org,

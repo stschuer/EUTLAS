@@ -17,6 +17,15 @@ import { ProjectsService } from './projects.service';
 import { OrgsService } from '../orgs/orgs.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { AuditService } from '../audit/audit.service';
+
+function auditActor(user: CurrentUserData) {
+  return {
+    actorId: user.userId,
+    actorEmail: user.email,
+    actorType: 'user' as const,
+  };
+}
 
 @ApiTags('Projects')
 @ApiBearerAuth()
@@ -26,6 +35,7 @@ export class ProjectsController {
   constructor(
     private readonly projectsService: ProjectsService,
     private readonly orgsService: OrgsService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Post()
@@ -37,6 +47,18 @@ export class ProjectsController {
   ) {
     await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN', 'MEMBER']);
     const project = await this.projectsService.create(orgId, createProjectDto);
+
+    await this.auditService.safeLog({
+      orgId,
+      projectId: project.id,
+      action: 'CREATE',
+      resourceType: 'project',
+      resourceId: project.id,
+      resourceName: project.name,
+      ...auditActor(user),
+      description: `Created project "${project.name}"`,
+    });
+
     return {
       success: true,
       data: project,
@@ -93,6 +115,18 @@ export class ProjectsController {
     }
 
     const updated = await this.projectsService.update(projectId, updateProjectDto);
+
+    await this.auditService.safeLog({
+      orgId,
+      projectId,
+      action: 'UPDATE',
+      resourceType: 'project',
+      resourceId: projectId,
+      resourceName: updated.name,
+      ...auditActor(user),
+      description: `Updated project "${project.name}"`,
+    });
+
     return {
       success: true,
       data: updated,
@@ -115,6 +149,19 @@ export class ProjectsController {
     }
 
     const result = await this.projectsService.delete(projectId, force === 'true');
+
+    await this.auditService.safeLog({
+      orgId,
+      projectId,
+      action: 'DELETE',
+      resourceType: 'project',
+      resourceId: projectId,
+      resourceName: project.name,
+      ...auditActor(user),
+      description: `Deleted project "${project.name}"`,
+      metadata: result.deletedCounts,
+    });
+
     return {
       success: true,
       message: 'Project and all related data deleted successfully',
