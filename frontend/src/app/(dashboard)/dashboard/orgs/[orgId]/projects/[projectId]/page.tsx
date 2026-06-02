@@ -17,7 +17,6 @@ import {
   Network,
   Shield,
   Activity,
-  Settings,
   ChevronRight,
   ArrowLeft,
   Database,
@@ -119,12 +118,6 @@ export default function ProjectDetailPage() {
       description: 'LLM-ready API reference with your project IDs',
       icon: <BookOpen className="h-5 w-5" />,
       href: `/dashboard/orgs/${orgId}/projects/${projectId}/api-docs`,
-    },
-    {
-      title: 'Settings',
-      description: 'Project configuration and preferences',
-      icon: <Settings className="h-5 w-5" />,
-      href: '#',
     },
   ];
 
