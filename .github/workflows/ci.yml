@@ -242,8 +242,8 @@ jobs:
             docker buildx build \
               --file ./backend/Dockerfile \
               --push \
-              --cache-from type=gha \
-              --cache-to type=gha,mode=min \
+              --cache-from type=gha,ignore-error=true \
+              --cache-to type=gha,mode=min,ignore-error=true \
               "${tag_args[@]}" \
               .
 
@@ -275,8 +275,8 @@ jobs:
             docker buildx build \
               --file ./frontend/Dockerfile \
               --push \
-              --cache-from type=gha \
-              --cache-to type=gha,mode=min \
+              --cache-from type=gha,ignore-error=true \
+              --cache-to type=gha,mode=min,ignore-error=true \
               --build-arg "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}" \
               "${tag_args[@]}" \
               .

@@ -56,8 +56,8 @@ jobs:
             docker buildx build \
               --file ./backend/Dockerfile \
               --push \
-              --cache-from type=gha \
-              --cache-to type=gha,mode=min \
+              --cache-from type=gha,ignore-error=true \
+              --cache-to type=gha,mode=min,ignore-error=true \
               --tag "${{ env.BACKEND_IMAGE }}:${VERSION}" \
               --tag "${{ env.BACKEND_IMAGE }}:latest" \
               --tag "${{ env.BACKEND_IMAGE }}:stable" \
@@ -77,8 +77,8 @@ jobs:
             docker buildx build \
               --file ./frontend/Dockerfile \
               --push \
-              --cache-from type=gha \
-              --cache-to type=gha,mode=min \
+              --cache-from type=gha,ignore-error=true \
+              --cache-to type=gha,mode=min,ignore-error=true \
               --build-arg "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}" \
               --tag "${{ env.FRONTEND_IMAGE }}:${VERSION}" \
               --tag "${{ env.FRONTEND_IMAGE }}:latest" \
