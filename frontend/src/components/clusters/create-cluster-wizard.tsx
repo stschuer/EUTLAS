@@ -18,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { PlanSelector } from "./plan-selector";
 import { useCreateCluster } from "@/hooks/use-clusters";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,7 @@ const createClusterSchema = z.object({
       "Name must start with a letter, contain only lowercase letters, numbers, and hyphens"
     ),
   plan: z.enum(["DEV", "SMALL", "MEDIUM", "LARGE", "XLARGE"]),
+  enableVectorSearch: z.boolean().optional(),
 });
 
 type CreateClusterForm = z.infer<typeof createClusterSchema>;
@@ -67,12 +69,14 @@ export function CreateClusterWizard({
     defaultValues: {
       name: "",
       plan: "MEDIUM",
+      enableVectorSearch: false,
     },
     mode: "onChange",
   });
 
   const selectedPlan = watch("plan");
   const clusterName = watch("name");
+  const enableVectorSearch = watch("enableVectorSearch");
 
   const canProceed = async () => {
     if (step === 1) {
@@ -188,6 +192,19 @@ export function CreateClusterWizard({
                 selectedPlan={selectedPlan}
                 onPlanChange={(plan) => setValue("plan", plan as any)}
               />
+              <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+                <div className="space-y-1">
+                  <Label htmlFor="enableVectorSearch">Native MongoDB Vector Search</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Deploy MongoDB 8.2+ with a MongoDBSearch/mongot companion for $vectorSearch-compatible RAG workloads.
+                  </p>
+                </div>
+                <Switch
+                  id="enableVectorSearch"
+                  checked={!!enableVectorSearch}
+                  onCheckedChange={(checked) => setValue("enableVectorSearch", checked)}
+                />
+              </div>
             </div>
           )}
 
@@ -206,7 +223,11 @@ export function CreateClusterWizard({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">MongoDB Version</span>
-                  <span className="font-medium">7.0 (Latest Stable)</span>
+                  <span className="font-medium">{enableVectorSearch ? "8.2+ (Vector Search)" : "7.0 (Latest Stable)"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Vector Search</span>
+                  <span className="font-medium">{enableVectorSearch ? "Native MongoDB" : "Disabled"}</span>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">

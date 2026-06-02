@@ -1,8 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as k8s from '@kubernetes/client-node';
+import { randomBytes } from 'crypto';
 
 // ========== Interfaces ==========
+
+export type VectorSearchBackend = 'mongodb-search' | 'qdrant';
 
 interface CreateClusterParams {
   clusterId: string;
@@ -13,6 +16,8 @@ interface CreateClusterParams {
   mongoVersion: string;
   region?: string;
   vectorSearchEnabled?: boolean;
+  /** When vector search is enabled: native MongoDB Search (MEDIUM+) or legacy Qdrant companion. */
+  vectorSearchBackend?: VectorSearchBackend;
   credentials: {
     username: string;
     password: string;
@@ -64,6 +69,13 @@ interface ClusterConnectionInfo {
     host: string;
     port: number;
   };
+}
+
+interface CompanionResources {
+  cpu: string;
+  memory: string;
+  cpuLimit: string;
+  memoryLimit: string;
 }
 
 interface CreateDatabaseUserParams {
@@ -167,14 +179,22 @@ export const PLAN_MAX_PVC_SIZE: Record<string, string> = {
   DEDICATED_XL: '1Ti',
 };
 
-// Qdrant companion service resource sizing (opt-in, only when vectorSearchEnabled)
-export const QDRANT_RESOURCES: Record<string, {
-  cpu: string;
-  memory: string;
-  storage: string;
-  cpuLimit: string;
-  memoryLimit: string;
-}> = {
+// Native MongoDB Search companion resource sizing (opt-in, only when vectorSearchEnabled).
+// This deploys mongot via MongoDBSearch, enabling $vectorSearch on MongoDB Community 8.2+.
+export const MONGODB_SEARCH_RESOURCES: Record<string, CompanionResources> = {
+  DEV: { cpu: '100m', memory: '256Mi', cpuLimit: '200m', memoryLimit: '512Mi' },
+  SMALL: { cpu: '200m', memory: '512Mi', cpuLimit: '500m', memoryLimit: '1Gi' },
+  MEDIUM: { cpu: '250m', memory: '512Mi', cpuLimit: '750m', memoryLimit: '1Gi' },
+  LARGE: { cpu: '500m', memory: '1Gi', cpuLimit: '1000m', memoryLimit: '2Gi' },
+  XLARGE: { cpu: '1000m', memory: '2Gi', cpuLimit: '2000m', memoryLimit: '4Gi' },
+  XXL: { cpu: '1000m', memory: '4Gi', cpuLimit: '2000m', memoryLimit: '8Gi' },
+  XXXL: { cpu: '2000m', memory: '8Gi', cpuLimit: '4000m', memoryLimit: '16Gi' },
+  DEDICATED_L: { cpu: '4000m', memory: '16Gi', cpuLimit: '8000m', memoryLimit: '32Gi' },
+  DEDICATED_XL: { cpu: '8000m', memory: '32Gi', cpuLimit: '16000m', memoryLimit: '64Gi' },
+};
+
+// Legacy Qdrant companion sizing (DEV/SMALL clusters and existing Qdrant-backed clusters).
+export const QDRANT_RESOURCES: Record<string, CompanionResources & { storage: string }> = {
   DEV: { cpu: '100m', memory: '256Mi', storage: '1Gi', cpuLimit: '200m', memoryLimit: '512Mi' },
   SMALL: { cpu: '200m', memory: '512Mi', storage: '5Gi', cpuLimit: '500m', memoryLimit: '1Gi' },
   MEDIUM: { cpu: '250m', memory: '1Gi', storage: '10Gi', cpuLimit: '750m', memoryLimit: '2Gi' },
@@ -186,9 +206,39 @@ export const QDRANT_RESOURCES: Record<string, {
   DEDICATED_XL: { cpu: '8000m', memory: '32Gi', storage: '500Gi', cpuLimit: '16000m', memoryLimit: '64Gi' },
 };
 
+/** Resolve which vector-search companion to provision for a cluster operation. */
+export function resolveVectorSearchBackend(options: {
+  vectorSearchEnabled?: boolean;
+  vectorSearchBackend?: VectorSearchBackend;
+  vectorDbHost?: string;
+  plan: string;
+}): VectorSearchBackend | undefined {
+  if (!options.vectorSearchEnabled) {
+    return undefined;
+  }
+  if (options.vectorSearchBackend) {
+    return options.vectorSearchBackend;
+  }
+  // Existing Qdrant-backed clusters must keep Qdrant on reprovision/relocation.
+  if (options.vectorDbHost) {
+    return 'qdrant';
+  }
+  return isOperatorManagedPlan(options.plan) ? 'mongodb-search' : 'qdrant';
+}
+
+function isOperatorManagedPlan(plan: string): boolean {
+  return ['MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'].includes(plan);
+}
+
 // MongoDB Community Operator CRD API Version
 const MONGODB_API_VERSION = 'mongodbcommunity.mongodb.com/v1';
 const MONGODB_KIND = 'MongoDBCommunity';
+const MONGODB_SEARCH_API_GROUP = 'mongodb.com';
+const MONGODB_SEARCH_API_VERSION = 'v1';
+const MONGODB_SEARCH_PLURAL = 'mongodbsearch';
+const MONGODB_SEARCH_KIND = 'MongoDBSearch';
+const DEFAULT_MONGO_VERSION = '7.0.5';
+const NATIVE_VECTOR_SEARCH_MIN_VERSION = '8.2.0';
 
 /** Parse a Kubernetes memory string ("512Mi", "1Gi", "1000m", …) to GB (decimal). */
 function parseMemoryToGB(mem: string): number {
@@ -507,6 +557,19 @@ export class KubernetesService implements OnModuleInit {
     const namespace = await this.ensureNamespace(params.projectId);
     const resourceName = this.getResourceName(params.clusterId);
     const resources = PLAN_RESOURCES[params.plan] || PLAN_RESOURCES.DEV;
+    const useOperator = this.isOperatorManaged(params.plan);
+    const vectorBackend = resolveVectorSearchBackend({
+      vectorSearchEnabled: params.vectorSearchEnabled,
+      vectorSearchBackend: params.vectorSearchBackend,
+      plan: params.plan,
+    });
+    const useNativeSearch = vectorBackend === 'mongodb-search';
+    const useQdrant = vectorBackend === 'qdrant';
+    const mongoVersion = this.resolveMongoVersion(params.mongoVersion, useNativeSearch);
+
+    if (useNativeSearch && !useOperator) {
+      throw new Error('Native MongoDB Vector Search requires an operator-managed plan (MEDIUM or larger).');
+    }
 
     // Apply plan-based storage quota / PVC limit range before creating PVCs.
     try {
@@ -518,7 +581,7 @@ export class KubernetesService implements OnModuleInit {
     if (this.shouldSimulate()) {
       await this.simulateDelay(2000);
       const simInfo = this.getSimulatedConnectionInfo(resourceName, namespace);
-      if (params.vectorSearchEnabled) {
+      if (useQdrant) {
         const qdrantName = `qdrant-${params.clusterId}`.toLowerCase();
         simInfo.qdrant = {
           host: `${qdrantName}.${namespace}.svc.cluster.local`,
@@ -531,16 +594,19 @@ export class KubernetesService implements OnModuleInit {
     try {
       // 1. Create Secret for MongoDB admin credentials
       await this.createCredentialsSecret(namespace, resourceName, params.credentials);
+      if (useNativeSearch) {
+        await this.ensureSearchSyncSourceSecret(namespace, resourceName);
+      }
 
       // 2. Choose deployment strategy based on plan
-      const useOperator = this.isOperatorManaged(params.plan);
-      
       if (useOperator) {
         // Use MongoDB Operator for larger plans (replica sets)
         this.logger.log(`Using MongoDB Operator for plan ${params.plan}`);
         await this.createMongoDBCommunityResource(namespace, resourceName, {
           ...params,
+          mongoVersion,
           resources,
+          nativeVectorSearch: useNativeSearch,
         });
       } else {
         // Use simple StatefulSet for DEV/SMALL plans (single node)
@@ -554,13 +620,17 @@ export class KubernetesService implements OnModuleInit {
       // 4. Create backup PVC for this cluster
       await this.ensureBackupPvc(namespace, resourceName);
 
-      // 5. Create Qdrant companion service if vector search is enabled
+      // 5. Create vector-search companion (legacy Qdrant or native MongoDB Search)
       let qdrantInfo: { host: string; port: number } | undefined;
-      if (params.vectorSearchEnabled) {
+      if (useQdrant) {
         const qdrantResources = QDRANT_RESOURCES[params.plan] || QDRANT_RESOURCES.DEV;
         const qdrantName = `qdrant-${params.clusterId}`.toLowerCase();
         qdrantInfo = await this.createQdrantStatefulSet(namespace, qdrantName, qdrantResources);
         this.logger.log(`Qdrant companion service created for cluster ${params.clusterId}`);
+      } else if (useNativeSearch) {
+        const searchResources = MONGODB_SEARCH_RESOURCES[params.plan] || MONGODB_SEARCH_RESOURCES.MEDIUM;
+        await this.createMongoDBSearchResource(namespace, resourceName, params, searchResources);
+        this.logger.log(`MongoDBSearch companion created for cluster ${params.clusterId}`);
       }
 
       // 6. Create external NodePort service for outside-cluster connectivity
@@ -640,10 +710,37 @@ export class KubernetesService implements OnModuleInit {
     }
   }
 
+  private async ensureSearchSyncSourceSecret(namespace: string, resourceName: string): Promise<void> {
+    const secretName = `${resourceName}-search-sync-source-password`;
+
+    try {
+      await this.coreApi.readNamespacedSecret(secretName, namespace);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 404) {
+        throw error;
+      }
+
+      await this.coreApi.createNamespacedSecret(namespace, {
+        metadata: {
+          name: secretName,
+          namespace,
+          labels: {
+            'eutlas.eu/managed-by': 'eutlas',
+            'eutlas.eu/cluster': resourceName,
+          },
+        },
+        type: 'Opaque',
+        stringData: {
+          password: randomBytes(32).toString('base64url'),
+        },
+      });
+    }
+  }
+
   private async createMongoDBCommunityResource(
     namespace: string,
     resourceName: string,
-    params: CreateClusterParams & { resources: typeof PLAN_RESOURCES.DEV },
+    params: CreateClusterParams & { resources: typeof PLAN_RESOURCES.DEV; nativeVectorSearch?: boolean },
   ): Promise<void> {
     const mongoDBSpec = {
       apiVersion: MONGODB_API_VERSION,
@@ -666,7 +763,7 @@ export class KubernetesService implements OnModuleInit {
       spec: {
         members: params.resources.replicas,
         type: 'ReplicaSet', // MongoDB Community Operator only supports ReplicaSet
-        version: params.mongoVersion || '7.0.5',
+        version: params.mongoVersion || DEFAULT_MONGO_VERSION,
         security: {
           authentication: {
             modes: ['SCRAM'],
@@ -687,6 +784,19 @@ export class KubernetesService implements OnModuleInit {
             ],
             scramCredentialsSecretName: `${resourceName}-scram`,
           },
+          ...(params.nativeVectorSearch ? [
+            {
+              name: 'search-sync-source',
+              db: 'admin',
+              passwordSecretRef: {
+                name: `${resourceName}-search-sync-source-password`,
+              },
+              roles: [
+                { name: 'searchCoordinator', db: 'admin' },
+              ],
+              scramCredentialsSecretName: `${resourceName}-search-sync-source`,
+            },
+          ] : []),
         ],
         additionalMongodConfig: {
           'storage.wiredTiger.engineConfig.journalCompressor': 'zlib',
@@ -831,6 +941,83 @@ export class KubernetesService implements OnModuleInit {
         }
       } else {
         this.logger.error(`Failed to check MongoDBCommunity: status=${error.response?.statusCode}, body=${JSON.stringify(error.response?.body || error.body || error.message)}`);
+        throw error;
+      }
+    }
+  }
+
+  private async createMongoDBSearchResource(
+    namespace: string,
+    resourceName: string,
+    params: CreateClusterParams,
+    resources: CompanionResources,
+  ): Promise<void> {
+    const mongoDBSearchSpec = {
+      apiVersion: `${MONGODB_SEARCH_API_GROUP}/${MONGODB_SEARCH_API_VERSION}`,
+      kind: MONGODB_SEARCH_KIND,
+      metadata: {
+        name: resourceName,
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/cluster-id': params.clusterId,
+          'eutlas.eu/org-id': params.orgId,
+          'eutlas.eu/project-id': params.projectId,
+          'eutlas.eu/component': 'mongodb-search',
+        },
+        annotations: {
+          'eutlas.eu/cluster-name': params.clusterName,
+          'eutlas.eu/created-at': new Date().toISOString(),
+          'eutlas.eu/preview-feature': 'mongodb-community-vector-search',
+        },
+      },
+      spec: {
+        resourceRequirements: {
+          requests: {
+            cpu: resources.cpu,
+            memory: resources.memory,
+          },
+          limits: {
+            cpu: resources.cpuLimit,
+            memory: resources.memoryLimit,
+          },
+        },
+      },
+    };
+
+    try {
+      await this.customApi.getNamespacedCustomObject(
+        MONGODB_SEARCH_API_GROUP,
+        MONGODB_SEARCH_API_VERSION,
+        namespace,
+        MONGODB_SEARCH_PLURAL,
+        resourceName,
+      );
+      await this.customApi.replaceNamespacedCustomObject(
+        MONGODB_SEARCH_API_GROUP,
+        MONGODB_SEARCH_API_VERSION,
+        namespace,
+        MONGODB_SEARCH_PLURAL,
+        resourceName,
+        mongoDBSearchSpec,
+      );
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        try {
+          await this.customApi.createNamespacedCustomObject(
+            MONGODB_SEARCH_API_GROUP,
+            MONGODB_SEARCH_API_VERSION,
+            namespace,
+            MONGODB_SEARCH_PLURAL,
+            mongoDBSearchSpec,
+          );
+          this.logger.log(`Created MongoDBSearch resource ${resourceName} in ${namespace}`);
+        } catch (createError: any) {
+          this.logger.error(`Failed to create MongoDBSearch: status=${createError.response?.statusCode}, body=${JSON.stringify(createError.response?.body || createError.body || createError.message)}`);
+          throw createError;
+        }
+      } else {
+        this.logger.error(`Failed to check MongoDBSearch: status=${error.response?.statusCode}, body=${JSON.stringify(error.response?.body || error.body || error.message)}`);
         throw error;
       }
     }
@@ -1471,6 +1658,21 @@ export class KubernetesService implements OnModuleInit {
     }
 
     try {
+      // Delete MongoDBSearch resource if native vector search was enabled
+      try {
+        await this.customApi.deleteNamespacedCustomObject(
+          MONGODB_SEARCH_API_GROUP,
+          MONGODB_SEARCH_API_VERSION,
+          namespace,
+          MONGODB_SEARCH_PLURAL,
+          resourceName,
+        );
+      } catch (e: any) {
+        if (e.response?.statusCode !== 404) {
+          this.logger.warn(`Failed to delete MongoDBSearch ${resourceName}: ${e.message}`);
+        }
+      }
+
       // Delete MongoDBCommunity resource
       await this.customApi.deleteNamespacedCustomObject(
         'mongodbcommunity.mongodb.com',
@@ -2187,7 +2389,7 @@ export class KubernetesService implements OnModuleInit {
   private async createQdrantStatefulSet(
     namespace: string,
     resourceName: string,
-    resources: typeof QDRANT_RESOURCES.DEV,
+    resources: CompanionResources & { storage: string },
   ): Promise<{ host: string; port: number }> {
     // Create Qdrant StatefulSet
     const statefulSet: k8s.V1StatefulSet = {
@@ -2400,7 +2602,30 @@ export class KubernetesService implements OnModuleInit {
    * DEV and SMALL use simple StatefulSets; everything else uses the operator.
    */
   private isOperatorManaged(plan: string): boolean {
-    return ['MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'].includes(plan);
+    return isOperatorManagedPlan(plan);
+  }
+
+  private resolveMongoVersion(requestedVersion: string | undefined, useNativeVectorSearch?: boolean): string {
+    const version = requestedVersion || DEFAULT_MONGO_VERSION;
+    if (!useNativeVectorSearch) {
+      return version;
+    }
+
+    if (!this.isMongoVersionAtLeast(version, NATIVE_VECTOR_SEARCH_MIN_VERSION)) {
+      return NATIVE_VECTOR_SEARCH_MIN_VERSION;
+    }
+
+    return version;
+  }
+
+  private isMongoVersionAtLeast(version: string, minimum: string): boolean {
+    const parse = (value: string) => value.split('.').map((part) => Number.parseInt(part, 10) || 0);
+    const [major = 0, minor = 0, patch = 0] = parse(version);
+    const [minMajor = 0, minMinor = 0, minPatch = 0] = parse(minimum);
+
+    if (major !== minMajor) return major > minMajor;
+    if (minor !== minMinor) return minor > minMinor;
+    return patch >= minPatch;
   }
 
   /**

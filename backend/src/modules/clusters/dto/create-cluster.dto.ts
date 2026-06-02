@@ -16,7 +16,7 @@ export class CreateClusterDto {
   @IsEnum(['DEV', 'SMALL', 'MEDIUM', 'LARGE', 'XLARGE', 'XXL', 'XXXL', 'DEDICATED_L', 'DEDICATED_XL'], { message: 'Invalid plan selected' })
   plan: 'DEV' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'XLARGE' | 'XXL' | 'XXXL' | 'DEDICATED_L' | 'DEDICATED_XL';
 
-  // MongoDB version is managed automatically - always uses latest stable (7.0.5)
+  // MongoDB version is managed automatically. Native vector search clusters use 8.2+.
   // Field kept for API compatibility but not exposed to users
   @ApiPropertyOptional({ description: 'MongoDB version (defaults to latest stable)' })
   @IsOptional()
@@ -28,7 +28,7 @@ export class CreateClusterDto {
   @IsString()
   region?: string;
 
-  @ApiPropertyOptional({ example: false, description: 'Enable Qdrant vector search companion service' })
+  @ApiPropertyOptional({ example: false, description: 'Enable native MongoDB Vector Search via MongoDBSearch/mongot (requires MongoDB 8.2+)' })
   @IsOptional()
   @IsBoolean()
   enableVectorSearch?: boolean;

@@ -78,7 +78,7 @@ export const CLUSTER_PLANS: Record<string, ClusterPlanDetails> = {
 
 export const DEFAULT_MONGO_VERSION = '7.0';
 
-export const SUPPORTED_MONGO_VERSIONS = ['6.0', '7.0'];
+export const SUPPORTED_MONGO_VERSIONS = ['6.0', '7.0', '8.2'];
 
 
 

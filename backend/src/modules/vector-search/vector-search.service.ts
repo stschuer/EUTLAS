@@ -125,11 +125,32 @@ export class VectorSearchService {
       const index = await this.vectorIndexModel.findById(indexId).exec();
       if (!index) return;
 
-      // Check if cluster has Qdrant enabled
+      // Prefer native MongoDB Vector Search for newly provisioned vector clusters.
       const cluster = await this.clustersService.findById(index.clusterId.toString());
       const hasQdrant = cluster?.vectorSearchEnabled && cluster?.vectorDbHost;
 
-      if (hasQdrant) {
+      if (cluster?.vectorSearchEnabled && !cluster.vectorDbHost) {
+        await this.createMongoDBSearchIndex(index);
+
+        const client = await this.dataExplorerService.getConnection(index.clusterId.toString());
+        const documentCount = await client
+          .db(index.database)
+          .collection(index.collection)
+          .estimatedDocumentCount()
+          .catch(() => 0);
+
+        await this.vectorIndexModel.updateOne(
+          { _id: indexId },
+          {
+            status: 'ready',
+            buildCompletedAt: new Date(),
+            documentCount,
+            indexSizeBytes: 0,
+          },
+        ).exec();
+
+        this.logger.log(`Vector index ${indexId} created as native MongoDB Search index`);
+      } else if (hasQdrant) {
         // Create real Qdrant collection
         await this.vectorSyncService.createQdrantCollection(indexId);
 
@@ -152,7 +173,7 @@ export class VectorSearchService {
           },
         ).exec();
 
-        this.logger.log(`Vector index ${indexId} built on Qdrant: ${syncResult.synced} points synced`);
+        this.logger.log(`Vector index ${indexId} built on legacy Qdrant: ${syncResult.synced} points synced`);
       } else {
         // No Qdrant -- simulate for dev/testing (legacy behaviour)
         const docCount = Math.floor(Math.random() * 10000) + 100;
@@ -182,6 +203,45 @@ export class VectorSearchService {
     }
   }
 
+  private async createMongoDBSearchIndex(index: VectorIndexDocument): Promise<void> {
+    const client = await this.dataExplorerService.getConnection(index.clusterId.toString());
+    const collection = client.db(index.database).collection(index.collection);
+    const fields = [
+      ...index.vectorFields.map((field) => ({
+        type: 'vector',
+        path: field.path,
+        numDimensions: field.dimensions,
+        similarity: field.similarity || 'cosine',
+      })),
+      ...(index.filterFields || []).map((field) => ({
+        type: 'filter',
+        path: field.path,
+      })),
+    ];
+
+    const definition = {
+      name: index.name,
+      type: 'vectorSearch',
+      definition: { fields },
+    };
+
+    try {
+      await (collection as any).createSearchIndex(definition);
+    } catch (error: any) {
+      if (error.codeName === 'IndexAlreadyExists' || /already exists/i.test(error.message)) {
+        this.logger.debug(`Native MongoDB Search index "${index.name}" already exists on ${index.database}.${index.collection}`);
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async dropMongoDBSearchIndex(index: VectorIndex | VectorIndexDocument): Promise<void> {
+    const client = await this.dataExplorerService.getConnection(index.clusterId.toString());
+    const collection = client.db(index.database).collection(index.collection);
+    await (collection as any).dropSearchIndex(index.name);
+  }
+
   async findAllByCluster(clusterId: string): Promise<VectorIndex[]> {
     return this.vectorIndexModel.find({
       clusterId: new Types.ObjectId(clusterId),
@@ -204,11 +264,20 @@ export class VectorSearchService {
       { status: 'deleting' },
     ).exec();
 
-    // Delete Qdrant collection if it exists
-    try {
-      await this.vectorSyncService.deleteQdrantCollection(indexId);
-    } catch (err: any) {
-      this.logger.warn(`Failed to delete Qdrant collection for index ${indexId}: ${err.message}`);
+    const cluster = await this.clustersService.findById(index.clusterId.toString());
+    if (cluster?.vectorSearchEnabled && !cluster.vectorDbHost) {
+      try {
+        await this.dropMongoDBSearchIndex(index);
+      } catch (err: any) {
+        this.logger.warn(`Failed to delete native MongoDB Search index ${index.name}: ${err.message}`);
+      }
+    } else {
+      // Delete legacy Qdrant collection if it exists
+      try {
+        await this.vectorSyncService.deleteQdrantCollection(indexId);
+      } catch (err: any) {
+        this.logger.warn(`Failed to delete Qdrant collection for index ${indexId}: ${err.message}`);
+      }
     }
 
     // Delete the index document
@@ -235,11 +304,20 @@ export class VectorSearchService {
     // Stop existing watcher
     this.vectorSyncService.stopWatcher(indexId);
 
-    // Delete and recreate Qdrant collection
-    try {
-      await this.vectorSyncService.deleteQdrantCollection(indexId);
-    } catch {
-      // ignore
+    const cluster = await this.clustersService.findById(index.clusterId.toString());
+    if (cluster?.vectorSearchEnabled && !cluster.vectorDbHost) {
+      try {
+        await this.dropMongoDBSearchIndex(index);
+      } catch {
+        // ignore
+      }
+    } else {
+      // Delete and recreate legacy Qdrant collection
+      try {
+        await this.vectorSyncService.deleteQdrantCollection(indexId);
+      } catch {
+        // ignore
+      }
     }
 
     await this.vectorIndexModel.updateOne(
@@ -258,6 +336,13 @@ export class VectorSearchService {
     const index = await this.findById(indexId);
     if (index.status !== 'ready') {
       throw new BadRequestException('Index must be in ready state to sync');
+    }
+
+    const cluster = await this.clustersService.findById(index.clusterId.toString());
+    if (cluster?.vectorSearchEnabled && !cluster.vectorDbHost) {
+      const client = await this.dataExplorerService.getConnection(index.clusterId.toString());
+      const synced = await client.db(index.database).collection(index.collection).estimatedDocumentCount();
+      return { synced, errors: 0 };
     }
 
     return this.vectorSyncService.bulkSync(indexId);

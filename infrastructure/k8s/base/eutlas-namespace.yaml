@@ -62,6 +62,10 @@ rules:
   - apiGroups: ["mongodbcommunity.mongodb.com"]
     resources: ["mongodbcommunity", "mongodbcommunity/status"]
     verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  # MongoDB Search / Vector Search Operator resources
+  - apiGroups: ["mongodb.com"]
+    resources: ["mongodbsearch", "mongodbsearch/status"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
   # Metrics
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods"]

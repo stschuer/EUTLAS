@@ -63,7 +63,7 @@ export function useCreateCluster(projectId: string) {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: { name: string; plan: string; mongoVersion?: string }) => {
+    mutationFn: async (data: { name: string; plan: string; mongoVersion?: string; enableVectorSearch?: boolean }) => {
       const response = await clustersApi.create(projectId, data);
       if (response.success && response.data) {
         return response.data;

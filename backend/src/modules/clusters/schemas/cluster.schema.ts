@@ -61,7 +61,7 @@ export class Cluster {
   @Prop()
   pauseReason?: string;
 
-  @Prop({ default: '7.0.0' })
+  @Prop({ default: '7.0.5' })
   mongoVersion: string;
 
   @Prop()

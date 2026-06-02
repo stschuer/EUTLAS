@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/co
 import { Interval } from '@nestjs/schedule';
 import { JobsService } from './jobs.service';
 import { ClustersService } from '../clusters/clusters.service';
-import { KubernetesService } from '../kubernetes/kubernetes.service';
+import { KubernetesService, resolveVectorSearchBackend } from '../kubernetes/kubernetes.service';
 import { EventsService } from '../events/events.service';
 import { BackupsService } from '../backups/backups.service';
 import { EmailService } from '../email/email.service';
@@ -123,7 +123,7 @@ export class JobProcessorService implements OnModuleInit {
   }
 
   private async processCreateCluster(job: JobDocument) {
-    const { plan, mongoVersion, credentials, clusterName, createdBy, vectorSearchEnabled, region } = job.payload as any;
+    const { plan, mongoVersion, credentials, clusterName, createdBy, vectorSearchEnabled, vectorSearchBackend, region } = job.payload as any;
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
     const orgId = job.targetOrgId!.toString();
@@ -153,7 +153,13 @@ export class JobProcessorService implements OnModuleInit {
       this.logger.log(`[${clusterId}] Dedicated server ${serverInfo.serverId} provisioned at ${serverInfo.serverIp}`);
     }
 
-    // Create K8s resources (MongoDB + optional Qdrant companion)
+    const vectorBackend = resolveVectorSearchBackend({
+      vectorSearchEnabled: vectorSearchEnabled || false,
+      vectorSearchBackend,
+      plan,
+    });
+
+    // Create K8s resources (MongoDB + optional vector-search companion)
     const result = await this.kubernetesService.createMongoCluster({
       clusterId,
       projectId,
@@ -163,6 +169,7 @@ export class JobProcessorService implements OnModuleInit {
       mongoVersion,
       credentials,
       vectorSearchEnabled: vectorSearchEnabled || false,
+      vectorSearchBackend: vectorBackend,
       dedicatedKubeconfig,
     });
 
@@ -494,6 +501,12 @@ export class JobProcessorService implements OnModuleInit {
     // 3. Create the new MongoDB cluster using the EXISTING admin credentials.
     const kubeconfigEncrypted = this.credentialsService.encryptString(serverInfo.kubeconfig);
 
+    const vectorBackend = resolveVectorSearchBackend({
+      vectorSearchEnabled: cluster.vectorSearchEnabled || false,
+      vectorDbHost: cluster.vectorDbHost,
+      plan: cluster.plan,
+    });
+
     this.logger.log(`[${clusterId}] Creating MongoDB on new dedicated node`);
     const newConn = await this.kubernetesService.createMongoCluster({
       clusterId,
@@ -504,6 +517,7 @@ export class JobProcessorService implements OnModuleInit {
       mongoVersion: cluster.mongoVersion || '7.0.5',
       credentials: { username: creds.username, password: creds.password },
       vectorSearchEnabled: cluster.vectorSearchEnabled || false,
+      vectorSearchBackend: vectorBackend,
       dedicatedKubeconfig: serverInfo.kubeconfig,
       additionalIngressIps,
     });

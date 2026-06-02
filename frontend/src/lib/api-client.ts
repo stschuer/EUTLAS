@@ -247,7 +247,7 @@ export const clustersApi = {
   list: (projectId: string) => apiClient.get(`/projects/${projectId}/clusters`),
   get: (projectId: string, clusterId: string) =>
     apiClient.get(`/projects/${projectId}/clusters/${clusterId}`),
-  create: (projectId: string, data: { name: string; plan: string; mongoVersion?: string }) =>
+  create: (projectId: string, data: { name: string; plan: string; mongoVersion?: string; enableVectorSearch?: boolean }) =>
     apiClient.post(`/projects/${projectId}/clusters`, data),
   resize: (projectId: string, clusterId: string, data: { plan: string }) =>
     apiClient.post(`/projects/${projectId}/clusters/${clusterId}/resize`, data),

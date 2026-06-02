@@ -142,11 +142,13 @@ EOF
     log_success "Hetzner CSI Driver installed"
 }
 
-# Install MongoDB Community Operator
+# Install MongoDB Controllers for Kubernetes.
+# Required for MongoDBCommunity and MongoDBSearch (mongot / native $vectorSearch).
 install_mongodb_operator() {
-    log_info "Installing MongoDB Community Operator..."
+    log_info "Installing MongoDB Controllers for Kubernetes..."
     
-    if kubectl get crd mongodbcommunity.mongodbcommunity.mongodb.com &> /dev/null; then
+    if kubectl get crd mongodbcommunity.mongodbcommunity.mongodb.com &> /dev/null && \
+       kubectl get crd mongodbsearch.mongodb.com &> /dev/null; then
         log_info "MongoDB Operator CRD already exists, checking deployment..."
         if kubectl get deployment mongodb-kubernetes-operator -n mongodb-operator &> /dev/null; then
             log_info "MongoDB Operator already installed"
@@ -158,10 +160,10 @@ install_mongodb_operator() {
     helm repo add mongodb https://mongodb.github.io/helm-charts
     helm repo update
     
-    helm install community-operator mongodb/community-operator \
+    helm upgrade --install mongodb-kubernetes mongodb/mongodb-kubernetes \
         --namespace mongodb-operator \
         --create-namespace \
-        --set operator.watchNamespace="*" \
+        --set operator.watchedResources="{mongodbcommunity,mongodbsearch}" \
         --set operator.resources.requests.cpu=100m \
         --set operator.resources.requests.memory=128Mi \
         --set operator.resources.limits.cpu=200m \
@@ -172,10 +174,11 @@ install_mongodb_operator() {
         deployment/mongodb-kubernetes-operator -n mongodb-operator || true
     
     # Verify CRD was installed
-    if kubectl get crd mongodbcommunity.mongodbcommunity.mongodb.com &> /dev/null; then
-        log_success "MongoDB Community Operator installed (CRD: mongodbcommunity.mongodb.com/v1)"
+    if kubectl get crd mongodbcommunity.mongodbcommunity.mongodb.com &> /dev/null && \
+       kubectl get crd mongodbsearch.mongodb.com &> /dev/null; then
+        log_success "MongoDB Operator installed (MongoDBCommunity + MongoDBSearch CRDs)"
     else
-        log_warn "MongoDB Operator deployed but CRD not found yet. It may take a moment to register."
+        log_warn "MongoDB Operator deployed but required CRDs are not both available yet. It may take a moment to register."
     fi
 }
 

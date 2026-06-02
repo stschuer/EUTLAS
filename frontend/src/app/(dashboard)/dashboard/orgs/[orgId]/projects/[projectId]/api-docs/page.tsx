@@ -165,7 +165,7 @@ Content-Type: application/json
 
 **Plans:** \`DEV\`, \`SMALL\`, \`MEDIUM\`, \`LARGE\`, \`XLARGE\`, \`DEDICATED_L\`, \`DEDICATED_XL\`
 
-Set \`"enableVectorSearch": true\` to deploy a Qdrant companion service alongside MongoDB for production-grade vector search (HNSW-based ANN).
+Set \`"enableVectorSearch": true\` to deploy MongoDB 8.2+ with a MongoDBSearch/mongot companion for native \`$vectorSearch\`-compatible RAG workloads.
 
 ### Get Cluster Details
 \`\`\`
@@ -224,9 +224,9 @@ DELETE ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}
 
 ---
 
-## 3. Vector Search (Qdrant-powered)
+## 3. Vector Search (MongoDB-native)
 
-Vector search uses Qdrant as a companion service alongside MongoDB. When a cluster has \`vectorSearchEnabled: true\`, the system deploys Qdrant automatically and keeps data in sync via MongoDB Change Streams.
+Vector search uses MongoDB's native \`$vectorSearch\` stage. When a cluster has \`vectorSearchEnabled: true\`, EUTLAS provisions MongoDB 8.2+ and a MongoDBSearch/mongot companion through the Kubernetes operator.
 
 ### 3.1 Index Management
 
@@ -263,12 +263,12 @@ Content-Type: application/json
 - \`vectorFields[].path\` — The field in your MongoDB documents that contains the vector (array of numbers)
 - \`vectorFields[].dimensions\` — Must match your embedding model (e.g. 1536 for OpenAI text-embedding-3-small)
 - \`vectorFields[].similarity\` — \`cosine\` (default), \`dotProduct\`, or \`euclidean\`
-- \`filterFields\` — Fields to enable filtering during search (indexed in Qdrant)
+- \`filterFields\` — Fields to enable filtering during MongoDB vector search
 - \`textFields\` — Fields for hybrid text+vector search
 
 When you create an index, the system:
-1. Creates a Qdrant collection with HNSW indexing
-2. Bulk-syncs all existing documents from MongoDB to Qdrant
+1. Creates a MongoDB Search vector index on the target collection
+2. Runs vector search directly through MongoDB's \`$vectorSearch\` aggregation stage
 3. Starts a real-time Change Stream watcher for ongoing sync
 
 #### Get Index Details
@@ -286,7 +286,7 @@ DELETE ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/vector-sea
 POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/vector-search/indexes/<indexId>/rebuild
 \`\`\`
 
-#### Bulk Sync (re-sync MongoDB → Qdrant)
+#### Bulk Sync
 \`\`\`
 POST ${baseUrl}/projects/${project.id}/clusters/${sampleCluster.id}/vector-search/indexes/<indexId>/sync
 \`\`\`
@@ -802,7 +802,7 @@ export default function ApiDocsPage() {
             <div>
               <h3 className="font-medium text-sm">Vector Search Ready</h3>
               <p className="text-xs text-muted-foreground mt-1">
-                Full documentation for semantic search, hybrid search, and RAG pipelines with Qdrant-powered HNSW indexing.
+                Full documentation for semantic search, hybrid search, and RAG pipelines with native MongoDB Vector Search.
               </p>
             </div>
           </CardContent>

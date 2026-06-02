@@ -31,6 +31,10 @@ rules:
   - apiGroups: ["mongodbcommunity.mongodb.com"]
     resources: ["mongodbcommunity"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Manage MongoDB Search resources for native $vectorSearch
+  - apiGroups: ["mongodb.com"]
+    resources: ["mongodbsearch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Manage NetworkPolicies for cluster security
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]

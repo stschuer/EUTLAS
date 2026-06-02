@@ -47,6 +47,7 @@ export interface CreateClusterRequest {
   name: string;
   plan: ClusterPlan;
   mongoVersion?: string;
+  enableVectorSearch?: boolean;
 }
 
 export interface ResizeClusterRequest {

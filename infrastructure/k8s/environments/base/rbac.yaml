@@ -40,6 +40,10 @@ rules:
   - apiGroups: ["mongodbcommunity.mongodb.com"]
     resources: ["mongodbcommunity"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # MongoDB Search / Vector Search Operator CRDs (mongot)
+  - apiGroups: ["mongodb.com"]
+    resources: ["mongodbsearch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Metrics
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods"]

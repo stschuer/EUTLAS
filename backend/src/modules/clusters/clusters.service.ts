@@ -15,6 +15,10 @@ import { ResizeClusterDto } from './dto/resize-cluster.dto';
 import { UpdateClusterDto } from './dto/update-cluster.dto';
 import { JobsService } from '../jobs/jobs.service';
 import { CredentialsService } from '../credentials/credentials.service';
+import { resolveVectorSearchBackend } from '../kubernetes/kubernetes.service';
+
+const DEFAULT_MONGO_VERSION = '7.0.5';
+const NATIVE_VECTOR_SEARCH_MIN_VERSION = '8.2.0';
 
 @Injectable()
 export class ClustersService {
@@ -46,6 +50,15 @@ export class ClustersService {
       });
     }
 
+    const vectorSearchBackend = resolveVectorSearchBackend({
+      vectorSearchEnabled: createClusterDto.enableVectorSearch,
+      plan: createClusterDto.plan,
+    });
+    const mongoVersion = this.resolveMongoVersion(
+      createClusterDto.mongoVersion,
+      vectorSearchBackend === 'mongodb-search',
+    );
+
     // Generate credentials
     const credentials = await this.credentialsService.generateCredentials();
 
@@ -55,7 +68,7 @@ export class ClustersService {
       orgId,
       name: createClusterDto.name,
       plan: createClusterDto.plan,
-      mongoVersion: createClusterDto.mongoVersion || '7.0.5',
+      mongoVersion,
       status: 'creating' as ClusterStatus,
       credentialsEncrypted: credentials.encrypted,
       vectorSearchEnabled: createClusterDto.enableVectorSearch || false,
@@ -76,6 +89,7 @@ export class ClustersService {
         clusterName: createClusterDto.name,
         createdBy,
         vectorSearchEnabled: createClusterDto.enableVectorSearch || false,
+        vectorSearchBackend,
       },
     });
 
@@ -539,6 +553,29 @@ export class ClustersService {
 
   private canModifyCluster(status: ClusterStatus): boolean {
     return status === 'ready' || status === 'degraded';
+  }
+
+  private resolveMongoVersion(requestedVersion: string | undefined, useNativeVectorSearch?: boolean): string {
+    const version = requestedVersion || DEFAULT_MONGO_VERSION;
+    if (!useNativeVectorSearch) {
+      return version;
+    }
+
+    if (!this.isMongoVersionAtLeast(version, NATIVE_VECTOR_SEARCH_MIN_VERSION)) {
+      return NATIVE_VECTOR_SEARCH_MIN_VERSION;
+    }
+
+    return version;
+  }
+
+  private isMongoVersionAtLeast(version: string, minimum: string): boolean {
+    const parse = (value: string) => value.split('.').map((part) => Number.parseInt(part, 10) || 0);
+    const [major = 0, minor = 0, patch = 0] = parse(version);
+    const [minMajor = 0, minMinor = 0, minPatch = 0] = parse(minimum);
+
+    if (major !== minMajor) return major > minMajor;
+    if (minor !== minMinor) return minor > minMinor;
+    return patch >= minPatch;
   }
 
   private buildConnectionString(
