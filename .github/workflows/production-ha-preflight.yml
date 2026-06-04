@@ -1,0 +1,102 @@
+name: Production HA Preflight
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    name: Validate production HA prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure production kubeconfig over SSH tunnel
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 \
+            -f -N -L 127.0.0.1:6443:127.0.0.1:6443 root@46.224.9.177
+
+          mkdir -p "$HOME/.kube"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 root@46.224.9.177 \
+            "cat /etc/rancher/rke2/rke2.yaml" \
+            | sed -E 's#server: https://[^:]+:[0-9]+#server: https://127.0.0.1:6443#' \
+            > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Validate HA infrastructure prerequisites
+        run: |
+          set -euo pipefail
+
+          node_count="$(kubectl get nodes -o jsonpath='{range .items[*]}{range .status.conditions[?(@.type=="Ready")]}{.status}{"\n"}{end}{end}' | awk '$0=="True"{count++} END{print count+0}')"
+          echo "Ready nodes: ${node_count}"
+          if [ "${node_count}" -lt 3 ]; then
+            echo "Need at least 3 Kubernetes nodes for real platform MongoDB HA."
+            exit 1
+          fi
+
+          kubectl get storageclass hcloud-volumes-fast
+          kubectl get deployment cert-manager -n cert-manager
+          kubectl get deployment cert-manager-webhook -n cert-manager
+          kubectl rollout status deployment/cert-manager -n cert-manager --timeout=5m
+          kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=5m
+          kubectl get crd mongodbcommunity.mongodbcommunity.mongodb.com
+          kubectl get deployment mongodb-kubernetes-operator -n mongodb-operator
+          operator_available="$(kubectl get deployment mongodb-kubernetes-operator -n mongodb-operator -o jsonpath='{.status.availableReplicas}')"
+          if [ "${operator_available:-0}" -lt 1 ]; then
+            echo "MongoDB Community Operator exists but has no available replicas."
+            exit 1
+          fi
+          kubectl rollout status deployment/mongodb-kubernetes-operator -n mongodb-operator --timeout=5m
+
+      - name: Validate backup and restore proof
+        run: |
+          set -euo pipefail
+
+          kubectl -n eutlas get cronjob platform-mongodb-backup
+          kubectl -n eutlas get cronjob platform-mongodb-backup-monitor
+          kubectl -n eutlas get cronjob platform-mongodb-restore-drill
+
+          monitor_success="$(kubectl -n eutlas get jobs -l app=platform-mongodb-backup-monitor -o jsonpath='{range .items[*]}{.status.succeeded}{"\n"}{end}' | sort -nr | head -1)"
+          restore_success="$(kubectl -n eutlas get jobs -l app=platform-mongodb-restore-drill -o jsonpath='{range .items[*]}{.status.succeeded}{"\n"}{end}' | sort -nr | head -1)"
+
+          if [ "${monitor_success:-0}" != "1" ]; then
+            echo "No successful platform backup monitor job found."
+            exit 1
+          fi
+
+          if [ "${restore_success:-0}" != "1" ]; then
+            echo "No successful platform restore drill job found."
+            exit 1
+          fi
+
+      - name: Validate manifests
+        run: |
+          set -euo pipefail
+
+          kubectl apply -k infrastructure/k8s/platform-mongodb-ha --dry-run=server
+          kubectl apply -k infrastructure/k8s/environments/production-ha --dry-run=server
+          kubectl apply -f infrastructure/k8s/platform-mongodb-ha/restore-latest-platform-backup-job.yaml --dry-run=server
+
+      - name: Print cutover reminder
+        run: |
+          cat <<'EOF'
+          Production HA prerequisites passed.
+
+          This workflow does not perform the cutover. Follow:
+          docs/runbooks/platform-mongodb-ha-migration.md
+          EOF

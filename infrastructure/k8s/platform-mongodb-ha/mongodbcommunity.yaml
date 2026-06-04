@@ -1,0 +1,103 @@
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: platform-mongodb-ha
+  labels:
+    app: platform-mongodb-ha
+    app.kubernetes.io/name: platform-mongodb-ha
+    app.kubernetes.io/component: platform-database
+spec:
+  members: 3
+  type: ReplicaSet
+  version: "7.0.15"
+  security:
+    authentication:
+      modes:
+        - SCRAM
+    tls:
+      enabled: true
+      optional: false
+      certificateKeySecretRef:
+        name: platform-mongodb-ha-cert
+      caCertificateSecretRef:
+        name: platform-mongodb-ha-ca
+  users:
+    - name: eutlas-admin
+      db: admin
+      passwordSecretRef:
+        name: eutlas-mongodb-credentials
+        key: password
+      roles:
+        - name: root
+          db: admin
+      scramCredentialsSecretName: platform-mongodb-ha-scram
+      connectionStringSecretName: platform-mongodb-ha-admin-connection-string
+  additionalMongodConfig:
+    storage.wiredTiger.engineConfig.journalCompressor: zlib
+    storage.wiredTiger.engineConfig.cacheSizeGB: 1
+  statefulSet:
+    metadata:
+      labels:
+        app: platform-mongodb-ha
+        app.kubernetes.io/name: platform-mongodb-ha
+        app.kubernetes.io/component: platform-database
+    spec:
+      template:
+        metadata:
+          labels:
+            app: platform-mongodb-ha
+            app.kubernetes.io/name: platform-mongodb-ha
+            app.kubernetes.io/component: platform-database
+        spec:
+          priorityClassName: eutlas-critical
+          terminationGracePeriodSeconds: 120
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app: platform-mongodb-ha
+                  topologyKey: kubernetes.io/hostname
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app: platform-mongodb-ha
+          containers:
+            - name: mongod
+              resources:
+                limits:
+                  cpu: "1500m"
+                  memory: 3Gi
+                requests:
+                  cpu: "500m"
+                  memory: 1536Mi
+            - name: mongodb-agent
+              resources:
+                limits:
+                  cpu: "500m"
+                  memory: 512Mi
+                requests:
+                  cpu: "100m"
+                  memory: 256Mi
+      volumeClaimTemplates:
+        - metadata:
+            name: data-volume
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: hcloud-volumes-fast
+            resources:
+              requests:
+                storage: 80Gi
+        - metadata:
+            name: logs-volume
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: hcloud-volumes-fast
+            resources:
+              requests:
+                storage: 10Gi

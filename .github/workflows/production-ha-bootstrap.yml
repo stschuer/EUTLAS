@@ -1,0 +1,178 @@
+name: Production HA Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_type:
+        description: Hetzner server type for additional worker nodes
+        required: true
+        default: cpx31
+      location:
+        description: Hetzner location
+        required: true
+        default: fsn1
+      target_worker_count:
+        description: Total number of additional worker nodes to ensure
+        required: true
+        default: "2"
+
+jobs:
+  bootstrap:
+    name: Provision HA infrastructure
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Install hcloud CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/v1.62.2/hcloud-linux-amd64.tar.gz" -o /tmp/hcloud.tar.gz
+          tar -xzf /tmp/hcloud.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/hcloud /usr/local/bin/hcloud
+          hcloud version
+
+      - name: Configure production kubeconfig and SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > ~/.ssh/id_ed25519.pub
+
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 \
+            -f -N -L 127.0.0.1:6443:127.0.0.1:6443 root@46.224.9.177
+
+          mkdir -p "$HOME/.kube"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 root@46.224.9.177 \
+            "cat /etc/rancher/rke2/rke2.yaml" \
+            | sed -E 's#server: https://[^:]+:[0-9]+#server: https://127.0.0.1:6443#' \
+            > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Ensure Hetzner SSH key
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$HCLOUD_TOKEN"
+
+          if hcloud ssh-key describe eutlas-prod >/dev/null 2>&1; then
+            echo "Hetzner SSH key eutlas-prod already exists"
+          else
+            hcloud ssh-key create --name eutlas-prod --public-key-from-file ~/.ssh/id_ed25519.pub
+          fi
+
+      - name: Provision and join worker nodes
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          SERVER_TYPE: ${{ inputs.server_type }}
+          LOCATION: ${{ inputs.location }}
+          TARGET_WORKER_COUNT: ${{ inputs.target_worker_count }}
+        run: |
+          set -euo pipefail
+
+          RKE2_VERSION="$(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@46.224.9.177 "rke2 --version | awk 'NR==1{print \$3}'")"
+          RKE2_TOKEN="$(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@46.224.9.177 "cat /var/lib/rancher/rke2/server/node-token")"
+
+          for i in $(seq 2 "$((TARGET_WORKER_COUNT + 1))"); do
+            name="eutlas-prod-node-${i}"
+
+            if hcloud server describe "$name" >/dev/null 2>&1; then
+              echo "Server ${name} already exists"
+            else
+              hcloud server create \
+                --name "$name" \
+                --type "$SERVER_TYPE" \
+                --image ubuntu-22.04 \
+                --location "$LOCATION" \
+                --ssh-key eutlas-prod \
+                --label eutlas-cluster=prod \
+                --label eutlas-role=worker \
+                --start-after-create
+            fi
+
+            ip="$(hcloud server ip "$name")"
+            echo "Waiting for SSH on ${name} (${ip})"
+            for attempt in $(seq 1 60); do
+              if ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ip}" "echo ready" >/dev/null 2>&1; then
+                break
+              fi
+              sleep 5
+            done
+
+            ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no "root@${ip}" "mkdir -p /etc/rancher/rke2"
+            printf '%s\n' \
+              "server: https://46.224.9.177:9345" \
+              "token: ${RKE2_TOKEN}" \
+              "node-label:" \
+              "  - \"eutlas/node-pool=worker\"" \
+              | ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no "root@${ip}" "cat > /etc/rancher/rke2/config.yaml"
+
+            ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no "root@${ip}" "
+              set -euo pipefail
+              if ! command -v rke2 >/dev/null 2>&1; then
+                curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE=agent INSTALL_RKE2_VERSION='${RKE2_VERSION}' sh -
+              fi
+              systemctl enable rke2-agent
+              systemctl restart rke2-agent
+            "
+          done
+
+          kubectl get nodes -o wide
+          kubectl wait --for=condition=Ready node/eutlas-prod-node-2 --timeout=15m
+          kubectl wait --for=condition=Ready node/eutlas-prod-node-3 --timeout=15m
+          kubectl get nodes -o wide
+
+      - name: Install Hetzner CSI and storage classes
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          kubectl -n kube-system create secret generic hcloud-csi \
+            --from-literal=token="$HCLOUD_TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl apply -f https://raw.githubusercontent.com/hetznercloud/csi-driver/main/deploy/kubernetes/hcloud-csi.yml
+          kubectl apply -f infrastructure/k8s/storage/hetzner-storage-class.yaml
+
+          kubectl -n kube-system rollout status deployment/hcloud-csi-controller --timeout=5m
+          kubectl -n kube-system rollout status daemonset/hcloud-csi-node --timeout=5m
+          kubectl get storageclass
+
+      - name: Ensure MongoDB Community Operator is available
+        run: |
+          set -euo pipefail
+
+          kubectl -n mongodb-operator scale deployment/mongodb-kubernetes-operator --replicas=1
+          kubectl -n mongodb-operator rollout status deployment/mongodb-kubernetes-operator --timeout=5m
+
+      - name: Run HA preflight checks
+        run: |
+          set -euo pipefail
+
+          node_count="$(kubectl get nodes -o jsonpath='{range .items[*]}{range .status.conditions[?(@.type=="Ready")]}{.status}{"\n"}{end}{end}' | awk '$0=="True"{count++} END{print count+0}')"
+          test "$node_count" -ge 3
+
+          kubectl get storageclass hcloud-volumes-fast
+          kubectl get deployment cert-manager -n cert-manager
+          kubectl get deployment cert-manager-webhook -n cert-manager
+          kubectl rollout status deployment/cert-manager -n cert-manager --timeout=5m
+          kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=5m
+          kubectl get deployment mongodb-kubernetes-operator -n mongodb-operator
+          kubectl rollout status deployment/mongodb-kubernetes-operator -n mongodb-operator --timeout=5m
+
+          kubectl apply -k infrastructure/k8s/platform-mongodb-ha --dry-run=server
+          kubectl apply -k infrastructure/k8s/environments/production-ha --dry-run=server
+          kubectl apply -f infrastructure/k8s/platform-mongodb-ha/restore-latest-platform-backup-job.yaml --dry-run=server

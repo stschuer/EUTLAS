@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: platform-mongodb-backup
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          initContainers:
+            - name: dump-platform-mongodb
+              args:
+                - |
+                  set -euo pipefail
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  ARCHIVE="/backup/platform-${TIMESTAMP}.gz"
+                  echo "Starting platform MongoDB HA backup to ${ARCHIVE}"
+                  mongodump \
+                    --host=platform-mongodb-ha-svc \
+                    --port=27017 \
+                    --tls \
+                    --tlsCAFile=/etc/eutlas/mongodb/ca.crt \
+                    --username="${MONGO_ROOT_USER}" \
+                    --password="${MONGO_ROOT_PASSWORD}" \
+                    --authenticationDatabase=admin \
+                    --archive="${ARCHIVE}" \
+                    --gzip
+                  SIZE=$(stat -c '%s' "${ARCHIVE}")
+                  echo "Backup completed: ${SIZE} bytes"
+                  find /backup -name 'platform-*.gz' -mtime +30 -delete
+                  echo "Retention cleanup done (kept last 30 days)"
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+                - name: platform-mongodb-ha-ca
+                  mountPath: /etc/eutlas/mongodb
+                  readOnly: true
+          volumes:
+            - name: platform-mongodb-ha-ca
+              secret:
+                secretName: platform-mongodb-ha-ca
+                items:
+                  - key: tls.crt
+                    path: ca.crt

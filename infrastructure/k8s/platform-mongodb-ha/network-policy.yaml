@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-platform-mongodb-ha-clients
+spec:
+  podSelector:
+    matchLabels:
+      app: platform-mongodb-ha
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: eutlas-backend
+      ports:
+        - protocol: TCP
+          port: 27017
+    - from:
+        - podSelector:
+            matchLabels:
+              app: platform-mongodb-backup
+        - podSelector:
+            matchLabels:
+              app: platform-mongodb-restore-drill
+      ports:
+        - protocol: TCP
+          port: 27017
+    - from:
+        - podSelector:
+            matchLabels:
+              app: platform-mongodb-ha
+      ports:
+        - protocol: TCP
+          port: 27017

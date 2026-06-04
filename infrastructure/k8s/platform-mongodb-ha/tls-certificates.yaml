@@ -1,0 +1,58 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: platform-mongodb-ha-selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: platform-mongodb-ha-ca
+spec:
+  isCA: true
+  commonName: platform-mongodb-ha-ca
+  secretName: platform-mongodb-ha-ca
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: platform-mongodb-ha-selfsigned
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: platform-mongodb-ha-ca
+spec:
+  ca:
+    secretName: platform-mongodb-ha-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: platform-mongodb-ha-cert
+spec:
+  secretName: platform-mongodb-ha-cert
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - platform-mongodb-ha-svc
+    - platform-mongodb-ha-svc.eutlas
+    - platform-mongodb-ha-svc.eutlas.svc
+    - platform-mongodb-ha-svc.eutlas.svc.cluster.local
+    - platform-mongodb-ha-0.platform-mongodb-ha-svc
+    - platform-mongodb-ha-1.platform-mongodb-ha-svc
+    - platform-mongodb-ha-2.platform-mongodb-ha-svc
+    - platform-mongodb-ha-0.platform-mongodb-ha-svc.eutlas.svc.cluster.local
+    - platform-mongodb-ha-1.platform-mongodb-ha-svc.eutlas.svc.cluster.local
+    - platform-mongodb-ha-2.platform-mongodb-ha-svc.eutlas.svc.cluster.local
+  issuerRef:
+    name: platform-mongodb-ha-ca
+    kind: Issuer

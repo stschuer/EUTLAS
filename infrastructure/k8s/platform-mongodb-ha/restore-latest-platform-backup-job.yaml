@@ -1,0 +1,157 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: platform-mongodb-ha-restore-latest
+  labels:
+    app: platform-mongodb-ha-restore
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 1
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels:
+        app: platform-mongodb-ha-restore
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: download-latest-backup
+          image: minio/mc:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              if [ -z "${S3_ENDPOINT:-}" ] || [ -z "${S3_BUCKET:-}" ] || [ -z "${S3_ACCESS_KEY:-}" ] || [ -z "${S3_SECRET_KEY:-}" ]; then
+                echo "Object storage secret is not configured"
+                exit 1
+              fi
+
+              mc alias set offsite "${S3_ENDPOINT}" "${S3_ACCESS_KEY}" "${S3_SECRET_KEY}"
+              LATEST="$(mc find "offsite/${S3_BUCKET}/${S3_PREFIX:-platform-mongodb}" --name 'platform-*.gz' | sort | tail -1)"
+
+              if [ -z "${LATEST}" ]; then
+                echo "No platform backup archive found in object storage"
+                exit 1
+              fi
+
+              echo "Downloading ${LATEST}"
+              mc cp "${LATEST}" /restore/platform-latest.gz
+              test -s /restore/platform-latest.gz
+              ls -lh /restore/platform-latest.gz
+          env:
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: platform-backup-object-storage
+                  key: endpoint
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: platform-backup-object-storage
+                  key: bucket
+            - name: S3_PREFIX
+              valueFrom:
+                secretKeyRef:
+                  name: platform-backup-object-storage
+                  key: prefix
+                  optional: true
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: platform-backup-object-storage
+                  key: accessKey
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: platform-backup-object-storage
+                  key: secretKey
+          volumeMounts:
+            - name: restore-archive
+              mountPath: /restore
+          resources:
+            limits:
+              cpu: "250m"
+              memory: 256Mi
+            requests:
+              cpu: "50m"
+              memory: 64Mi
+      containers:
+        - name: restore-and-validate
+          image: mongo:7.0
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              echo "Waiting for platform-mongodb-ha service"
+              for attempt in {1..120}; do
+                if mongosh \
+                  --quiet \
+                  --host platform-mongodb-ha-svc \
+                  --tls \
+                  --tlsCAFile /etc/mongodb/tls/ca.crt \
+                  --username="${MONGO_ROOT_USER}" \
+                  --password="${MONGO_ROOT_PASSWORD}" \
+                  --authenticationDatabase=admin \
+                  --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 5
+              done
+
+              echo "Restoring latest platform backup into platform-mongodb-ha"
+              mongorestore \
+                --host=platform-mongodb-ha-svc \
+                --tls \
+                --tlsCAFile=/etc/mongodb/tls/ca.crt \
+                --username="${MONGO_ROOT_USER}" \
+                --password="${MONGO_ROOT_PASSWORD}" \
+                --authenticationDatabase=admin \
+                --archive=/restore/platform-latest.gz \
+                --gzip \
+                --drop
+
+              echo "Validating restored data"
+              USER_COUNT="$(mongosh --quiet --host platform-mongodb-ha-svc --tls --tlsCAFile /etc/mongodb/tls/ca.crt --username="${MONGO_ROOT_USER}" --password="${MONGO_ROOT_PASSWORD}" --authenticationDatabase=admin eutlas --eval "db.users.countDocuments({})")"
+              CLUSTER_COUNT="$(mongosh --quiet --host platform-mongodb-ha-svc --tls --tlsCAFile /etc/mongodb/tls/ca.crt --username="${MONGO_ROOT_USER}" --password="${MONGO_ROOT_PASSWORD}" --authenticationDatabase=admin eutlas --eval "db.clusters.countDocuments({})")"
+              METRIC_COUNT="$(mongosh --quiet --host platform-mongodb-ha-svc --tls --tlsCAFile /etc/mongodb/tls/ca.crt --username="${MONGO_ROOT_USER}" --password="${MONGO_ROOT_PASSWORD}" --authenticationDatabase=admin eutlas --eval "db.metrics.estimatedDocumentCount()")"
+
+              echo "Validation counts: users=${USER_COUNT}, clusters=${CLUSTER_COUNT}, metrics=${METRIC_COUNT}"
+
+              if [ "${USER_COUNT}" -lt 1 ] || [ "${CLUSTER_COUNT}" -lt 1 ]; then
+                echo "Restore validation failed"
+                exit 1
+              fi
+
+              echo "platform-mongodb-ha restore completed successfully"
+          env:
+            - name: MONGO_ROOT_USER
+              value: eutlas-admin
+            - name: MONGO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eutlas-mongodb-credentials
+                  key: password
+          volumeMounts:
+            - name: restore-archive
+              mountPath: /restore
+            - name: mongodb-ca
+              mountPath: /etc/mongodb/tls
+              readOnly: true
+          resources:
+            limits:
+              cpu: "1000m"
+              memory: 1Gi
+            requests:
+              cpu: "250m"
+              memory: 512Mi
+      volumes:
+        - name: restore-archive
+          emptyDir: {}
+        - name: mongodb-ca
+          secret:
+            secretName: platform-mongodb-ha-ca
+            items:
+              - key: tls.crt
+                path: ca.crt
