@@ -88,8 +88,21 @@ spec:
                   fi
 
                   mc alias set offsite "${S3_ENDPOINT}" "${S3_ACCESS_KEY}" "${S3_SECRET_KEY}"
-                  mc mb --ignore-existing "offsite/${S3_BUCKET}"
-                  mc cp "${LATEST}" "offsite/${S3_BUCKET}/${S3_PREFIX:-platform-mongodb}/"
+                  mc mb --region "${S3_REGION:-fsn1}" --ignore-existing "offsite/${S3_BUCKET}"
+
+                  for attempt in 1 2 3 4 5 6; do
+                    if mc ls "offsite/${S3_BUCKET}" >/dev/null 2>&1 && mc cp "${LATEST}" "offsite/${S3_BUCKET}/${S3_PREFIX:-platform-mongodb}/"; then
+                      break
+                    fi
+
+                    if [ "${attempt}" = "6" ]; then
+                      echo "Upload failed after ${attempt} attempts"
+                      exit 1
+                    fi
+
+                    echo "Bucket not ready or upload failed; retrying (${attempt}/6)"
+                    sleep 10
+                  done
                   echo "Uploaded ${LATEST} to off-site object storage"
               env:
                 - name: S3_ENDPOINT
@@ -109,6 +122,12 @@ spec:
                     secretKeyRef:
                       name: platform-backup-object-storage
                       key: prefix
+                      optional: true
+                - name: S3_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-backup-object-storage
+                      key: region
                       optional: true
                 - name: S3_ACCESS_KEY
                   valueFrom:
