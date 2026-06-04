@@ -67,10 +67,18 @@ jobs:
           set -euo pipefail
           test -n "$HCLOUD_TOKEN"
 
-          if hcloud ssh-key describe eutlas-prod >/dev/null 2>&1; then
-            echo "Hetzner SSH key eutlas-prod already exists"
+          local_fingerprint="$(ssh-keygen -E md5 -lf ~/.ssh/id_ed25519.pub | awk '{print $2}' | sed 's/^MD5://')"
+          existing_key="$(hcloud ssh-key list -o noheader -o columns=name,fingerprint | awk -v fp="$local_fingerprint" '$2 == fp {print $1; exit}')"
+
+          if [ -n "$existing_key" ]; then
+            echo "Using existing Hetzner SSH key ${existing_key}"
+            echo "HCLOUD_SSH_KEY=${existing_key}" >> "$GITHUB_ENV"
+          elif hcloud ssh-key describe eutlas-prod >/dev/null 2>&1; then
+            echo "Using existing Hetzner SSH key eutlas-prod"
+            echo "HCLOUD_SSH_KEY=eutlas-prod" >> "$GITHUB_ENV"
           else
             hcloud ssh-key create --name eutlas-prod --public-key-from-file ~/.ssh/id_ed25519.pub
+            echo "HCLOUD_SSH_KEY=eutlas-prod" >> "$GITHUB_ENV"
           fi
 
       - name: Provision and join worker nodes
@@ -96,7 +104,7 @@ jobs:
                 --type "$SERVER_TYPE" \
                 --image ubuntu-22.04 \
                 --location "$LOCATION" \
-                --ssh-key eutlas-prod \
+                --ssh-key "$HCLOUD_SSH_KEY" \
                 --label eutlas-cluster=prod \
                 --label eutlas-role=worker \
                 --start-after-create
