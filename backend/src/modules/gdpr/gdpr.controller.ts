@@ -1,11 +1,19 @@
-import { Controller, Post, Get, Param, Body, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
+import { Controller, Post, Get, Param, Body, NotFoundException, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../../common/guards/auth.guard';
+import { CurrentUser, CurrentUserData } from '../../common/decorators/current-user.decorator';
+import { OrgsService } from '../orgs/orgs.service';
 import { GdprService, DataSubjectRequestType } from './gdpr.service';
 
 @ApiTags('GDPR / Data Subject Requests')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('orgs/:orgId/gdpr')
 export class GdprController {
-  constructor(private readonly gdprService: GdprService) {}
+  constructor(
+    private readonly gdprService: GdprService,
+    private readonly orgsService: OrgsService,
+  ) {}
 
   @Post('requests')
   @ApiOperation({ summary: 'Create a GDPR data subject request (Art. 15-21)' })
@@ -23,6 +31,7 @@ export class GdprController {
     },
   })
   async createRequest(
+    @CurrentUser() user: CurrentUserData,
     @Param('orgId') orgId: string,
     @Body() body: {
       type: DataSubjectRequestType;
@@ -32,47 +41,65 @@ export class GdprController {
       description: string;
     },
   ) {
+    await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN']);
     return this.gdprService.createRequest({ ...body, orgId });
   }
 
   @Get('requests')
   @ApiOperation({ summary: 'List all GDPR data subject requests for this organization' })
-  async listRequests(@Param('orgId') orgId: string) {
+  async listRequests(
+    @CurrentUser() user: CurrentUserData,
+    @Param('orgId') orgId: string,
+  ) {
+    await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN']);
     return this.gdprService.listRequests(orgId);
   }
 
   @Get('requests/overdue')
   @ApiOperation({ summary: 'List overdue GDPR requests (past 30-day deadline)' })
-  async getOverdueRequests() {
-    return this.gdprService.getOverdueRequests();
+  async getOverdueRequests(
+    @CurrentUser() user: CurrentUserData,
+    @Param('orgId') orgId: string,
+  ) {
+    await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN']);
+    return this.gdprService.getOverdueRequests(orgId);
   }
 
   @Get('requests/:requestId')
   @ApiOperation({ summary: 'Get GDPR request details' })
-  async getRequest(@Param('requestId') requestId: string) {
-    return this.gdprService.getRequest(requestId);
+  async getRequest(
+    @CurrentUser() user: CurrentUserData,
+    @Param('orgId') orgId: string,
+    @Param('requestId') requestId: string,
+  ) {
+    await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN']);
+    const request = await this.gdprService.getRequest(requestId);
+    if (!request || request.orgId.toString() !== orgId) {
+      throw new NotFoundException('Request not found');
+    }
+    return request;
   }
 
   @Post('requests/:requestId/process')
   @ApiOperation({ summary: 'Process a GDPR request (execute access/erasure/portability)' })
   async processRequest(
+    @CurrentUser() user: CurrentUserData,
+    @Param('orgId') orgId: string,
     @Param('requestId') requestId: string,
-    @Request() req: any,
   ) {
+    await this.orgsService.checkAccess(orgId, user.userId, ['OWNER', 'ADMIN']);
     const request = await this.gdprService.getRequest(requestId);
-    if (!request) {
-      return { error: 'Request not found' };
+    if (!request || request.orgId.toString() !== orgId) {
+      throw new NotFoundException('Request not found');
     }
-
-    const processedBy = req.user?.id || 'system';
 
     switch (request.type) {
       case 'access':
-        return this.gdprService.processAccessRequest(requestId, processedBy);
+        return this.gdprService.processAccessRequest(requestId, user.userId);
       case 'erasure':
-        return this.gdprService.processErasureRequest(requestId, processedBy);
+        return this.gdprService.processErasureRequest(requestId, user.userId);
       case 'portability':
-        return this.gdprService.processPortabilityRequest(requestId, processedBy);
+        return this.gdprService.processPortabilityRequest(requestId, user.userId);
       default:
         return { message: `Request type ${request.type} requires manual processing` };
     }

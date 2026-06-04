@@ -51,19 +51,6 @@ configMapGenerator:
     literals:
       - ENVIRONMENT=production
 
-secretGenerator:
-  - name: eutlas-mongodb-credentials
-    behavior: replace
-    literals:
-      - password=EutlasSecure2025Prod!
-  - name: eutlas-secrets
-    behavior: replace
-    literals:
-      - JWT_SECRET=EutlasJwtSecret2025ProductionKey32ch
-      - MONGODB_URI=mongodb://eutlas-admin:EutlasSecure2025Prod!@mongodb:27017/eutlas?authSource=admin
-      - RESEND_API_KEY=re_e4RqM2Zz_UX8PyynNuB68WcJ8SUQN2aUW
-      - EMAIL_FROM=noreply@eutlas.eu
-
 images:
   - name: ghcr.io/stschuer/eutlas-backend
     newTag: latest

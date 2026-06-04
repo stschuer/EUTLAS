@@ -21,6 +21,16 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
+  name: eutlas-mongodb-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: mongodb
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
   name: eutlas-redis-pdb
 spec:
   minAvailable: 1

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import { ClustersService } from '../clusters/clusters.service';
 
 interface RawCredentials {
   username: string;
@@ -25,7 +26,11 @@ export class CredentialsService {
   private readonly ivLength = 16;
   private readonly authTagLength = 16;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    @Inject(forwardRef(() => ClustersService))
+    private readonly clustersService: ClustersService,
+  ) {}
 
   async generateCredentials(): Promise<GeneratedCredentials> {
     const username = 'admin';
@@ -43,9 +48,8 @@ export class CredentialsService {
   }
 
   async getDecrypted(clusterId: string): Promise<ClusterCredentials> {
-    // In development, return local MongoDB credentials
     const isDev = this.configService.get<string>('NODE_ENV') === 'development';
-    
+
     if (isDev) {
       const mongoUri = this.configService.get<string>('MONGODB_URI', 'mongodb://localhost:27017');
       return {
@@ -55,8 +59,16 @@ export class CredentialsService {
       };
     }
 
-    // TODO: In production, this would retrieve from cluster metadata
-    throw new Error('Production credential retrieval not implemented');
+    const result = await this.clustersService.findByIdWithCredentials(clusterId);
+    if (!result) {
+      throw new NotFoundException('Cluster credentials not found');
+    }
+
+    return {
+      username: result.credentials.username,
+      password: result.credentials.password,
+      connectionString: result.credentials.connectionString,
+    };
   }
 
   /** Public wrappers for encrypting/decrypting arbitrary strings (e.g. kubeconfigs). */

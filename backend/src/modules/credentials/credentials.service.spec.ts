@@ -3,8 +3,13 @@ import { ConfigService } from '@nestjs/config';
 
 describe('CredentialsService', () => {
   let service: CredentialsService;
+  let clustersService: { findByIdWithCredentials: jest.Mock };
 
   beforeEach(() => {
+    clustersService = {
+      findByIdWithCredentials: jest.fn(),
+    };
+
     const configService = {
       get: jest.fn().mockImplementation((key: string, defaultValue?: string) => {
         if (key === 'NODE_ENV') return 'development';
@@ -14,7 +19,7 @@ describe('CredentialsService', () => {
       }),
     } as any;
 
-    service = new CredentialsService(configService);
+    service = new CredentialsService(configService, clustersService as any);
   });
 
   // ==================== Credential generation ====================
@@ -111,7 +116,16 @@ describe('CredentialsService', () => {
   // ==================== Production mode getDecrypted ====================
 
   describe('getDecrypted in production mode', () => {
-    it('should throw in production (not yet implemented)', async () => {
+    it('should return cluster credentials in production', async () => {
+      clustersService.findByIdWithCredentials.mockResolvedValue({
+        cluster: { id: 'cluster-123' },
+        credentials: {
+          username: 'admin',
+          password: 'secret',
+          connectionString: 'mongodb://admin:secret@host:27017/db',
+        },
+      });
+
       const configService = {
         get: jest.fn().mockImplementation((key: string) => {
           if (key === 'NODE_ENV') return 'production';
@@ -120,10 +134,12 @@ describe('CredentialsService', () => {
         }),
       } as any;
 
-      const prodService = new CredentialsService(configService);
-      await expect(prodService.getDecrypted('cluster-123')).rejects.toThrow(
-        'Production credential retrieval not implemented',
-      );
+      const prodService = new CredentialsService(configService, clustersService as any);
+      const result = await prodService.getDecrypted('cluster-123');
+
+      expect(result.username).toBe('admin');
+      expect(result.password).toBe('secret');
+      expect(result.connectionString).toContain('mongodb://');
     });
   });
 
@@ -141,7 +157,7 @@ describe('CredentialsService', () => {
         }),
       } as any;
 
-      const customService = new CredentialsService(configService);
+      const customService = new CredentialsService(configService, clustersService as any);
       const generated = await customService.generateCredentials();
       const decrypted = await customService.decryptCredentials(generated.encrypted);
 
@@ -158,7 +174,7 @@ describe('CredentialsService', () => {
         }),
       } as any;
 
-      const service1 = new CredentialsService(configService1);
+      const service1 = new CredentialsService(configService1, clustersService as any);
       const generated = await service1.generateCredentials();
 
       // Try to decrypt with different key
@@ -169,7 +185,7 @@ describe('CredentialsService', () => {
         }),
       } as any;
 
-      const service2 = new CredentialsService(configService2);
+      const service2 = new CredentialsService(configService2, clustersService as any);
       await expect(service2.decryptCredentials(generated.encrypted)).rejects.toThrow();
     });
   });

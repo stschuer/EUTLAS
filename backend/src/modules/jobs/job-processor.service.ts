@@ -5,6 +5,7 @@ import { ClustersService } from '../clusters/clusters.service';
 import { KubernetesService, resolveVectorSearchBackend } from '../kubernetes/kubernetes.service';
 import { EventsService } from '../events/events.service';
 import { BackupsService } from '../backups/backups.service';
+import { BackupPolicyService } from '../backups/backup-policy.service';
 import { EmailService } from '../email/email.service';
 import { UsersService } from '../users/users.service';
 import { ProjectsService } from '../projects/projects.service';
@@ -27,6 +28,7 @@ export class JobProcessorService implements OnModuleInit {
     private readonly eventsService: EventsService,
     @Inject(forwardRef(() => BackupsService))
     private readonly backupsService: BackupsService,
+    private readonly backupPolicyService: BackupPolicyService,
     private readonly emailService: EmailService,
     private readonly usersService: UsersService,
     @Inject(forwardRef(() => ProjectsService))
@@ -183,6 +185,8 @@ export class JobProcessorService implements OnModuleInit {
       externalPort: result.externalPort,
       qdrant: result.qdrant,
     });
+
+    await this.backupPolicyService.getOrCreate(clusterId);
 
     // Create event
     await this.eventsService.createEvent({
@@ -359,29 +363,29 @@ export class JobProcessorService implements OnModuleInit {
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
 
-    // Look up cluster plan for correct service name
     const cluster = await this.clustersService.findById(clusterId);
     const plan = cluster?.plan || 'DEV';
 
-    // Start backup
     await this.backupsService.startBackup(backupId);
 
-    // Create backup via K8s job
-    await this.kubernetesService.createBackup({ clusterId, projectId, plan, backupId });
+    try {
+      const result = await this.kubernetesService.runBackup({
+        clusterId,
+        projectId,
+        plan,
+        backupId,
+      });
 
-    // Complete backup with simulated results
-    const sizeBytes = Math.floor(Math.random() * 100 * 1024 * 1024) + 10 * 1024 * 1024; // 10-110MB
-    await this.backupsService.completeBackup(backupId, {
-      sizeBytes,
-      compressedSizeBytes: Math.floor(sizeBytes * 0.6),
-      storagePath: `/backups/${clusterId}/${backupId}.archive`,
-      metadata: {
-        databases: ['admin', 'local', 'test'],
-        collections: Math.floor(Math.random() * 20) + 5,
-        documents: Math.floor(Math.random() * 10000) + 1000,
-        indexes: Math.floor(Math.random() * 30) + 10,
-      },
-    });
+      await this.backupsService.completeBackup(backupId, {
+        sizeBytes: result.sizeBytes,
+        compressedSizeBytes: result.compressedSizeBytes,
+        storagePath: result.storagePath,
+        metadata: result.metadata,
+      });
+    } catch (error: any) {
+      await this.backupsService.failBackup(backupId, error.message);
+      throw error;
+    }
   }
 
   private async processRestoreCluster(job: JobDocument) {
@@ -389,26 +393,26 @@ export class JobProcessorService implements OnModuleInit {
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
 
-    // Look up cluster plan for correct service name
     const cluster = await this.clustersService.findById(clusterId);
     const plan = cluster?.plan || 'DEV';
 
-    // Restore via K8s job
-    await this.kubernetesService.restoreBackup({ clusterId, projectId, plan, backupId });
+    try {
+      await this.kubernetesService.runRestore({ clusterId, projectId, plan, backupId });
+      await this.backupsService.completeRestore(backupId);
 
-    // Complete restore
-    await this.backupsService.completeRestore(backupId);
-
-    // Create event
-    await this.eventsService.createEvent({
-      orgId: job.targetOrgId!.toString(),
-      projectId,
-      clusterId,
-      type: 'BACKUP_RESTORE_COMPLETED',
-      severity: 'info',
-      message: `Restore completed from backup`,
-      metadata: { backupId },
-    });
+      await this.eventsService.createEvent({
+        orgId: job.targetOrgId!.toString(),
+        projectId,
+        clusterId,
+        type: 'BACKUP_RESTORE_COMPLETED',
+        severity: 'info',
+        message: `Restore completed from backup`,
+        metadata: { backupId },
+      });
+    } catch (error: any) {
+      await this.backupsService.failRestore(backupId, error.message);
+      throw error;
+    }
   }
 
   private async processMigrateCluster(job: JobDocument) {

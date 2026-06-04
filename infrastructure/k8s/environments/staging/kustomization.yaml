@@ -45,7 +45,7 @@ secretGenerator:
     literals:
       - JWT_SECRET=StagingJwtSecret2025Key32Chars!
       - MONGODB_URI=mongodb://eutlas-admin:StagingPassword2025!@mongodb:27017/eutlas-staging?authSource=admin
-      - RESEND_API_KEY=re_e4RqM2Zz_UX8PyynNuB68WcJ8SUQN2aUW
+      - RESEND_API_KEY=PLACEHOLDER_RESEND_API_KEY
       - EMAIL_FROM=staging@eutlas.eu
 
 images:

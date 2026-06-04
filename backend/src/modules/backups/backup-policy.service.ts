@@ -4,8 +4,6 @@ import { Model, Types } from 'mongoose';
 import { BackupPolicy, BackupPolicyDocument } from './schemas/backup-policy.schema';
 import { UpdateBackupPolicyDto } from './dto/backup-policy.dto';
 import { AuditService } from '../audit/audit.service';
-
-// Compliance presets with predefined retention rules
 const COMPLIANCE_PRESETS: Record<string, Partial<BackupPolicy>> = {
   standard: {
     snapshotFrequencyHours: 24,
@@ -312,6 +310,49 @@ export class BackupPolicyService {
       issues,
       recommendations,
     };
+  }
+
+  async findEnabledPolicies(): Promise<BackupPolicyDocument[]> {
+    return this.policyModel.find({ isEnabled: true }).exec();
+  }
+
+  async recordSuccessfulSnapshot(clusterId: string): Promise<void> {
+    await this.policyModel.updateOne(
+      { clusterId: new Types.ObjectId(clusterId) },
+      { $set: { lastSnapshotAt: new Date() } },
+    );
+  }
+
+  isWithinBackupWindow(policy: BackupPolicy): boolean {
+    if (!policy.backupWindow?.enabled) {
+      return true;
+    }
+
+    const { startHour, durationHours, timezone } = policy.backupWindow;
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      hour12: false,
+      timeZone: timezone || 'UTC',
+    });
+    const currentHour = Number.parseInt(formatter.format(now), 10);
+    const endHour = (startHour + durationHours) % 24;
+
+    if (startHour <= endHour) {
+      return currentHour >= startHour && currentHour < endHour;
+    }
+
+    return currentHour >= startHour || currentHour < endHour;
+  }
+
+  isDueForSnapshot(policy: BackupPolicy): boolean {
+    if (!policy.lastSnapshotAt) {
+      return true;
+    }
+
+    const hoursSinceLast =
+      (Date.now() - policy.lastSnapshotAt.getTime()) / (1000 * 60 * 60);
+    return hoursSinceLast >= policy.snapshotFrequencyHours;
   }
 }
 

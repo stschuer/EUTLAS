@@ -27,7 +27,7 @@ export class ClustersService {
   constructor(
     @InjectModel(Cluster.name) private clusterModel: Model<ClusterDocument>,
     @Inject(forwardRef(() => JobsService)) private jobsService: JobsService,
-    private credentialsService: CredentialsService,
+    @Inject(forwardRef(() => CredentialsService)) private credentialsService: CredentialsService,
     @InjectConnection() private connection: Connection,
   ) {}
 

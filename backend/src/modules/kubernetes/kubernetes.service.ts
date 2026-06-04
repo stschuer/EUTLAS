@@ -118,6 +118,19 @@ interface BackupParams {
   storageClass?: string;
 }
 
+export interface BackupRunResult {
+  sizeBytes: number;
+  compressedSizeBytes: number;
+  storagePath: string;
+  metadata?: {
+    databases?: string[];
+    collections?: number;
+    documents?: number;
+    indexes?: number;
+  };
+  simulated: boolean;
+}
+
 export interface ClusterStatus {
   phase: string;
   ready: boolean;
@@ -1987,10 +2000,14 @@ export class KubernetesService implements OnModuleInit {
    * Execute a command in the first running MongoDB pod of a StatefulSet cluster.
    * Used for direct mongosh operations on DEV/SMALL plans.
    */
-  private async execInMongoPod(namespace: string, resourceName: string, command: string): Promise<string> {
-    const podName = `${resourceName}-0`; // StatefulSet pod naming convention
+  private async execInPod(
+    namespace: string,
+    podName: string,
+    containerName: string,
+    command: string,
+  ): Promise<string> {
     const exec = new k8s.Exec(this.kc);
-    
+
     return new Promise<string>((resolve, reject) => {
       let stdout = '';
       let stderr = '';
@@ -1998,7 +2015,7 @@ export class KubernetesService implements OnModuleInit {
       exec.exec(
         namespace,
         podName,
-        'mongodb',
+        containerName,
         ['/bin/sh', '-c', command],
         {
           write: (data: string) => { stdout += data; },
@@ -2017,6 +2034,11 @@ export class KubernetesService implements OnModuleInit {
         },
       ).catch(reject);
     });
+  }
+
+  private async execInMongoPod(namespace: string, resourceName: string, command: string): Promise<string> {
+    const podName = `${resourceName}-0`;
+    return this.execInPod(namespace, podName, 'mongodb', command);
   }
 
   // ========== Network Policy Management ==========
@@ -2228,8 +2250,15 @@ export class KubernetesService implements OnModuleInit {
     // Ensure the backup PVC exists
     await this.ensureBackupPvc(namespace, resourceName);
 
-    // Build mongodump command with proper auth
-    const dumpCmd = `mongodump --host="${serviceName}" --port=27017 --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=/backup/${params.backupId}.gz --gzip`;
+    // Build mongodump command with proper auth and verify the compressed archive before the Job succeeds.
+    const archivePath = `/backup/${params.backupId}.gz`;
+    const dumpCmd = [
+      'set -euo pipefail',
+      `mongodump --host="${serviceName}" --port=27017 --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=${archivePath} --gzip`,
+      `test -s ${archivePath}`,
+      `gzip -t ${archivePath}`,
+      `stat -c '%s' ${archivePath}`,
+    ].join(' && ');
 
     const jobName = `backup-${params.backupId}`.substring(0, 63).toLowerCase();
     
@@ -2382,6 +2411,165 @@ export class KubernetesService implements OnModuleInit {
     await batchApi.createNamespacedJob(namespace, restoreJob);
     
     this.logger.log(`Restore job ${jobName} created (databases: ${params.databases?.join(', ') || 'all'})`);
+  }
+
+  getBackupJobName(backupId: string): string {
+    return `backup-${backupId}`.substring(0, 63).toLowerCase();
+  }
+
+  getRestoreJobName(backupId: string): string {
+    return `restore-${backupId}`.substring(0, 63).toLowerCase();
+  }
+
+  isKubernetesConnected(): boolean {
+    return this.isConnected;
+  }
+
+  /**
+   * Create a backup and wait for the K8s Job to finish. Returns real archive size in production.
+   */
+  async runBackup(params: BackupParams): Promise<BackupRunResult> {
+    const storagePath = `/backup/${params.backupId}.gz`;
+
+    if (this.shouldSimulate()) {
+      await this.simulateDelay(3000);
+      const sizeBytes = 10 * 1024 * 1024;
+      return {
+        sizeBytes,
+        compressedSizeBytes: sizeBytes,
+        storagePath: `/backups/${params.clusterId}/${params.backupId}.archive`,
+        metadata: {
+          databases: ['admin'],
+          collections: 1,
+          documents: 100,
+          indexes: 1,
+        },
+        simulated: true,
+      };
+    }
+
+    await this.createBackup(params);
+    const namespace = this.getNamespace(params.projectId);
+    const jobName = this.getBackupJobName(params.backupId);
+
+    await this.waitForJobCompletion(namespace, jobName);
+    const sizeBytes = await this.getBackupArchiveSize(namespace, jobName, params.backupId);
+
+    if (sizeBytes <= 0) {
+      throw new Error(`Backup archive missing or empty for ${params.backupId}`);
+    }
+
+    return {
+      sizeBytes,
+      compressedSizeBytes: sizeBytes,
+      storagePath,
+      simulated: false,
+    };
+  }
+
+  /**
+   * Restore from backup and wait for the K8s Job to finish.
+   */
+  async runRestore(
+    params: BackupParams & { databases?: string[]; collections?: string[] },
+  ): Promise<void> {
+    if (this.shouldSimulate()) {
+      await this.simulateDelay(4000);
+      return;
+    }
+
+    await this.restoreBackup(params);
+    const namespace = this.getNamespace(params.projectId);
+    const jobName = this.getRestoreJobName(params.backupId);
+    await this.waitForJobCompletion(namespace, jobName);
+  }
+
+  private async waitForJobCompletion(
+    namespace: string,
+    jobName: string,
+    timeoutMs = 60 * 60 * 1000,
+    pollIntervalMs = 5000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const response = await this.batchApi.readNamespacedJob(jobName, namespace);
+      const status = response.body.status;
+
+      if (status?.succeeded && status.succeeded >= 1) {
+        return;
+      }
+
+      if (status?.failed && status.failed >= 1) {
+        const reason = await this.getJobFailureReason(namespace, jobName);
+        throw new Error(`Job ${jobName} failed: ${reason}`);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    throw new Error(`Job ${jobName} timed out after ${timeoutMs}ms`);
+  }
+
+  private async getJobPodName(namespace: string, jobName: string): Promise<string | null> {
+    const response = await this.coreApi.listNamespacedPod(
+      namespace,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      `job-name=${jobName}`,
+    );
+
+    const pods = response.body.items;
+    const succeeded = pods.find((pod) => pod.status?.phase === 'Succeeded');
+    return succeeded?.metadata?.name || pods[0]?.metadata?.name || null;
+  }
+
+  private async getJobFailureReason(namespace: string, jobName: string): Promise<string> {
+    try {
+      const podName = await this.getJobPodName(namespace, jobName);
+      if (!podName) {
+        return 'no pod found for job';
+      }
+
+      const podResponse = await this.coreApi.readNamespacedPod(podName, namespace);
+      const containerStatus = podResponse.body.status?.containerStatuses?.[0];
+      const terminated = containerStatus?.state?.terminated;
+      if (terminated?.message) {
+        return terminated.message;
+      }
+      if (terminated?.reason) {
+        return terminated.reason;
+      }
+
+      const containerName = containerStatus?.name || 'mongodump';
+      const logs = await this.coreApi.readNamespacedPodLog(podName, namespace, containerName);
+      const tail = logs.body.split('\n').slice(-10).join('\n').trim();
+      return tail || 'unknown error';
+    } catch (error: any) {
+      return error.message || 'unknown error';
+    }
+  }
+
+  private async getBackupArchiveSize(
+    namespace: string,
+    jobName: string,
+    backupId: string,
+  ): Promise<number> {
+    const podName = await this.getJobPodName(namespace, jobName);
+    if (!podName) {
+      throw new Error(`No pod found for backup job ${jobName}`);
+    }
+
+    const output = await this.execInPod(
+      namespace,
+      podName,
+      'mongodump',
+      `stat -c '%s' /backup/${backupId}.gz 2>/dev/null || echo 0`,
+    );
+
+    return Number.parseInt(output.trim(), 10) || 0;
   }
 
   // ========== Qdrant Companion Service ==========

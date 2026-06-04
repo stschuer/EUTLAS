@@ -102,6 +102,9 @@ export class BackupPolicy {
   @Prop()
   legalHoldUntil?: Date;
 
+  @Prop()
+  lastSnapshotAt?: Date;
+
   // Auto-export
   @Prop({ default: false })
   autoExportEnabled: boolean;

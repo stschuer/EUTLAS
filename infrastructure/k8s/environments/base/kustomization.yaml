@@ -6,13 +6,14 @@ resources:
   - priority-classes.yaml
   - mongodb.yaml
   - redis.yaml
-  - secrets.yaml
   - backend.yaml
   - frontend.yaml
   - ingress.yaml
+  - network-policies.yaml
   - rbac.yaml
   - pod-disruption-budgets.yaml
   - pod-cleanup-cronjob.yaml
+  - platform-backup-cronjob.yaml
 
 
 

@@ -12,6 +12,7 @@ import { CreateBackupDto, RestoreBackupDto } from './dto/create-backup.dto';
 import { JobsService } from '../jobs/jobs.service';
 import { EventsService } from '../events/events.service';
 import { ClustersService } from '../clusters/clusters.service';
+import { BackupPolicyService } from './backup-policy.service';
 
 @Injectable()
 export class BackupsService {
@@ -22,13 +23,14 @@ export class BackupsService {
     private readonly jobsService: JobsService,
     private readonly eventsService: EventsService,
     private readonly clustersService: ClustersService,
+    private readonly backupPolicyService: BackupPolicyService,
   ) {}
 
   async create(
     clusterId: string,
     projectId: string,
     orgId: string,
-    userId: string,
+    userId: string | undefined,
     createDto: CreateBackupDto,
     type: BackupType = 'manual',
   ): Promise<Backup> {
@@ -75,7 +77,7 @@ export class BackupsService {
       retentionDays,
       expiresAt,
       mongoVersion: cluster.mongoVersion,
-      createdBy: userId,
+      ...(userId ? { createdBy: userId } : {}),
     });
 
     await backup.save();
@@ -293,6 +295,10 @@ export class BackupsService {
       },
     });
 
+    if (backup.type === 'scheduled') {
+      await this.backupPolicyService.recordSuccessfulSnapshot(backup.clusterId.toString());
+    }
+
     return backup;
   }
 
@@ -339,6 +345,56 @@ export class BackupsService {
     }
 
     return backup;
+  }
+
+  async failRestore(backupId: string, errorMessage: string): Promise<BackupDocument> {
+    const backup = await this.backupModel.findByIdAndUpdate(
+      backupId,
+      {
+        $set: {
+          status: 'failed' as BackupStatus,
+          completedAt: new Date(),
+          errorMessage,
+        },
+      },
+      { new: true },
+    ).exec();
+
+    if (!backup) {
+      throw new NotFoundException('Backup not found');
+    }
+
+    await this.eventsService.createEvent({
+      orgId: backup.orgId.toString(),
+      projectId: backup.projectId.toString(),
+      clusterId: backup.clusterId.toString(),
+      type: 'RESTORE_FAILED',
+      severity: 'error',
+      message: `Restore from backup "${backup.name}" failed: ${errorMessage}`,
+      metadata: { backupId: backup.id, error: errorMessage },
+    });
+
+    return backup;
+  }
+
+  async createScheduled(
+    clusterId: string,
+    projectId: string,
+    orgId: string,
+    retentionDays: number,
+  ): Promise<Backup> {
+    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    return this.create(
+      clusterId,
+      projectId,
+      orgId,
+      undefined,
+      {
+        name: `Scheduled backup ${timestamp}`,
+        retentionDays,
+      },
+      'scheduled',
+    );
   }
 
   // Statistics

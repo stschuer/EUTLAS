@@ -15,7 +15,7 @@ import { KubernetesModule } from '../kubernetes/kubernetes.module';
     ProjectsModule,
     OrgsModule,
     forwardRef(() => JobsModule),
-    CredentialsModule,
+    forwardRef(() => CredentialsModule),
     KubernetesModule,
   ],
   controllers: [ClustersController],

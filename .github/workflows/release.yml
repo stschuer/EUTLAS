@@ -26,6 +26,35 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: cd shared && pnpm build
+
+      - name: Run backend tests
+        run: cd backend && npx jest --forceExit --ci
+        env:
+          NODE_ENV: test
+
+      - name: Build backend
+        run: cd backend && pnpm build
+
+      - name: Build frontend
+        run: cd frontend && pnpm build
+        env:
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:

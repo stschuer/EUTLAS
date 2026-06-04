@@ -1,10 +1,13 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
+import { HealthService } from './health.service';
 
 @ApiTags('Health')
 @Controller('health')
 export class HealthController {
+  constructor(private readonly healthService: HealthService) {}
+
   @Public()
   @Get()
   @ApiOperation({ summary: 'Health check endpoint' })
@@ -21,13 +24,15 @@ export class HealthController {
   @Get('ready')
   @ApiOperation({ summary: 'Readiness check' })
   ready() {
-    // TODO: Check MongoDB connection, K8s connection etc.
+    const result = this.healthService.getReadinessChecks();
+
+    if (result.status !== 'ready') {
+      throw new ServiceUnavailableException(result);
+    }
+
     return {
       status: 'ready',
-      checks: {
-        database: 'ok',
-        kubernetes: 'ok',
-      },
+      checks: result.checks,
     };
   }
 
@@ -40,4 +45,3 @@ export class HealthController {
     };
   }
 }
-

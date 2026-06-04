@@ -45,6 +45,7 @@ export interface QueryResult {
 export class DataExplorerService {
   private readonly logger = new Logger(DataExplorerService.name);
   private readonly isDevelopment: boolean;
+  private readonly queryMaxTimeMs: number;
   private connectionPool: Map<string, { client: MongoClient; lastUsed: Date }> = new Map();
 
   constructor(
@@ -53,6 +54,7 @@ export class DataExplorerService {
     private readonly clustersService: ClustersService,
   ) {
     this.isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
+    this.queryMaxTimeMs = this.configService.get<number>('DATA_EXPLORER_QUERY_MAX_TIME_MS', 10_000);
     
     // Clean up stale connections every 5 minutes
     setInterval(() => this.cleanupConnections(), 5 * 60 * 1000);
@@ -95,6 +97,9 @@ export class DataExplorerService {
       maxPoolSize: 5,
       minPoolSize: 1,
       maxIdleTimeMS: 30000,
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
+      socketTimeoutMS: this.queryMaxTimeMs + 5000,
     });
 
     await client.connect();
@@ -250,12 +255,13 @@ export class DataExplorerService {
     const [documents, totalCount] = await Promise.all([
       collection
         .find(filter)
+        .maxTimeMS(this.queryMaxTimeMs)
         .sort(options.sort || { _id: -1 })
         .skip(skip)
         .limit(limit)
         .project(options.projection || {})
         .toArray(),
-      collection.countDocuments(filter),
+      collection.countDocuments(filter, { maxTimeMS: this.queryMaxTimeMs }),
     ]);
 
     const executionTime = Date.now() - startTime;
@@ -283,7 +289,7 @@ export class DataExplorerService {
       // Not a valid ObjectId, use string
     }
 
-    const document = await collection.findOne({ _id: id });
+    const document = await collection.findOne({ _id: id }, { maxTimeMS: this.queryMaxTimeMs });
     return document ? this.serializeDocument(document) : null;
   }
 
@@ -382,9 +388,10 @@ export class DataExplorerService {
     const collection = client.db(dbName).collection(collectionName);
 
     const indexes = await collection.indexes();
-    const stats = await collection.aggregate([
-      { $indexStats: {} },
-    ]).toArray();
+    const stats = await collection.aggregate(
+      [{ $indexStats: {} }],
+      { maxTimeMS: this.queryMaxTimeMs },
+    ).toArray();
 
     const statsMap = new Map(stats.map((s: any) => [s.name, s]));
 
@@ -463,7 +470,12 @@ export class DataExplorerService {
       pipeline.push({ $limit: 100 });
     }
 
-    const documents = await collection.aggregate(pipeline).toArray();
+    const documents = await collection
+      .aggregate(pipeline, {
+        allowDiskUse: false,
+        maxTimeMS: this.queryMaxTimeMs,
+      })
+      .toArray();
     const executionTime = Date.now() - startTime;
 
     return {
@@ -581,7 +593,7 @@ export class DataExplorerService {
                 avgSize: { $avg: '$length' },
               },
             },
-          ])
+          ], { maxTimeMS: this.queryMaxTimeMs })
           .toArray();
 
         buckets.push({
@@ -647,11 +659,12 @@ export class DataExplorerService {
     const [files, totalCount] = await Promise.all([
       filesCollection
         .find(filter)
+        .maxTimeMS(this.queryMaxTimeMs)
         .sort(options.sort || { uploadDate: -1 })
         .skip(skip)
         .limit(limit)
         .toArray(),
-      filesCollection.countDocuments(filter),
+      filesCollection.countDocuments(filter, { maxTimeMS: this.queryMaxTimeMs }),
     ]);
 
     return {
@@ -729,7 +742,7 @@ export class DataExplorerService {
               sizeBytes: { $sum: '$length' },
             },
           },
-        ])
+        ], { maxTimeMS: this.queryMaxTimeMs })
         .toArray();
 
       const filesByContentType: Record<string, { count: number; sizeBytes: number }> = {};

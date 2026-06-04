@@ -6,6 +6,7 @@ import { Backup, BackupSchema } from './schemas/backup.schema';
 import { BackupPolicy, BackupPolicySchema } from './schemas/backup-policy.schema';
 import { BackupPolicyController } from './backup-policy.controller';
 import { BackupPolicyService } from './backup-policy.service';
+import { BackupSchedulerService } from './backup-scheduler.service';
 import { ClustersModule } from '../clusters/clusters.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { OrgsModule } from '../orgs/orgs.module';
@@ -27,7 +28,7 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [BackupsController, BackupPolicyController],
-  providers: [BackupsService, BackupPolicyService],
+  providers: [BackupsService, BackupPolicyService, BackupSchedulerService],
   exports: [BackupsService, BackupPolicyService],
 })
 export class BackupsModule {}
