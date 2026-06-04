@@ -91,7 +91,7 @@ jobs:
           set -euo pipefail
 
           RKE2_VERSION="$(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@46.224.9.177 "rke2 --version | awk 'NR==1{print \$3}'")"
-          RKE2_TOKEN="$(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@46.224.9.177 "cat /var/lib/rancher/rke2/server/node-token")"
+          RKE2_TOKEN="$(ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@46.224.9.177 "cat /var/lib/rancher/rke2/server/agent-token")"
 
           for i in $(seq 2 "$((TARGET_WORKER_COUNT + 1))"); do
             name="eutlas-prod-node-${i}"
@@ -111,6 +111,9 @@ jobs:
             fi
 
             ip="$(hcloud server ip "$name")"
+            ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@46.224.9.177 \
+              "iptables -C INPUT -s ${ip}/32 -p tcp --dport 9345 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -s ${ip}/32 -p tcp --dport 9345 -j ACCEPT"
+
             echo "Waiting for SSH on ${name} (${ip})"
             for attempt in $(seq 1 60); do
               if ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ip}" "echo ready" >/dev/null 2>&1; then
