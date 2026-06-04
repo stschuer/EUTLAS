@@ -6,7 +6,7 @@ on:
       server_type:
         description: Hetzner server type for additional worker nodes
         required: true
-        default: cpx31
+        default: cpx32
       location:
         description: Hetzner location
         required: true
