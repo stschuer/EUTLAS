@@ -14,6 +14,8 @@ resources:
   - pod-disruption-budgets.yaml
   - pod-cleanup-cronjob.yaml
   - platform-backup-cronjob.yaml
+  - platform-backup-monitor-cronjob.yaml
+  - platform-restore-drill-cronjob.yaml
 
 
 

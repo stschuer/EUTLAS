@@ -1,0 +1,136 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: platform-mongodb-restore-drill
+spec:
+  # Weekly restore verification every Sunday at 03:30 UTC.
+  schedule: "30 3 * * 0"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: platform-mongodb-restore-drill
+        spec:
+          restartPolicy: Never
+          initContainers:
+            - name: download-latest-backup
+              image: minio/mc:latest
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+
+                  if [ -z "${S3_ENDPOINT:-}" ] || [ -z "${S3_BUCKET:-}" ] || [ -z "${S3_ACCESS_KEY:-}" ] || [ -z "${S3_SECRET_KEY:-}" ]; then
+                    echo "Object storage secret is not configured"
+                    exit 1
+                  fi
+
+                  mc alias set offsite "${S3_ENDPOINT}" "${S3_ACCESS_KEY}" "${S3_SECRET_KEY}"
+                  LATEST="$(mc find "offsite/${S3_BUCKET}/${S3_PREFIX:-platform-mongodb}" --name 'platform-*.gz' | sort | tail -1)"
+
+                  if [ -z "${LATEST}" ]; then
+                    echo "No platform backup archive found in object storage"
+                    exit 1
+                  fi
+
+                  echo "Downloading ${LATEST}"
+                  mc cp "${LATEST}" /restore/platform-latest.gz
+                  test -s /restore/platform-latest.gz
+                  ls -lh /restore/platform-latest.gz
+              env:
+                - name: S3_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-backup-object-storage
+                      key: endpoint
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-backup-object-storage
+                      key: bucket
+                - name: S3_PREFIX
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-backup-object-storage
+                      key: prefix
+                      optional: true
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-backup-object-storage
+                      key: accessKey
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-backup-object-storage
+                      key: secretKey
+              volumeMounts:
+                - name: restore-archive
+                  mountPath: /restore
+              resources:
+                limits:
+                  cpu: "250m"
+                  memory: 256Mi
+                requests:
+                  cpu: "50m"
+                  memory: 64Mi
+          containers:
+            - name: restore-and-validate
+              image: mongo:7.0
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+
+                  echo "Starting temporary MongoDB for restore drill"
+                  mongod --dbpath /data/db --bind_ip 127.0.0.1 --port 27017 --fork --logpath /tmp/mongod.log
+
+                  for attempt in {1..30}; do
+                    if mongosh --quiet --host 127.0.0.1 --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+                      break
+                    fi
+                    sleep 1
+                  done
+
+                  echo "Restoring latest platform backup into temporary MongoDB"
+                  mongorestore --host=127.0.0.1 --port=27017 --archive=/restore/platform-latest.gz --gzip --drop
+
+                  echo "Validating restored data"
+                  DBS="$(mongosh --quiet --host 127.0.0.1 --eval "db.adminCommand({ listDatabases: 1 }).databases.map(d => d.name).join(',')")"
+                  echo "Restored databases: ${DBS}"
+
+                  USER_COUNT="$(mongosh --quiet --host 127.0.0.1 eutlas --eval "db.users.countDocuments({})")"
+                  CLUSTER_COUNT="$(mongosh --quiet --host 127.0.0.1 eutlas --eval "db.clusters.countDocuments({})")"
+                  METRIC_COUNT="$(mongosh --quiet --host 127.0.0.1 eutlas --eval "db.metrics.estimatedDocumentCount()")"
+
+                  echo "Validation counts: users=${USER_COUNT}, clusters=${CLUSTER_COUNT}, metrics=${METRIC_COUNT}"
+
+                  if [ "${USER_COUNT}" -lt 1 ] || [ "${CLUSTER_COUNT}" -lt 1 ]; then
+                    echo "Restore drill failed validation"
+                    exit 1
+                  fi
+
+                  echo "Restore drill completed successfully"
+              volumeMounts:
+                - name: restore-archive
+                  mountPath: /restore
+                - name: restore-data
+                  mountPath: /data/db
+              resources:
+                limits:
+                  cpu: "1000m"
+                  memory: 1Gi
+                requests:
+                  cpu: "250m"
+                  memory: 512Mi
+          volumes:
+            - name: restore-archive
+              emptyDir: {}
+            - name: restore-data
+              emptyDir: {}
