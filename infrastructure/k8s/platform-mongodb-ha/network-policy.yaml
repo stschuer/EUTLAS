@@ -5,7 +5,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: platform-mongodb-ha
+      app: platform-mongodb-ha-svc
   policyTypes:
     - Ingress
   ingress:
@@ -23,13 +23,16 @@ spec:
         - podSelector:
             matchLabels:
               app: platform-mongodb-restore-drill
+        - podSelector:
+            matchLabels:
+              app: platform-mongodb-ha-restore
       ports:
         - protocol: TCP
           port: 27017
     - from:
         - podSelector:
             matchLabels:
-              app: platform-mongodb-ha
+              app: platform-mongodb-ha-svc
       ports:
         - protocol: TCP
           port: 27017

@@ -1,0 +1,165 @@
+name: Production HA Cutover
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type CUTOVER_TO_PLATFORM_MONGODB_HA to confirm the maintenance-window cutover
+        required: true
+      backend_replicas:
+        description: Backend replicas after cutover
+        required: true
+        default: "1"
+
+jobs:
+  cutover:
+    name: Cut over platform MongoDB to HA
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: production
+
+    steps:
+      - name: Confirm maintenance window
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirmation }}" != "CUTOVER_TO_PLATFORM_MONGODB_HA" ]; then
+            echo "Confirmation input did not match. Refusing to run cutover."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure production kubeconfig over SSH tunnel
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 \
+            -f -N -L 127.0.0.1:6443:127.0.0.1:6443 root@46.224.9.177
+
+          mkdir -p "$HOME/.kube"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 root@46.224.9.177 \
+            "cat /etc/rancher/rke2/rke2.yaml" \
+            | sed -E 's#server: https://[^:]+:[0-9]+#server: https://127.0.0.1:6443#' \
+            > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Preflight HA state
+        run: |
+          set -euo pipefail
+
+          node_count="$(kubectl get nodes -o jsonpath='{range .items[*]}{range .status.conditions[?(@.type=="Ready")]}{.status}{"\n"}{end}{end}' | awk '$0=="True"{count++} END{print count+0}')"
+          test "$node_count" -ge 3
+
+          kubectl -n eutlas get mongodbcommunity platform-mongodb-ha -o jsonpath='{.status.phase}{"\n"}' | grep '^Running$'
+          kubectl -n eutlas rollout status statefulset/platform-mongodb-ha --timeout=5m
+          kubectl -n eutlas get pods -l app=platform-mongodb-ha-svc -o wide
+          kubectl -n eutlas get cronjob platform-mongodb-backup
+          kubectl -n eutlas get secret platform-backup-object-storage
+          kubectl -n eutlas get secret eutlas-mongodb-credentials
+
+      - name: Freeze backend writes
+        run: |
+          set -euo pipefail
+
+          kubectl -n eutlas scale deployment/eutlas-backend --replicas=0
+          for attempt in $(seq 1 60); do
+            remaining="$(kubectl -n eutlas get pods -l app=eutlas-backend --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+            if [ "$remaining" = "0" ]; then
+              echo "Backend pods are stopped."
+              exit 0
+            fi
+            kubectl -n eutlas get pods -l app=eutlas-backend -o wide || true
+            sleep 5
+          done
+
+          echo "Timed out waiting for backend pods to stop."
+          exit 1
+
+      - name: Take final old-platform backup
+        run: |
+          set -euo pipefail
+
+          BACKUP_JOB="platform-mongodb-backup-cutover-$(date +%Y%m%d%H%M%S)"
+          echo "$BACKUP_JOB" > /tmp/platform-backup-cutover-job
+
+          kubectl -n eutlas create job --from=cronjob/platform-mongodb-backup "$BACKUP_JOB"
+          kubectl -n eutlas wait --for=condition=complete "job/${BACKUP_JOB}" --timeout=25m
+          kubectl -n eutlas logs "job/${BACKUP_JOB}" --all-containers=true --tail=240
+
+      - name: Restore final backup into HA
+        run: |
+          set -euo pipefail
+
+          kubectl -n eutlas delete job platform-mongodb-ha-restore-latest --ignore-not-found --wait=true
+          kubectl -n eutlas apply -f infrastructure/k8s/platform-mongodb-ha/restore-latest-platform-backup-job.yaml
+          kubectl -n eutlas wait --for=condition=complete job/platform-mongodb-ha-restore-latest --timeout=45m
+          kubectl -n eutlas logs job/platform-mongodb-ha-restore-latest --all-containers=true --tail=360
+
+      - name: Patch backend MongoDB URI to HA
+        run: |
+          set -euo pipefail
+
+          MONGO_PASSWORD="$(kubectl -n eutlas get secret eutlas-mongodb-credentials -o jsonpath='{.data.password}' | base64 -d)"
+          ENCODED_PASSWORD="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$MONGO_PASSWORD")"
+
+          MONGODB_URI="mongodb://eutlas-admin:${ENCODED_PASSWORD}@platform-mongodb-ha-0.platform-mongodb-ha-svc.eutlas.svc.cluster.local:27017,platform-mongodb-ha-1.platform-mongodb-ha-svc.eutlas.svc.cluster.local:27017,platform-mongodb-ha-2.platform-mongodb-ha-svc.eutlas.svc.cluster.local:27017/eutlas?replicaSet=platform-mongodb-ha&authSource=admin&tls=true&tlsCAFile=/etc/eutlas/mongodb/ca.crt"
+          ENCODED_URI="$(printf '%s' "$MONGODB_URI" | base64 | tr -d '\n')"
+
+          kubectl -n eutlas patch secret eutlas-secrets --type='json' \
+            -p="[{\"op\":\"replace\",\"path\":\"/data/MONGODB_URI\",\"value\":\"${ENCODED_URI}\"}]"
+
+      - name: Apply HA overlay and restart backend
+        run: |
+          set -euo pipefail
+
+          kubectl apply -k infrastructure/k8s/environments/production-ha
+          kubectl -n eutlas scale deployment/eutlas-backend --replicas="${{ inputs.backend_replicas }}"
+          kubectl -n eutlas rollout status deployment/eutlas-backend --timeout=8m
+
+      - name: Validate application and HA database
+        run: |
+          set -euo pipefail
+
+          kubectl -n eutlas get pods -o wide
+          kubectl -n eutlas get mongodbcommunity platform-mongodb-ha -o wide
+
+          BACKEND_POD="$(kubectl -n eutlas get pod -l app=eutlas-backend -o jsonpath='{.items[0].metadata.name}')"
+          kubectl -n eutlas exec "$BACKEND_POD" -- wget -qO- http://127.0.0.1:4000/api/v1/health/ready
+
+          kubectl -n eutlas run platform-mongodb-ha-cutover-validate \
+            --restart=Never \
+            --image=mongo:7.0 \
+            --labels=app=platform-mongodb-ha-restore,debug-preserve=true \
+            --overrides='{"spec":{"containers":[{"name":"platform-mongodb-ha-cutover-validate","image":"mongo:7.0","command":["/bin/bash","-c"],"args":["set -euo pipefail; mongosh --quiet --host platform-mongodb-ha-svc --tls --tlsCAFile /etc/mongodb/tls/ca.crt --username=\"${MONGO_ROOT_USER}\" --password=\"${MONGO_ROOT_PASSWORD}\" --authenticationDatabase=admin eutlas --eval \"const counts={users:db.users.countDocuments({}),clusters:db.clusters.countDocuments({}),metrics:db.metrics.estimatedDocumentCount()}; printjson(counts); if (counts.users < 1 || counts.clusters < 1) quit(2);\""],"env":[{"name":"MONGO_ROOT_USER","value":"eutlas-admin"},{"name":"MONGO_ROOT_PASSWORD","valueFrom":{"secretKeyRef":{"name":"eutlas-mongodb-credentials","key":"password"}}}],"volumeMounts":[{"name":"mongodb-ca","mountPath":"/etc/mongodb/tls","readOnly":true}]}],"volumes":[{"name":"mongodb-ca","secret":{"secretName":"platform-mongodb-ha-ca","items":[{"key":"tls.crt","path":"ca.crt"}]}}]}}'
+          kubectl -n eutlas wait --for=jsonpath='{.status.phase}'=Succeeded pod/platform-mongodb-ha-cutover-validate --timeout=5m
+          kubectl -n eutlas logs pod/platform-mongodb-ha-cutover-validate
+          kubectl -n eutlas delete pod platform-mongodb-ha-cutover-validate --ignore-not-found --wait=false
+
+      - name: Verify HA platform backup
+        run: |
+          set -euo pipefail
+
+          BACKUP_JOB="platform-mongodb-backup-ha-verify-$(date +%Y%m%d%H%M%S)"
+          kubectl -n eutlas create job --from=cronjob/platform-mongodb-backup "$BACKUP_JOB"
+          kubectl -n eutlas wait --for=condition=complete "job/${BACKUP_JOB}" --timeout=25m
+          kubectl -n eutlas logs "job/${BACKUP_JOB}" --all-containers=true --tail=220
+
+      - name: Print rollback reminder
+        if: always()
+        run: |
+          cat <<'EOF'
+          If rollback is required, use docs/runbooks/platform-mongodb-ha-migration.md.
+          Keep the old mongodb Deployment and mongodb-data-pvc until the HA setup has run stably for several days.
+          EOF

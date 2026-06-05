@@ -1,0 +1,46 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mongodb-database
+  labels:
+    app.kubernetes.io/name: platform-mongodb-ha
+    app.kubernetes.io/component: platform-database
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - platform-mongodb-ha-config
+      - platform-mongodb-ha-keyfile
+      - platform-mongodb-ha-ca-certificate
+      - platform-mongodb-ha-server-certificate-key
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mongodb-database
+  labels:
+    app.kubernetes.io/name: platform-mongodb-ha
+    app.kubernetes.io/component: platform-database
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-database
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-database

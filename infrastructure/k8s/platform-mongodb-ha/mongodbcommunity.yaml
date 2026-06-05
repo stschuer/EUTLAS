@@ -38,14 +38,14 @@ spec:
   statefulSet:
     metadata:
       labels:
-        app: platform-mongodb-ha
+        app: platform-mongodb-ha-svc
         app.kubernetes.io/name: platform-mongodb-ha
         app.kubernetes.io/component: platform-database
     spec:
       template:
         metadata:
           labels:
-            app: platform-mongodb-ha
+            app: platform-mongodb-ha-svc
             app.kubernetes.io/name: platform-mongodb-ha
             app.kubernetes.io/component: platform-database
         spec:
@@ -56,7 +56,7 @@ spec:
               requiredDuringSchedulingIgnoredDuringExecution:
                 - labelSelector:
                     matchLabels:
-                      app: platform-mongodb-ha
+                      app: platform-mongodb-ha-svc
                   topologyKey: kubernetes.io/hostname
           topologySpreadConstraints:
             - maxSkew: 1
@@ -64,7 +64,7 @@ spec:
               whenUnsatisfiable: DoNotSchedule
               labelSelector:
                 matchLabels:
-                  app: platform-mongodb-ha
+                  app: platform-mongodb-ha-svc
           containers:
             - name: mongod
               resources:

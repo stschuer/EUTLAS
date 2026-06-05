@@ -14,12 +14,12 @@ spec:
                   set -euo pipefail
                   TIMESTAMP=$(date +%Y%m%d-%H%M%S)
                   ARCHIVE="/backup/platform-${TIMESTAMP}.gz"
+                  RS_HOSTS="platform-mongodb-ha/platform-mongodb-ha-0.platform-mongodb-ha-svc.eutlas.svc.cluster.local:27017,platform-mongodb-ha-1.platform-mongodb-ha-svc.eutlas.svc.cluster.local:27017,platform-mongodb-ha-2.platform-mongodb-ha-svc.eutlas.svc.cluster.local:27017"
                   echo "Starting platform MongoDB HA backup to ${ARCHIVE}"
                   mongodump \
-                    --host=platform-mongodb-ha-svc \
-                    --port=27017 \
-                    --tls \
-                    --tlsCAFile=/etc/eutlas/mongodb/ca.crt \
+                    --host="${RS_HOSTS}" \
+                    --ssl \
+                    --sslCAFile=/etc/eutlas/mongodb/ca.crt \
                     --username="${MONGO_ROOT_USER}" \
                     --password="${MONGO_ROOT_PASSWORD}" \
                     --authenticationDatabase=admin \

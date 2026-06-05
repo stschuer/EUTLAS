@@ -21,8 +21,12 @@ spec:
                 - -c
                 - |
                   echo "Cleaning up completed/failed pods in eutlas namespace..."
-                  kubectl delete pods -n eutlas --field-selector=status.phase=Succeeded 2>/dev/null || true
-                  kubectl delete pods -n eutlas --field-selector=status.phase=Failed 2>/dev/null || true
+                  kubectl delete pods -n eutlas \
+                    --field-selector=status.phase=Succeeded \
+                    --selector='debug-preserve!=true' 2>/dev/null || true
+                  kubectl delete pods -n eutlas \
+                    --field-selector=status.phase=Failed \
+                    --selector='debug-preserve!=true' 2>/dev/null || true
                   echo "Done. Remaining pods:"
                   kubectl get pods -n eutlas
               resources:

@@ -4,6 +4,8 @@ kind: Kustomization
 namespace: eutlas
 
 resources:
+  - service-account.yaml
+  - rbac.yaml
   - tls-certificates.yaml
   - mongodbcommunity.yaml
   - pod-disruption-budget.yaml

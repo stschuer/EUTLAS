@@ -7,17 +7,17 @@ ReplicaSet named `platform-mongodb-ha`.
 The prepared manifests are intentionally not referenced by the normal production
 overlay. Do not switch production until every preflight item passes.
 
-## Current blocker
+## Current state
 
-Production currently has one Kubernetes node and `local-path` storage. A
-3-member MongoDB ReplicaSet on that footprint is not real HA. Before cutover,
-production must have:
+Production now has a prepared HA foundation:
 
-- At least 3 Ready Kubernetes worker/control-plane nodes.
-- A durable multi-node-capable StorageClass, expected here as `hcloud-volumes-fast`.
-- `cert-manager` installed and healthy.
-- MongoDB Community Operator installed and healthy.
-- Fresh off-site platform backup and at least one successful restore drill.
+- 3 Ready Kubernetes nodes.
+- Hetzner CSI storage classes, including `hcloud-volumes-fast`.
+- A TLS-enabled 3-member `platform-mongodb-ha` MongoDBCommunity ReplicaSet.
+- A proven off-site backup restore into `platform-mongodb-ha`.
+
+The remaining production cutover should be run in a maintenance window because
+backend writes are stopped while the final platform backup is taken and restored.
 
 ## Prepared artifacts
 
@@ -27,6 +27,32 @@ production must have:
   cutover phase. It adds the HA resources, mounts the MongoDB CA into the
   backend, and switches the platform backup CronJob to the HA TLS endpoint.
 - `.github/workflows/production-ha-preflight.yml`: manual preflight workflow.
+- `.github/workflows/production-ha-cutover.yml`: guarded manual cutover workflow.
+- `.github/workflows/production-ha-bootstrap.yml`: infrastructure bootstrap workflow.
+
+## Preferred cutover path
+
+Use the GitHub Actions workflow `Production HA Cutover` during the maintenance
+window. It requires this confirmation input:
+
+```text
+CUTOVER_TO_PLATFORM_MONGODB_HA
+```
+
+The workflow performs the cutover sequence end-to-end:
+
+- Verifies the HA ReplicaSet and production prerequisites.
+- Scales `eutlas-backend` to zero to freeze writes.
+- Runs one final backup from the old single-node platform MongoDB.
+- Restores the latest backup into `platform-mongodb-ha`.
+- Patches `eutlas-secrets` with the HA/TLS `MONGODB_URI`.
+- Applies `infrastructure/k8s/environments/production-ha`.
+- Scales the backend back up.
+- Verifies backend readiness, HA data counts, and a HA platform backup.
+
+If the workflow fails before the `Patch backend MongoDB URI to HA` step, the app
+is still pointed at the old MongoDB. If it fails after that step, use the rollback
+section below.
 
 ## Phase 1: Infrastructure
 
@@ -64,7 +90,7 @@ Create the shadow HA database without touching the current `mongodb` service:
 ```bash
 kubectl apply -k infrastructure/k8s/platform-mongodb-ha
 kubectl wait --for=condition=Ready mongodbcommunity/platform-mongodb-ha -n eutlas --timeout=30m
-kubectl -n eutlas get pods -l app=platform-mongodb-ha -o wide
+kubectl -n eutlas get pods -l app=platform-mongodb-ha-svc -o wide
 ```
 
 The three MongoDB pods must be spread across different nodes.
@@ -84,7 +110,7 @@ kubectl -n eutlas wait --for=condition=complete "job/$BACKUP_JOB" --timeout=20m
 kubectl -n eutlas logs "job/$BACKUP_JOB" --all-containers=true --tail=200
 
 kubectl -n eutlas delete job platform-mongodb-ha-restore-latest --ignore-not-found
-kubectl apply -f infrastructure/k8s/platform-mongodb-ha/restore-latest-platform-backup-job.yaml
+kubectl -n eutlas apply -f infrastructure/k8s/platform-mongodb-ha/restore-latest-platform-backup-job.yaml
 kubectl -n eutlas wait --for=condition=complete job/platform-mongodb-ha-restore-latest --timeout=30m
 kubectl -n eutlas logs job/platform-mongodb-ha-restore-latest --all-containers=true --tail=240
 ```
