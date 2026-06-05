@@ -138,6 +138,7 @@ jobs:
           BACKEND_POD="$(kubectl -n eutlas get pod -l app=eutlas-backend -o jsonpath='{.items[0].metadata.name}')"
           kubectl -n eutlas exec "$BACKEND_POD" -- wget -qO- http://127.0.0.1:4000/api/v1/health/ready
 
+          kubectl -n eutlas delete pod platform-mongodb-ha-cutover-validate --ignore-not-found --wait=true
           kubectl -n eutlas run platform-mongodb-ha-cutover-validate \
             --restart=Never \
             --image=mongo:7.0 \

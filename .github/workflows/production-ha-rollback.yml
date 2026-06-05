@@ -1,0 +1,106 @@
+name: Production HA Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type ROLLBACK_PLATFORM_MONGODB_HA to confirm rollback to old platform MongoDB
+        required: true
+      backend_replicas:
+        description: Backend replicas after rollback
+        required: true
+        default: "1"
+
+jobs:
+  rollback:
+    name: Roll back platform MongoDB to old deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Confirm rollback
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirmation }}" != "ROLLBACK_PLATFORM_MONGODB_HA" ]; then
+            echo "Confirmation input did not match. Refusing to run rollback."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure production kubeconfig over SSH tunnel
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 \
+            -f -N -L 127.0.0.1:6443:127.0.0.1:6443 root@46.224.9.177
+
+          mkdir -p "$HOME/.kube"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            -i ~/.ssh/id_ed25519 root@46.224.9.177 \
+            "cat /etc/rancher/rke2/rke2.yaml" \
+            | sed -E 's#server: https://[^:]+:[0-9]+#server: https://127.0.0.1:6443#' \
+            > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Freeze backend writes
+        run: |
+          set -euo pipefail
+          kubectl -n eutlas scale deployment/eutlas-backend --replicas=0
+          for attempt in $(seq 1 60); do
+            remaining="$(kubectl -n eutlas get pods -l app=eutlas-backend --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+            if [ "$remaining" = "0" ]; then
+              echo "Backend pods are stopped."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for backend pods to stop."
+          exit 1
+
+      - name: Patch backend MongoDB URI to old platform DB
+        run: |
+          set -euo pipefail
+
+          MONGO_PASSWORD="$(kubectl -n eutlas get secret eutlas-mongodb-credentials -o jsonpath='{.data.password}' | base64 -d)"
+          ENCODED_PASSWORD="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$MONGO_PASSWORD")"
+
+          OLD_URI="mongodb://eutlas-admin:${ENCODED_PASSWORD}@mongodb:27017/eutlas?authSource=admin"
+          ENCODED_URI="$(printf '%s' "$OLD_URI" | base64 | tr -d '\n')"
+
+          kubectl -n eutlas patch secret eutlas-secrets --type='json' \
+            -p="[{\"op\":\"replace\",\"path\":\"/data/MONGODB_URI\",\"value\":\"${ENCODED_URI}\"}]"
+
+      - name: Apply production overlay and restart backend
+        run: |
+          set -euo pipefail
+          kubectl apply -k infrastructure/k8s/environments/production
+          kubectl -n eutlas scale deployment/eutlas-backend --replicas="${{ inputs.backend_replicas }}"
+          kubectl -n eutlas rollout status deployment/eutlas-backend --timeout=8m
+
+      - name: Validate rollback
+        run: |
+          set -euo pipefail
+          kubectl -n eutlas get pods -o wide
+          BACKEND_POD="$(kubectl -n eutlas get pod -l app=eutlas-backend -o jsonpath='{.items[0].metadata.name}')"
+          kubectl -n eutlas exec "$BACKEND_POD" -- wget -qO- http://127.0.0.1:4000/api/v1/health/ready
+
+      - name: Print reminder
+        if: always()
+        run: |
+          cat <<'EOF'
+          Rollback points the backend back to the old single-node mongodb Service.
+          Do not delete platform-mongodb-ha; keep it for investigation and another planned cutover.
+          EOF
