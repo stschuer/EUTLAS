@@ -127,10 +127,28 @@ export class HetznerProvisionerService {
     };
     if (sshKeyId) payload.ssh_keys = [sshKeyId];
 
-    const response = await axios.post('https://api.hetzner.cloud/v1/servers', payload, {
-      headers: { Authorization: `Bearer ${this.hcloudToken}` },
-    });
-    return response.data.server;
+    try {
+      const response = await axios.post('https://api.hetzner.cloud/v1/servers', payload, {
+        headers: { Authorization: `Bearer ${this.hcloudToken}` },
+      });
+      return response.data.server;
+    } catch (error: any) {
+      if (error.response?.status !== 409) {
+        throw error;
+      }
+
+      const existing = await axios.get('https://api.hetzner.cloud/v1/servers', {
+        headers: { Authorization: `Bearer ${this.hcloudToken}` },
+        params: { name },
+      });
+      const server = existing.data.servers?.[0];
+      if (!server) {
+        throw error;
+      }
+
+      this.logger.warn(`Hetzner server ${name} already exists - reusing server ${server.id}`);
+      return server;
+    }
   }
 
   /** Looks up the SSH key on Hetzner by name so we can inject it into new servers. */

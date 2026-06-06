@@ -119,7 +119,7 @@ export class ClustersService {
     return {
       cluster,
       credentials: {
-        connectionString: this.buildConnectionString(cluster, credentials),
+        connectionString: this.buildReachableConnectionString(cluster, credentials),
         host: cluster.connectionHost || 'pending',
         port: cluster.connectionPort || 27017,
         externalHost: cluster.externalHost || null,
@@ -129,6 +129,17 @@ export class ClustersService {
         password: credentials.password,
       },
     };
+  }
+
+  private buildReachableConnectionString(
+    cluster: ClusterDocument,
+    credentials: { username: string; password: string },
+  ): string {
+    if (cluster.dedicatedServerId && cluster.externalHost) {
+      return this.buildExternalConnectionString(cluster, credentials);
+    }
+
+    return this.buildConnectionString(cluster, credentials);
   }
 
   async resize(clusterId: string, resizeClusterDto: ResizeClusterDto): Promise<Cluster> {

@@ -1498,6 +1498,8 @@ export class KubernetesService implements OnModuleInit {
     additionalIngressIps?: string[],
   ): Promise<void> {
     const policyName = `${resourceName}-network-policy`;
+    const externalIngressCidrs =
+      additionalIngressIps && additionalIngressIps.length > 0 ? additionalIngressIps : ['0.0.0.0/0'];
 
     const ingressRules: k8s.V1NetworkPolicyIngressRule[] = [
       {
@@ -1524,7 +1526,7 @@ export class KubernetesService implements OnModuleInit {
       },
     ];
 
-    for (const cidr of additionalIngressIps || []) {
+    for (const cidr of externalIngressCidrs) {
       ingressRules.push({
         from: [{ ipBlock: { cidr } }],
         ports: [{ protocol: 'TCP', port: 27017 }],
