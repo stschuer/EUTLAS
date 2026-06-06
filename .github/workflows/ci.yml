@@ -168,6 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
+      deploy_overlay: ${{ steps.set-env.outputs.deploy_overlay }}
       image_tag: ${{ steps.set-env.outputs.image_tag }}
     steps:
       - name: Set environment
@@ -175,15 +176,19 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/production" || "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "environment=production" >> $GITHUB_OUTPUT
+            echo "deploy_overlay=production-ha" >> $GITHUB_OUTPUT
             echo "image_tag=latest" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "deploy_overlay=staging" >> $GITHUB_OUTPUT
             echo "image_tag=staging" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/test" ]]; then
             echo "environment=test" >> $GITHUB_OUTPUT
+            echo "deploy_overlay=test" >> $GITHUB_OUTPUT
             echo "image_tag=test" >> $GITHUB_OUTPUT
           else
             echo "environment=test" >> $GITHUB_OUTPUT
+            echo "deploy_overlay=test" >> $GITHUB_OUTPUT
             echo "image_tag=dev-${{ github.sha }}" >> $GITHUB_OUTPUT
           fi
 
@@ -344,7 +349,7 @@ jobs:
 
       - name: Deploy with Kustomize
         run: |
-          kubectl apply -k infrastructure/k8s/environments/${{ needs.set-env.outputs.environment }}
+          kubectl apply -k infrastructure/k8s/environments/${{ needs.set-env.outputs.deploy_overlay }}
           
           # Pin deployments to immutable image tags for this exact commit.
           kubectl set image deployment/eutlas-backend \
