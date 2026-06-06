@@ -115,12 +115,8 @@ export class MetricsService {
       throw new Error('Cluster not found or not ready');
     }
 
-    const credentials = await this.credentialsService.getDecrypted(clusterId);
-    if (!credentials.connectionString || credentials.connectionString === 'pending') {
-      throw new Error('Cluster credentials not ready');
-    }
-
-    const client = new MongoClient(credentials.connectionString, {
+    const credentials = await this.credentialsService.decryptCredentials(cluster.credentialsEncrypted);
+    const client = new MongoClient(this.buildInternalMetricsConnectionString(cluster, credentials), {
       connectTimeoutMS: 5000,
       serverSelectionTimeoutMS: 5000,
     });
@@ -171,6 +167,27 @@ export class MetricsService {
     } finally {
       await client.close().catch(() => {});
     }
+  }
+
+  private buildInternalMetricsConnectionString(
+    cluster: ClusterDocument,
+    credentials: { username: string; password: string },
+  ): string {
+    const encodedUsername = encodeURIComponent(credentials.username);
+    const encodedPassword = encodeURIComponent(credentials.password);
+    const params = new URLSearchParams();
+
+    params.set('authSource', 'admin');
+    params.set('retryWrites', 'true');
+    params.set('w', 'majority');
+
+    if (cluster.replicaSetName) {
+      params.set('replicaSet', cluster.replicaSetName);
+    } else {
+      params.set('directConnection', 'true');
+    }
+
+    return `mongodb://${encodedUsername}:${encodedPassword}@${cluster.connectionHost}:${cluster.connectionPort || 27017}/${cluster.name}?${params.toString()}`;
   }
 
   async getMetrics(
