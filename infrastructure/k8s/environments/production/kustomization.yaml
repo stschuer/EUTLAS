@@ -12,7 +12,7 @@ patches:
   - patch: |-
       - op: replace
         path: /spec/replicas
-        value: 1
+        value: 2
     target:
       kind: Deployment
       name: eutlas-backend
@@ -22,15 +22,15 @@ patches:
         value:
           type: RollingUpdate
           rollingUpdate:
-            maxSurge: 0
-            maxUnavailable: 1
+            maxSurge: 1
+            maxUnavailable: 0
     target:
       kind: Deployment
       name: eutlas-backend
   - patch: |-
       - op: replace
         path: /spec/replicas
-        value: 1
+        value: 2
     target:
       kind: Deployment
       name: eutlas-frontend
@@ -40,8 +40,8 @@ patches:
         value:
           type: RollingUpdate
           rollingUpdate:
-            maxSurge: 0
-            maxUnavailable: 1
+            maxSurge: 1
+            maxUnavailable: 0
     target:
       kind: Deployment
       name: eutlas-frontend

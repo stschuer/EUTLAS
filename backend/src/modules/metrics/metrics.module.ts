@@ -10,6 +10,7 @@ import { Cluster, ClusterSchema } from '../clusters/schemas/cluster.schema';
 import { ClustersModule } from '../clusters/clusters.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { OrgsModule } from '../orgs/orgs.module';
+import { CredentialsModule } from '../credentials/credentials.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { OrgsModule } from '../orgs/orgs.module';
       inject: [ConfigService],
     }),
     forwardRef(() => ClustersModule),
+    CredentialsModule,
     ProjectsModule,
     OrgsModule,
   ],

@@ -5,6 +5,7 @@ import { Interval } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { Metric, MetricDocument, MetricType } from './schemas/metric.schema';
 import { Cluster, ClusterDocument } from '../clusters/schemas/cluster.schema';
+import { CredentialsService } from '../credentials/credentials.service';
 
 export interface MetricDataPoint {
   timestamp: Date;
@@ -47,6 +48,7 @@ export class MetricsService {
     @InjectModel(Metric.name) private metricModel: Model<MetricDocument>,
     @InjectModel(Cluster.name) private clusterModel: Model<ClusterDocument>,
     private readonly configService: ConfigService,
+    private readonly credentialsService: CredentialsService,
   ) {
     this.isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
   }
@@ -113,19 +115,26 @@ export class MetricsService {
       throw new Error('Cluster not found or not ready');
     }
 
-    // Connect to the managed cluster's admin database
-    const uri = `mongodb://${cluster.connectionHost}:${cluster.connectionPort || 27017}/admin`;
-    const client = new MongoClient(uri, { connectTimeoutMS: 5000, serverSelectionTimeoutMS: 5000 });
+    const credentials = await this.credentialsService.getDecrypted(clusterId);
+    if (!credentials.connectionString || credentials.connectionString === 'pending') {
+      throw new Error('Cluster credentials not ready');
+    }
+
+    const client = new MongoClient(credentials.connectionString, {
+      connectTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 5000,
+    });
 
     try {
       await client.connect();
       const adminDb = client.db('admin');
+      const clusterDb = client.db(cluster.name);
 
       // Get serverStatus for comprehensive metrics
       const serverStatus = await adminDb.command({ serverStatus: 1 });
 
       // Get dbStats for storage metrics
-      const dbStats = await adminDb.command({ dbStats: 1 });
+      const dbStats = await clusterDb.command({ dbStats: 1 });
 
       // Parse metrics from serverStatus
       const mem = serverStatus.mem || {};
