@@ -457,9 +457,23 @@ export class MigrationService {
         maxPoolSize: 4,
       };
       const connectTargetClient = async () => {
-        const client = new MongoClient(targetConnectionString, targetClientOptions);
-        await client.connect();
-        return client;
+        let lastError: any;
+        for (let attempt = 1; attempt <= 10; attempt++) {
+          const client = new MongoClient(targetConnectionString, targetClientOptions);
+          try {
+            await client.connect();
+            return client;
+          } catch (error: any) {
+            lastError = error;
+            try {
+              await client.close(true);
+            } catch {
+              // Ignore close errors before retrying the connection.
+            }
+            await this.sleep(Math.min(30000, attempt * 3000));
+          }
+        }
+        throw lastError;
       };
       let targetClient = await connectTargetClient();
       await this.addLog(migrationId, 'info', 'Target cluster connection established');
@@ -572,6 +586,13 @@ export class MigrationService {
                       delete (indexOptions as any).ns;
                       await targetColl.createIndex(key, indexOptions);
                     } catch (indexErr: any) {
+                      if (this.isTransientTargetError(indexErr)) {
+                        try {
+                          targetClient = await connectTargetClient();
+                        } catch {
+                          // Keep index failures non-fatal; document copy verification is stricter.
+                        }
+                      }
                       await this.addLog(
                         migrationId,
                         'warn',
@@ -1066,10 +1087,15 @@ export class MigrationService {
       message.includes('not primary') ||
       message.includes('node is recovering') ||
       message.includes('connection') ||
+      message.includes('connected') ||
       message.includes('econnrefused') ||
       message.includes('socket') ||
       message.includes('topology')
     );
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private toObjectId(value: string | undefined, fieldName: string): Types.ObjectId {
