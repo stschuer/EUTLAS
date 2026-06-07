@@ -520,8 +520,8 @@ export class MigrationService {
                 }
               }
 
-              // Migrate documents in batches
-              const batchSize = 1000;
+              // Keep batches small enough for vector/knowledge documents with large embeddings.
+              const batchSize = 100;
               let cursor = sourceColl.find({}).batchSize(batchSize);
               let batch: any[] = [];
               let docCount = 0;
@@ -534,7 +534,7 @@ export class MigrationService {
                   batch = [];
 
                   // Update progress periodically
-                  if (docCount % 10000 === 0) {
+                  if (docCount % 1000 === 0) {
                     await this.addLog(
                       migrationId,
                       'info',
