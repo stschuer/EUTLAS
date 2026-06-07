@@ -449,11 +449,19 @@ export class MigrationService {
         throw new Error('Cannot get target cluster connection information');
       }
 
-      const targetClient = new MongoClient(targetCluster.credentials.connectionString, {
+      const targetConnectionString = targetCluster.credentials.connectionString;
+      const targetClientOptions = {
         connectTimeoutMS: 30000,
         serverSelectionTimeoutMS: 30000,
-      });
-      await targetClient.connect();
+        socketTimeoutMS: 120000,
+        maxPoolSize: 4,
+      };
+      const connectTargetClient = async () => {
+        const client = new MongoClient(targetConnectionString, targetClientOptions);
+        await client.connect();
+        return client;
+      };
+      let targetClient = await connectTargetClient();
       await this.addLog(migrationId, 'info', 'Target cluster connection established');
 
       // Phase 3: Migrate each database
@@ -475,7 +483,6 @@ export class MigrationService {
 
         try {
           const sourceDb = sourceClient.db(dbName);
-          const targetDb = targetClient.db(dbName);
 
           // Get all collections
           const collections = await sourceDb.listCollections().toArray();
@@ -507,8 +514,10 @@ export class MigrationService {
 
             await this.addLog(migrationId, 'info', `  Migrating ${dbName}.${collName}...`);
 
+            for (let attempt = 1; attempt <= 3; attempt++) {
             try {
               const sourceColl = sourceDb.collection(collName);
+              const targetDb = targetClient.db(dbName);
               const targetColl = targetDb.collection(collName);
 
               // Drop existing if configured
@@ -598,13 +607,31 @@ export class MigrationService {
                   $inc: { 'stats.collectionsCompleted': 1, 'stats.documentsRestored': docCount },
                 },
               );
+              break;
             } catch (collErr: any) {
+              if (this.isTransientTargetError(collErr) && attempt < 3) {
+                await this.addLog(
+                  migrationId,
+                  'warn',
+                  `  Retrying ${dbName}.${collName} after target connection error (attempt ${attempt + 1}/3): ${collErr.message}`,
+                );
+                try {
+                  await targetClient.close(true);
+                } catch {
+                  // Ignore close errors before reconnecting.
+                }
+                targetClient = await connectTargetClient();
+                continue;
+              }
+
               await this.addLog(
                 migrationId,
                 'error',
                 `  Error migrating ${dbName}.${collName}: ${collErr.message}`,
               );
               // Continue with next collection
+              break;
+            }
             }
           }
 
@@ -1031,6 +1058,18 @@ export class MigrationService {
     }
 
     return 100;
+  }
+
+  private isTransientTargetError(error: any): boolean {
+    const message = String(error?.message || error || '').toLowerCase();
+    return (
+      message.includes('not primary') ||
+      message.includes('node is recovering') ||
+      message.includes('connection') ||
+      message.includes('econnrefused') ||
+      message.includes('socket') ||
+      message.includes('topology')
+    );
   }
 
   private toObjectId(value: string | undefined, fieldName: string): Types.ObjectId {
