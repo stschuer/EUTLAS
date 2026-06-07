@@ -920,13 +920,15 @@ export class KubernetesService implements OnModuleInit {
     };
 
     try {
-      await this.customApi.getNamespacedCustomObject(
+      const existing = await this.customApi.getNamespacedCustomObject(
         'mongodbcommunity.mongodb.com',
         'v1',
         namespace,
         'mongodbcommunity',
         resourceName,
       );
+      const existingResource = (existing as any).body ?? existing;
+      (mongoDBSpec.metadata as any).resourceVersion = existingResource.metadata?.resourceVersion;
       // Resource exists, replace it
       await this.customApi.replaceNamespacedCustomObject(
         'mongodbcommunity.mongodb.com',
@@ -999,13 +1001,15 @@ export class KubernetesService implements OnModuleInit {
     };
 
     try {
-      await this.customApi.getNamespacedCustomObject(
+      const existing = await this.customApi.getNamespacedCustomObject(
         MONGODB_SEARCH_API_GROUP,
         MONGODB_SEARCH_API_VERSION,
         namespace,
         MONGODB_SEARCH_PLURAL,
         resourceName,
       );
+      const existingResource = (existing as any).body ?? existing;
+      (mongoDBSearchSpec.metadata as any).resourceVersion = existingResource.metadata?.resourceVersion;
       await this.customApi.replaceNamespacedCustomObject(
         MONGODB_SEARCH_API_GROUP,
         MONGODB_SEARCH_API_VERSION,
