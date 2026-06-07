@@ -374,25 +374,39 @@ export class KubernetesService implements OnModuleInit {
         });
         this.logger.log(`Created namespace: ${namespace}`);
         
-        // Create MongoDB service account and RBAC
-        await this.createMongoDBRBAC(namespace);
       } else {
         throw error;
       }
     }
+
+    // Ensure RBAC also exists for namespaces created before newer operator requirements.
+    await this.createMongoDBRBAC(namespace);
 
     return namespace;
   }
 
   private async createMongoDBRBAC(namespace: string): Promise<void> {
     try {
-      // Create mongodb-database service account
-      await this.coreApi.createNamespacedServiceAccount(namespace, {
-        metadata: { name: 'mongodb-database', namespace },
-      });
+      const serviceAccounts = [
+        'mongodb-database',
+        'mongodb-kubernetes-appdb',
+        'mongodb-kubernetes-database-pods',
+      ];
+
+      for (const name of serviceAccounts) {
+        try {
+          await this.coreApi.createNamespacedServiceAccount(namespace, {
+            metadata: { name, namespace },
+          });
+        } catch (error: any) {
+          if (error.response?.statusCode !== 409) {
+            throw error;
+          }
+        }
+      }
 
       // Create Role for MongoDB
-      await this.rbacApi.createNamespacedRole(namespace, {
+      const role: k8s.V1Role = {
         metadata: { name: 'mongodb-role', namespace },
         rules: [
           {
@@ -401,10 +415,22 @@ export class KubernetesService implements OnModuleInit {
             verbs: ['get', 'list', 'watch', 'create', 'update', 'patch'],
           },
         ],
-      });
+      };
+
+      try {
+        await this.rbacApi.createNamespacedRole(namespace, role);
+      } catch (error: any) {
+        if (error.response?.statusCode !== 409) {
+          throw error;
+        }
+        const existing = await this.rbacApi.readNamespacedRole('mongodb-role', namespace);
+        const existingResource = (existing as any).body ?? existing;
+        role.metadata!.resourceVersion = existingResource.metadata?.resourceVersion;
+        await this.rbacApi.replaceNamespacedRole('mongodb-role', namespace, role);
+      }
 
       // Create RoleBinding
-      await this.rbacApi.createNamespacedRoleBinding(namespace, {
+      const roleBinding: k8s.V1RoleBinding = {
         metadata: { name: 'mongodb-binding', namespace },
         roleRef: {
           apiGroup: 'rbac.authorization.k8s.io',
@@ -417,8 +443,30 @@ export class KubernetesService implements OnModuleInit {
             name: 'mongodb-database',
             namespace,
           },
+          {
+            kind: 'ServiceAccount',
+            name: 'mongodb-kubernetes-appdb',
+            namespace,
+          },
+          {
+            kind: 'ServiceAccount',
+            name: 'mongodb-kubernetes-database-pods',
+            namespace,
+          },
         ],
-      });
+      };
+
+      try {
+        await this.rbacApi.createNamespacedRoleBinding(namespace, roleBinding);
+      } catch (error: any) {
+        if (error.response?.statusCode !== 409) {
+          throw error;
+        }
+        const existing = await this.rbacApi.readNamespacedRoleBinding('mongodb-binding', namespace);
+        const existingResource = (existing as any).body ?? existing;
+        roleBinding.metadata!.resourceVersion = existingResource.metadata?.resourceVersion;
+        await this.rbacApi.replaceNamespacedRoleBinding('mongodb-binding', namespace, roleBinding);
+      }
 
       this.logger.log(`Created MongoDB RBAC in namespace: ${namespace}`);
     } catch (error: any) {
@@ -1295,7 +1343,7 @@ export class KubernetesService implements OnModuleInit {
       `SVC="${externalServiceName}"`,
       `APP_LABEL="${podAppLabel}"`,
       'PW="$(kubectl get secret -n "$NS" "$CID-admin-password" -o jsonpath="{.data.password}" | base64 -d)"',
-      'PRIMARY="$(kubectl exec -n "$NS" "$CID-0" -c mongod -- mongosh --quiet --host 127.0.0.1 --port 27017 -u admin -p "$PW" --authenticationDatabase admin --eval "const p=db.hello().primary || \'\'; print(p.split(\'.\')[0]);" 2>/dev/null)"',
+      'PRIMARY="$(kubectl exec -n "$NS" "$CID-0" -c mongod -- mongosh --quiet --host 127.0.0.1 --port 27017 -u admin -p "$PW" --authenticationDatabase admin --eval "const p=db.hello().primary || \'\'; print(p.split(\'.\')[0]);" 2>/dev/null | awk \'/^mongo-/ { print; exit }\')"',
       'if [ -z "$PRIMARY" ]; then',
       '  echo "Could not determine MongoDB primary" >&2',
       '  exit 1',
