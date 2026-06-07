@@ -333,7 +333,7 @@ export class HetznerProvisionerService {
 
       // ── K3s ──────────────────────────────────────────────────────────────
       'echo "=== Installing K3s ==="',
-      'curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -s -',
+      'if ! systemctl is-active --quiet k3s; then curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -s -; fi',
       'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml',
 
       // Wait until K3s API is up
@@ -343,15 +343,21 @@ export class HetznerProvisionerService {
 
       // ── Helm ─────────────────────────────────────────────────────────────
       'echo "=== Installing Helm ==="',
-      'curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash',
+      'if ! command -v helm >/dev/null 2>&1; then curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; fi',
 
-      // ── MongoDB Community Operator ────────────────────────────────────────
-      'echo "=== Installing MongoDB Community Operator ==="',
+      // ── MongoDB Controllers for Kubernetes ───────────────────────────────
+      'echo "=== Installing MongoDB Controllers for Kubernetes ==="',
       'helm repo add mongodb https://mongodb.github.io/helm-charts --force-update',
       'helm repo update',
-      'helm upgrade --install community-operator mongodb/community-operator \\',
+      'if helm status community-operator -n mongodb-operator >/dev/null 2>&1 && ! helm status mongodb-kubernetes -n mongodb-operator >/dev/null 2>&1; then helm uninstall community-operator -n mongodb-operator || true; fi',
+      'helm upgrade --install mongodb-kubernetes mongodb/mongodb-kubernetes \\',
       '  --namespace mongodb-operator \\',
       '  --create-namespace \\',
+      '  --set operator.watchedResources="{mongodbcommunity,mongodbsearch}" \\',
+      '  --set operator.resources.requests.cpu=100m \\',
+      '  --set operator.resources.requests.memory=128Mi \\',
+      '  --set operator.resources.limits.cpu=200m \\',
+      '  --set operator.resources.limits.memory=256Mi \\',
       '  --wait \\',
       '  --timeout 5m',
 

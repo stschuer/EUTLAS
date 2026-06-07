@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eutlas-backend
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          volumeMounts:
+            - name: platform-mongodb-ha-ca
+              mountPath: /etc/eutlas/mongodb
+              readOnly: true
+      volumes:
+        - name: platform-mongodb-ha-ca
+          secret:
+            secretName: platform-mongodb-ha-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
