@@ -520,8 +520,9 @@ export class MigrationService {
                 }
               }
 
-              // Keep batches small enough for vector/knowledge documents with large embeddings.
-              const batchSize = 100;
+              // Asset/vector documents can be very large; keep those batches tiny to avoid
+              // retaining multiple binary payloads or embedding arrays on the Node heap.
+              const batchSize = this.getMigrationBatchSize(collName);
               let cursor = sourceColl.find({}).batchSize(batchSize);
               let batch: any[] = [];
               let docCount = 0;
@@ -1010,6 +1011,26 @@ export class MigrationService {
     if (ms < 3600000)
       return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
     return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
+  }
+
+  private getMigrationBatchSize(collectionName: string): number {
+    if (
+      collectionName.includes('assets') ||
+      collectionName.endsWith('.chunks') ||
+      collectionName.endsWith('.files')
+    ) {
+      return 1;
+    }
+
+    if (
+      collectionName.includes('knowledge') ||
+      collectionName.includes('embedding') ||
+      collectionName.includes('vector')
+    ) {
+      return 10;
+    }
+
+    return 100;
   }
 
   private toObjectId(value: string | undefined, fieldName: string): Types.ObjectId {
