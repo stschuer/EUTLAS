@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tls-cert-expiry-monitor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tls-cert-expiry-monitor
+rules:
+  # Read-only access to cert-manager Certificates to inspect status.notAfter
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tls-cert-expiry-monitor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tls-cert-expiry-monitor
+subjects:
+  - kind: ServiceAccount
+    name: tls-cert-expiry-monitor
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tls-cert-expiry-monitor
+spec:
+  # Check daily that no TLS certificate is close to expiry.
+  # Alerts on status.notAfter, NOT on status.ready: cert-manager keeps Ready=True
+  # while serving an already-expired certificate, which is how the July 2026
+  # mongo.eutlas.eu outage went unnoticed for 11 days.
+  schedule: "41 7 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 10
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: tls-cert-expiry-monitor
+        spec:
+          restartPolicy: Never
+          serviceAccountName: tls-cert-expiry-monitor
+          containers:
+            - name: check-cert-expiry
+              image: bitnami/kubectl:latest
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+
+                  CERTS=/tmp/certs.txt
+                  kubectl get certificate -n "${NAMESPACE}" \
+                    -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.notAfter}{"\n"}{end}' > "${CERTS}"
+
+                  if [ ! -s "${CERTS}" ]; then
+                    echo "No Certificate resources found in namespace ${NAMESPACE}"
+                    exit 1
+                  fi
+
+                  NOW="$(date -u +%s)"
+                  FAILED=0
+
+                  while read -r NAME NOT_AFTER; do
+                    [ -z "${NAME}" ] && continue
+
+                    if [ -z "${NOT_AFTER}" ]; then
+                      echo "CRITICAL: ${NAME} has no status.notAfter (never issued)"
+                      FAILED=1
+                      continue
+                    fi
+
+                    EXPIRES_AT="$(date -u -d "${NOT_AFTER}" +%s)"
+                    DAYS_LEFT=$(( (EXPIRES_AT - NOW) / 86400 ))
+
+                    if [ "${DAYS_LEFT}" -lt 0 ]; then
+                      echo "CRITICAL: ${NAME} expired $(( -DAYS_LEFT )) days ago (notAfter=${NOT_AFTER})"
+                      FAILED=1
+                    elif [ "${DAYS_LEFT}" -lt "${THRESHOLD_DAYS}" ]; then
+                      echo "WARNING: ${NAME} expires in ${DAYS_LEFT} days (notAfter=${NOT_AFTER})"
+                      FAILED=1
+                    else
+                      echo "OK: ${NAME} valid for ${DAYS_LEFT} more days (notAfter=${NOT_AFTER})"
+                    fi
+                  done < "${CERTS}"
+
+                  if [ "${FAILED}" -ne 0 ]; then
+                    echo "TLS certificate expiry check failed"
+                    exit 1
+                  fi
+
+                  echo "TLS certificate expiry check passed"
+              env:
+                - name: NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                # Let's Encrypt issues for 90 days and cert-manager renews at 30 days
+                # remaining, so a healthy certificate never drops below 30. Alerting at
+                # 21 leaves ~9 days of lead time without false positives.
+                - name: THRESHOLD_DAYS
+                  value: "21"
+              resources:
+                limits:
+                  cpu: "100m"
+                  memory: 128Mi
+                requests:
+                  cpu: "25m"
+                  memory: 64Mi
