@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "eutlas": {
+      "command": "node",
+      "args": ["mcp-server/dist/index.js"],
+      "env": {
+        "EUTLAS_API_URL": "${EUTLAS_API_URL:-https://eutlas-api.prioniere.de/api/v1}",
+        "EUTLAS_API_TOKEN": "${EUTLAS_API_TOKEN}"
+      }
+    }
+  }
+}
