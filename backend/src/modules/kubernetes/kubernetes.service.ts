@@ -872,6 +872,27 @@ export class KubernetesService implements OnModuleInit {
           spec: {
             template: {
               spec: {
+                // Spread replica-set members across nodes so a single node or disk
+                // failure cannot take the whole cluster down. Only meaningful for
+                // multi-member (HA) plans; single-member plans skip it. Uses hard
+                // anti-affinity because with node-local (local-path) storage two
+                // members on one node would defeat the purpose of HA entirely.
+                ...(params.resources.replicas > 1
+                  ? {
+                      affinity: {
+                        podAntiAffinity: {
+                          requiredDuringSchedulingIgnoredDuringExecution: [
+                            {
+                              labelSelector: {
+                                matchLabels: { app: `${resourceName}-svc` },
+                              },
+                              topologyKey: 'kubernetes.io/hostname',
+                            },
+                          ],
+                        },
+                      },
+                    }
+                  : {}),
                 initContainers: [
                   {
                     name: 'mongod-posthook',
