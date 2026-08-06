@@ -42,7 +42,7 @@ Then export it before launching your MCP client:
 ```bash
 export EUTLAS_API_TOKEN="<your-api-key>"
 # optional, defaults to the production API:
-export EUTLAS_API_URL="https://eutlas-api.prioniere.de/api/v1"
+export EUTLAS_API_URL="https://app.eutlas.eu/api/v1"
 ```
 
 ## Registration

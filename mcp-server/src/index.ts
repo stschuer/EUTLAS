@@ -17,7 +17,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const API_URL = (process.env.EUTLAS_API_URL ?? "https://eutlas-api.prioniere.de/api/v1").replace(/\/$/, "");
+const API_URL = (process.env.EUTLAS_API_URL ?? "https://app.eutlas.eu/api/v1").replace(/\/$/, "");
 const API_TOKEN = process.env.EUTLAS_API_TOKEN;
 
 if (!API_TOKEN) {
