@@ -29,11 +29,20 @@ if (!API_TOKEN) {
 
 type Json = unknown;
 
+// EUTLAS API keys authenticate via the `x-api-key` header in
+// "eutlas_pk_...:eutlas_sk_..." form; a JWT (from /auth/login) uses
+// Authorization: Bearer. Pick based on whether the token is a key pair.
+function authHeaders(): Record<string, string> {
+  return API_TOKEN!.includes(":")
+    ? { "x-api-key": API_TOKEN! }
+    : { Authorization: `Bearer ${API_TOKEN!}` };
+}
+
 async function api(method: string, path: string, body?: Json): Promise<Json> {
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${API_TOKEN}`,
+      ...authHeaders(),
       "Content-Type": "application/json",
       Accept: "application/json",
     },

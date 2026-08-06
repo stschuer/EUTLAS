@@ -35,12 +35,16 @@ npm run build
 
 Mint an API key in the EUTLAS dashboard under **Org → API Keys** with the
 scopes `clusters:read`, `clusters:write`, `backups:read`, `backups:write`,
-`projects:read`. (A JWT from `POST /auth/login` also works.)
+`projects:read`. API keys authenticate via the `x-api-key` header and must be
+supplied as the **`publicKey:secretKey` pair** — i.e.
+`eutlas_pk_...:eutlas_sk_...` (both halves, colon-separated). A JWT from
+`POST /auth/login` also works and is sent as a Bearer token; the server picks
+the right scheme automatically based on whether the token contains a colon.
 
 Then export it before launching your MCP client:
 
 ```bash
-export EUTLAS_API_TOKEN="<your-api-key>"
+export EUTLAS_API_TOKEN="eutlas_pk_...:eutlas_sk_..."
 # optional, defaults to the production API:
 export EUTLAS_API_URL="https://app.eutlas.eu/api/v1"
 ```
