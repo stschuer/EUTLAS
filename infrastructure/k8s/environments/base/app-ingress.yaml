@@ -1,0 +1,54 @@
+# Public dashboard + API on app.eutlas.eu / eutlas.eu, served by the workload
+# cluster's ingress-nginx (same frontend/backend as mongo.eutlas.eu already uses).
+# cert-manager issues the TLS cert via HTTP-01 once app.eutlas.eu / eutlas.eu
+# resolve to this cluster (the keepalived floating IP, or the node IPs).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: eutlas-app-ingress
+  namespace: eutlas
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - app.eutlas.eu
+        - eutlas.eu
+      secretName: eutlas-app-tls
+  rules:
+    - host: app.eutlas.eu
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: eutlas-backend
+                port:
+                  number: 4000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: eutlas-frontend
+                port:
+                  number: 3000
+    - host: eutlas.eu
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: eutlas-backend
+                port:
+                  number: 4000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: eutlas-frontend
+                port:
+                  number: 3000
