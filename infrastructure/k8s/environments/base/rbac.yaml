@@ -20,6 +20,13 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "services", "configmaps", "secrets", "serviceaccounts", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Pod logs (read backup archive size from the completed backup job pod) and exec
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
   # Apps (StatefulSets for tenant MongoDB instances)
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "statefulsets/scale"]
