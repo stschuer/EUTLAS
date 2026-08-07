@@ -2637,14 +2637,19 @@ export class KubernetesService implements OnModuleInit {
       throw new Error(`No pod found for backup job ${jobName}`);
     }
 
-    const output = await this.execInPod(
-      namespace,
-      podName,
-      'mongodump',
-      `stat -c '%s' /backup/${backupId}.gz 2>/dev/null || echo 0`,
-    );
+    // The backup job prints the archive size (its final `stat -c '%s'` step) as the
+    // last line of stdout. Read it from the pod logs rather than exec-ing into the
+    // container: waitForJobCompletion has already returned by this point, so the
+    // mongodump container has terminated and can no longer be exec'd — which made
+    // this always return 0 and marked every successful backup as failed.
+    const logs = await this.coreApi.readNamespacedPodLog(podName, namespace, 'mongodump');
+    const sizeLine = logs.body
+      .split('\n')
+      .map((line) => line.trim())
+      .reverse()
+      .find((line) => /^\d+$/.test(line));
 
-    return Number.parseInt(output.trim(), 10) || 0;
+    return sizeLine ? Number.parseInt(sizeLine, 10) || 0 : 0;
   }
 
   // ========== Qdrant Companion Service ==========
