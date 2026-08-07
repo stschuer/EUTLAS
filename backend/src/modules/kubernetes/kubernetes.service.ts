@@ -798,6 +798,44 @@ export class KubernetesService implements OnModuleInit {
     }
   }
 
+  // Mirror the platform off-site object-storage secret into a tenant namespace so
+  // the backup job can upload archives off-site. Returns false (off-site skipped)
+  // when the platform has no such secret — tenant backups then stay local-only.
+  private async ensureObjectStorageSecret(namespace: string): Promise<boolean> {
+    const secretName = 'platform-backup-object-storage';
+    const platformNamespace = 'eutlas';
+
+    let source: k8s.V1Secret;
+    try {
+      source = (
+        await this.coreApi.readNamespacedSecret(secretName, platformNamespace)
+      ).body;
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        return false;
+      }
+      throw error;
+    }
+
+    try {
+      await this.coreApi.readNamespacedSecret(secretName, namespace);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 404) {
+        throw error;
+      }
+      await this.coreApi.createNamespacedSecret(namespace, {
+        metadata: {
+          name: secretName,
+          namespace,
+          labels: { 'eutlas.eu/managed-by': 'eutlas' },
+        },
+        type: source.type || 'Opaque',
+        data: source.data,
+      });
+    }
+    return true;
+  }
+
   private async createMongoDBCommunityResource(
     namespace: string,
     resourceName: string,
@@ -2336,7 +2374,76 @@ export class KubernetesService implements OnModuleInit {
     ].join(' && ');
 
     const jobName = `backup-${params.backupId}`.substring(0, 63).toLowerCase();
-    
+
+    // Copy the off-site storage secret into the tenant namespace. If the platform
+    // has none, off-site is skipped and the backup stays local-only.
+    const offsiteEnabled = await this.ensureObjectStorageSecret(namespace);
+
+    const mongodumpContainer = {
+      name: 'mongodump',
+      image: 'mongo:7.0',
+      command: ['/bin/bash', '-c'],
+      args: [dumpCmd],
+      env: [
+        { name: 'MONGO_ADMIN_USER', value: 'admin' },
+        {
+          name: 'MONGO_ADMIN_PASSWORD',
+          valueFrom: {
+            secretKeyRef: {
+              name: `${resourceName}-admin-password`,
+              key: 'password',
+            },
+          },
+        },
+      ],
+      volumeMounts: [{ name: 'backup-storage', mountPath: '/backup' }],
+    };
+
+    // Best-effort off-site replica. Always exits 0: a failed/absent upload must
+    // never fail the backup, whose authoritative copy is already on the PVC.
+    const uploadCmd = [
+      'set -u',
+      `ARCHIVE=${archivePath}`,
+      'if [ ! -s "$ARCHIVE" ]; then echo "no archive to upload"; exit 0; fi',
+      `if mc alias set offsite "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" >/dev/null 2>&1 ` +
+        `&& mc cp "$ARCHIVE" "offsite/$S3_BUCKET/tenant-backups/${resourceName}/${params.backupId}.gz"; then ` +
+        'echo "offsite upload ok"; else echo "offsite upload FAILED (non-fatal)"; fi',
+      'exit 0',
+    ].join('\n');
+
+    const s3Env = ['endpoint:S3_ENDPOINT', 'accessKey:S3_ACCESS_KEY', 'secretKey:S3_SECRET_KEY', 'bucket:S3_BUCKET'].map(
+      (pair) => {
+        const [key, name] = pair.split(':');
+        return {
+          name,
+          valueFrom: { secretKeyRef: { name: 'platform-backup-object-storage', key } },
+        };
+      },
+    );
+
+    const uploadContainer = {
+      name: 'offsite-upload',
+      image: 'minio/mc:latest',
+      command: ['/bin/sh', '-c'],
+      args: [uploadCmd],
+      env: s3Env,
+      volumeMounts: [{ name: 'backup-storage', mountPath: '/backup' }],
+    };
+
+    // With off-site enabled, mongodump runs as an init container so the upload
+    // container runs strictly after it; the archive-size read still targets the
+    // 'mongodump' container logs either way.
+    const podSpec: any = offsiteEnabled
+      ? { restartPolicy: 'Never', initContainers: [mongodumpContainer], containers: [uploadContainer] }
+      : { restartPolicy: 'Never', containers: [mongodumpContainer] };
+
+    podSpec.volumes = [
+      {
+        name: 'backup-storage',
+        persistentVolumeClaim: { claimName: `${resourceName}-backups` },
+      },
+    ];
+
     const backupJob: k8s.V1Job = {
       metadata: {
         name: jobName,
@@ -2350,52 +2457,16 @@ export class KubernetesService implements OnModuleInit {
       spec: {
         backoffLimit: 2,
         ttlSecondsAfterFinished: 3600,
-        template: {
-          spec: {
-            restartPolicy: 'Never',
-            containers: [
-              {
-                name: 'mongodump',
-                image: 'mongo:7.0',
-                command: ['/bin/bash', '-c'],
-                args: [dumpCmd],
-                env: [
-                  {
-                    name: 'MONGO_ADMIN_USER',
-                    value: 'admin',
-                  },
-                  {
-                    name: 'MONGO_ADMIN_PASSWORD',
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: `${resourceName}-admin-password`,
-                        key: 'password',
-                      },
-                    },
-                  },
-                ],
-                volumeMounts: [
-                  { name: 'backup-storage', mountPath: '/backup' },
-                ],
-              },
-            ],
-            volumes: [
-              {
-                name: 'backup-storage',
-                persistentVolumeClaim: {
-                  claimName: `${resourceName}-backups`,
-                },
-              },
-            ],
-          },
-        },
+        template: { spec: podSpec },
       },
     };
 
     const batchApi = this.kc.makeApiClient(k8s.BatchV1Api);
     await batchApi.createNamespacedJob(namespace, backupJob);
-    
-    this.logger.log(`Backup job ${jobName} created`);
+
+    this.logger.log(
+      `Backup job ${jobName} created${offsiteEnabled ? ' (with off-site upload)' : ''}`,
+    );
   }
 
   async restoreBackup(params: BackupParams & { databases?: string[]; collections?: string[] }): Promise<void> {
