@@ -10,6 +10,7 @@ resources:
   - frontend.yaml
   - ingress.yaml
   - network-policies.yaml
+  - app-ingress.yaml
   - rbac.yaml
   - pod-disruption-budgets.yaml
   - pod-cleanup-cronjob.yaml
