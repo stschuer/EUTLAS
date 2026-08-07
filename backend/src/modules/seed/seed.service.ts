@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import {
   Organization,
@@ -35,10 +36,14 @@ export class SeedService implements OnModuleInit {
       'SEED_ADMIN_EMAIL',
       'simon.tschuertz@web.de',
     );
-    const adminPassword = this.configService.get<string>(
-      'SEED_ADMIN_PASSWORD',
-      'EUTLAS-Admin-2026!',
-    );
+    // Never ship a hardcoded default password: a value committed to the repo is
+    // effectively public and this account is a global admin. When
+    // SEED_ADMIN_PASSWORD is unset, generate a strong random one (logged once
+    // below, on first creation) so a fresh deployment gets a unique credential.
+    const configuredPassword =
+      this.configService.get<string>('SEED_ADMIN_PASSWORD');
+    const adminPassword =
+      configuredPassword || randomBytes(24).toString('base64url');
     const adminName = this.configService.get<string>(
       'SEED_ADMIN_NAME',
       'Simon Tschürtz',
@@ -89,6 +94,14 @@ export class SeedService implements OnModuleInit {
     this.logger.log(
       `Created global admin: ${adminEmail} (ID: ${admin._id})`,
     );
+
+    if (!configuredPassword) {
+      this.logger.warn(
+        `SEED_ADMIN_PASSWORD was not set — generated a one-time admin password ` +
+          `for ${adminEmail}: ${adminPassword}\n` +
+          `Store it now and set SEED_ADMIN_PASSWORD; it will not be shown again.`,
+      );
+    }
 
     // Create the default organization
     await this.ensureOrganization(admin._id.toString(), orgName);
