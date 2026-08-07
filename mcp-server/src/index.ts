@@ -204,12 +204,19 @@ server.tool(
   {
     projectId: z.string().describe("Project id"),
     clusterId: z.string().describe("Cluster id"),
-    description: z.string().optional().describe("Optional label for this backup"),
+    name: z
+      .string()
+      .max(100)
+      .optional()
+      .describe("Label for this backup (max 100 chars)"),
   },
-  async ({ projectId, clusterId, description }) => {
+  async ({ projectId, clusterId, name }) => {
     try {
+      // The API requires a `name` string on the body.
       return ok(
-        await api("POST", `/projects/${projectId}/clusters/${clusterId}/backups`, { description }),
+        await api("POST", `/projects/${projectId}/clusters/${clusterId}/backups`, {
+          name: name ?? "manual-backup",
+        }),
       );
     } catch (e) {
       return fail(e);
