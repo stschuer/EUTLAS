@@ -116,9 +116,6 @@ interface BackupParams {
   plan: string;
   backupId: string;
   storageClass?: string;
-  // When the cluster has been migrated to its own dedicated server, this is that
-  // server's kubeconfig so the backup runs against the live instance.
-  dedicatedKubeconfig?: string;
 }
 
 export interface BackupRunResult {
@@ -2594,14 +2591,6 @@ export class KubernetesService implements OnModuleInit {
    * Create a backup and wait for the K8s Job to finish. Returns real archive size in production.
    */
   async runBackup(params: BackupParams): Promise<BackupRunResult> {
-    // Migrated clusters live on their own dedicated server; run the whole backup
-    // (Job, wait, size read) against that cluster's API, not the shared one — the
-    // shared-cluster pods are only a pre-migration copy.
-    if (params.dedicatedKubeconfig) {
-      const { dedicatedKubeconfig, ...rest } = params;
-      return this.withDedicatedClients(dedicatedKubeconfig, () => this.runBackup(rest));
-    }
-
     const storagePath = `/backup/${params.backupId}.gz`;
 
     if (this.shouldSimulate()) {

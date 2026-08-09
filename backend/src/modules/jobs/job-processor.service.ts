@@ -366,23 +366,6 @@ export class JobProcessorService implements OnModuleInit {
     const cluster = await this.clustersService.findById(clusterId);
     const plan = cluster?.plan || 'DEV';
 
-    // If the cluster was migrated to its own dedicated server, back up the live
-    // instance there rather than the pre-migration copy in the shared cluster.
-    let dedicatedKubeconfig: string | undefined;
-    const dedicatedKubeconfigEncrypted: string | undefined = (cluster as any)
-      ?.dedicatedKubeconfigEncrypted;
-    if (dedicatedKubeconfigEncrypted) {
-      try {
-        dedicatedKubeconfig = this.credentialsService.decryptString(
-          dedicatedKubeconfigEncrypted,
-        );
-      } catch (e) {
-        this.logger.warn(
-          `[${clusterId}] Failed to decrypt dedicated kubeconfig for backup: ${e}`,
-        );
-      }
-    }
-
     await this.backupsService.startBackup(backupId);
 
     try {
@@ -391,7 +374,6 @@ export class JobProcessorService implements OnModuleInit {
         projectId,
         plan,
         backupId,
-        dedicatedKubeconfig,
       });
 
       await this.backupsService.completeBackup(backupId, {
