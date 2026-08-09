@@ -2363,6 +2363,22 @@ export class KubernetesService implements OnModuleInit {
     // Ensure the backup PVC exists
     await this.ensureBackupPvc(namespace, resourceName);
 
+    // Fail fast if the cluster's admin credentials secret is missing (e.g. clusters
+    // that don't run as pods in this namespace). Otherwise the Job's container can
+    // never be created and sits in CreateContainerConfigError forever, piling up
+    // against the node pod limit — which is exactly what blocked HA scheduling.
+    try {
+      await this.coreApi.readNamespacedSecret(`${resourceName}-admin-password`, namespace);
+    } catch (error: any) {
+      if (error.response?.statusCode === 404) {
+        throw new Error(
+          `Admin credentials secret ${resourceName}-admin-password not found in ${namespace}; ` +
+            'cannot run a mongodump backup for this cluster here',
+        );
+      }
+      throw error;
+    }
+
     // Build mongodump command with proper auth and verify the compressed archive before the Job succeeds.
     const archivePath = `/backup/${params.backupId}.gz`;
     const dumpCmd = [

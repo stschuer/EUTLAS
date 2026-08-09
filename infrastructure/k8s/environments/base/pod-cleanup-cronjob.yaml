@@ -20,19 +20,46 @@ spec:
                 - /bin/sh
                 - -c
                 - |
-                  echo "Cleaning up completed/failed pods in eutlas namespace..."
-                  kubectl delete pods -n eutlas \
-                    --field-selector=status.phase=Succeeded \
-                    --selector='debug-preserve!=true' 2>/dev/null || true
-                  kubectl delete pods -n eutlas \
-                    --field-selector=status.phase=Failed \
-                    --selector='debug-preserve!=true' 2>/dev/null || true
-                  echo "Done. Remaining pods:"
-                  kubectl get pods -n eutlas
+                  set -u
+                  # Managed namespaces: the platform namespace plus every tenant
+                  # namespace (eutlas-<projectId>). The old job only cleaned
+                  # `eutlas`, so tenant backup/job pods piled up unbounded.
+                  MANAGED=$(kubectl get ns -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+                    | grep -E '^eutlas$|^eutlas-')
+
+                  for ns in $MANAGED; do
+                    echo "Cleaning terminal pods in $ns..."
+                    kubectl delete pods -n "$ns" --field-selector=status.phase=Succeeded \
+                      --selector='debug-preserve!=true' 2>/dev/null || true
+                    kubectl delete pods -n "$ns" --field-selector=status.phase=Failed \
+                      --selector='debug-preserve!=true' 2>/dev/null || true
+                  done
+
+                  # Pods stuck in permanent container/image failures never reach a
+                  # terminal phase, so field-selectors miss them and they accumulate
+                  # against the node pod limit (this is what blocked HA scheduling).
+                  # Delete such pods and, for backup jobs, the owning Job so it is
+                  # not immediately recreated in the same broken state.
+                  echo "Reaping stuck pods (CreateContainerConfigError/ImagePull*)..."
+                  kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"|"}{range .status.initContainerStatuses[*]}{.state.waiting.reason}{","}{end}{range .status.containerStatuses[*]}{.state.waiting.reason}{","}{end}{"\n"}{end}' \
+                    | grep -E 'CreateContainerConfigError|ImagePullBackOff|ErrImagePull|InvalidImageName' \
+                    | while IFS='|' read ns name reasons; do
+                        case "$ns" in
+                          eutlas|eutlas-*)
+                            owner=$(kubectl get pod "$name" -n "$ns" \
+                              -o jsonpath='{.metadata.ownerReferences[0].name}' 2>/dev/null)
+                            kubectl delete pod "$name" -n "$ns" 2>/dev/null || true
+                            case "$owner" in
+                              backup-*) kubectl delete job "$owner" -n "$ns" 2>/dev/null || true ;;
+                            esac
+                            ;;
+                        esac
+                      done
+                  echo "Cleanup done."
               resources:
                 limits:
-                  cpu: "100m"
-                  memory: 64Mi
+                  cpu: "200m"
+                  memory: 128Mi
                 requests:
                   cpu: "50m"
                   memory: 32Mi
