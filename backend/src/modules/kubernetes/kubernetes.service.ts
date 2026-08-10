@@ -116,6 +116,11 @@ interface BackupParams {
   plan: string;
   backupId: string;
   storageClass?: string;
+  // For clusters on their own dedicated server, mongodump must target the live
+  // instance's external endpoint (reachable from the shared cluster) rather than
+  // the in-cluster service, which only fronts a stale pre-migration copy.
+  backupHost?: string;
+  backupPort?: number;
 }
 
 export interface BackupRunResult {
@@ -2379,11 +2384,18 @@ export class KubernetesService implements OnModuleInit {
       throw error;
     }
 
+    // Dedicated clusters live on their own server; dump their reachable external
+    // endpoint (a single seed host:port ⇒ direct connection, no replica-set
+    // discovery of unreachable internal members). Otherwise use the in-cluster
+    // service. The admin credentials are identical either way.
+    const dumpHost = params.backupHost || serviceName;
+    const dumpPort = params.backupPort || 27017;
+
     // Build mongodump command with proper auth and verify the compressed archive before the Job succeeds.
     const archivePath = `/backup/${params.backupId}.gz`;
     const dumpCmd = [
       'set -euo pipefail',
-      `mongodump --host="${serviceName}" --port=27017 --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=${archivePath} --gzip`,
+      `mongodump --host="${dumpHost}" --port=${dumpPort} --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=${archivePath} --gzip`,
       `test -s ${archivePath}`,
       `gzip -t ${archivePath}`,
       `stat -c '%s' ${archivePath}`,

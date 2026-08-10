@@ -366,6 +366,18 @@ export class JobProcessorService implements OnModuleInit {
     const cluster = await this.clustersService.findById(clusterId);
     const plan = cluster?.plan || 'DEV';
 
+    // Clusters relocated to their own dedicated server keep serving from that
+    // server's external endpoint; the in-cluster pods are a stale pre-migration
+    // copy. Back up the live instance by pointing mongodump at the external
+    // endpoint (reachable from the shared cluster; same admin credentials).
+    const c = cluster as any;
+    let backupHost: string | undefined;
+    let backupPort: number | undefined;
+    if (c?.dedicatedServerId && c?.externalHost && c?.externalPort) {
+      backupHost = c.externalHost;
+      backupPort = c.externalPort;
+    }
+
     await this.backupsService.startBackup(backupId);
 
     try {
@@ -374,6 +386,8 @@ export class JobProcessorService implements OnModuleInit {
         projectId,
         plan,
         backupId,
+        backupHost,
+        backupPort,
       });
 
       await this.backupsService.completeBackup(backupId, {
