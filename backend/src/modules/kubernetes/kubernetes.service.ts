@@ -2435,9 +2435,17 @@ export class KubernetesService implements OnModuleInit {
 
     // Build mongodump command with proper auth and verify the compressed archive before the Job succeeds.
     const archivePath = `/backup/${params.backupId}.gz`;
+    // When dumping the in-cluster replica set via its service, read from a
+    // secondary and serialise collections: dumping the primary in parallel is what
+    // intermittently failed large backups with CursorNotFound ("Mux ending but
+    // selectCases still open") when the primary churned mid-dump. The dedicated
+    // direct-connection path is already stable and keeps mongodump's defaults.
+    const dumpFlags = hasLocalPods
+      ? ' --readPreference=secondaryPreferred --numParallelCollections=1'
+      : '';
     const dumpCmd = [
       'set -euo pipefail',
-      `mongodump --host="${dumpHost}" --port=${dumpPort} --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=${archivePath} --gzip`,
+      `mongodump --host="${dumpHost}" --port=${dumpPort} --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin${dumpFlags} --archive=${archivePath} --gzip`,
       `test -s ${archivePath}`,
       `gzip -t ${archivePath}`,
       `stat -c '%s' ${archivePath}`,

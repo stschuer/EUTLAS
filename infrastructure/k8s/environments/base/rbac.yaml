@@ -18,7 +18,7 @@ rules:
     verbs: ["get", "list"]
   # Core resources in tenant namespaces
   - apiGroups: [""]
-    resources: ["pods", "services", "configmaps", "secrets", "serviceaccounts", "persistentvolumeclaims"]
+    resources: ["pods", "services", "endpoints", "configmaps", "secrets", "serviceaccounts", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Pod logs (read backup archive size from the completed backup job pod) and exec
   - apiGroups: [""]
