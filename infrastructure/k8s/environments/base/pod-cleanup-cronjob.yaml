@@ -55,6 +55,17 @@ spec:
                             ;;
                         esac
                       done
+
+                  # Evicted pods (phase=Failed, reason=Evicted) are terminal junk
+                  # left behind by node memory/disk pressure. Rancher's own
+                  # namespaces (cattle-system) never clean them, so hundreds pile
+                  # up and bloat etcd/the API. Reap them cluster-wide.
+                  echo "Reaping Evicted pods cluster-wide..."
+                  kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"|"}{.status.reason}{"\n"}{end}' \
+                    | grep -E '\|Evicted$' \
+                    | while IFS='|' read ns name reason; do
+                        kubectl delete pod "$name" -n "$ns" 2>/dev/null || true
+                      done
                   echo "Cleanup done."
               resources:
                 limits:
