@@ -116,6 +116,12 @@ interface BackupParams {
   plan: string;
   backupId: string;
   storageClass?: string;
+  // For a cluster living on its own dedicated server (no pods in this cluster):
+  // the reachable external endpoint and control-plane admin password, so the
+  // in-cluster backup Job can dump the live instance directly.
+  backupHost?: string;
+  backupPort?: number;
+  adminPassword?: string;
 }
 
 export interface BackupRunResult {
@@ -2348,6 +2354,37 @@ export class KubernetesService implements OnModuleInit {
     }
   }
 
+  /**
+   * Materialise a cluster's admin password as a local secret so a backup Job's
+   * secretKeyRef resolves — used for clusters whose own admin secret lives on a
+   * dedicated server rather than in this namespace.
+   */
+  private async ensureAdminSecretValue(
+    namespace: string,
+    secretName: string,
+    resourceName: string,
+    password: string,
+  ): Promise<void> {
+    try {
+      await this.coreApi.readNamespacedSecret(secretName, namespace);
+      return; // already present
+    } catch (error: any) {
+      if (error.response?.statusCode !== 404) throw error;
+    }
+    await this.coreApi.createNamespacedSecret(namespace, {
+      metadata: {
+        name: secretName,
+        namespace,
+        labels: {
+          'eutlas.eu/managed-by': 'eutlas',
+          'eutlas.eu/cluster': resourceName,
+        },
+      },
+      type: 'Opaque',
+      stringData: { password },
+    });
+  }
+
   async createBackup(params: BackupParams): Promise<void> {
     this.logger.log(`Creating backup ${params.backupId} for cluster ${params.clusterId}`);
 
@@ -2363,27 +2400,44 @@ export class KubernetesService implements OnModuleInit {
     // Ensure the backup PVC exists
     await this.ensureBackupPvc(namespace, resourceName);
 
-    // Fail fast if the cluster's admin credentials secret is missing (e.g. clusters
-    // that don't run as pods in this namespace). Otherwise the Job's container can
-    // never be created and sits in CreateContainerConfigError forever, piling up
-    // against the node pod limit — which is exactly what blocked HA scheduling.
+    // Decide what to dump. If the in-cluster service has backing pods, the live
+    // replica set runs here → dump the service. Otherwise the cluster lives on its
+    // own dedicated server → dump that server's reachable external endpoint,
+    // materialising the control-plane admin password as a local secret so the
+    // Job's secretKeyRef resolves. If neither is possible, fail fast (a missing
+    // container would otherwise sit in CreateContainerConfigError, piling up
+    // against the node pod limit).
+    const secretName = `${resourceName}-admin-password`;
+    let hasLocalPods = false;
     try {
-      await this.coreApi.readNamespacedSecret(`${resourceName}-admin-password`, namespace);
+      const ep = await this.coreApi.readNamespacedEndpoints(serviceName, namespace);
+      hasLocalPods = (ep.body.subsets || []).some(
+        (s) => (s.addresses || []).length > 0,
+      );
     } catch (error: any) {
-      if (error.response?.statusCode === 404) {
+      if (error.response?.statusCode !== 404) throw error;
+    }
+
+    let dumpHost = serviceName;
+    let dumpPort = 27017;
+
+    if (!hasLocalPods) {
+      if (!params.backupHost || !params.backupPort || !params.adminPassword) {
         throw new Error(
-          `Admin credentials secret ${resourceName}-admin-password not found in ${namespace}; ` +
-            'cannot run a mongodump backup for this cluster here',
+          `Cluster ${resourceName} has no in-cluster pods and no reachable dedicated ` +
+            `endpoint/credentials in ${namespace}; cannot run a mongodump backup`,
         );
       }
-      throw error;
+      dumpHost = params.backupHost;
+      dumpPort = params.backupPort;
+      await this.ensureAdminSecretValue(namespace, secretName, resourceName, params.adminPassword);
     }
 
     // Build mongodump command with proper auth and verify the compressed archive before the Job succeeds.
     const archivePath = `/backup/${params.backupId}.gz`;
     const dumpCmd = [
       'set -euo pipefail',
-      `mongodump --host="${serviceName}" --port=27017 --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=${archivePath} --gzip`,
+      `mongodump --host="${dumpHost}" --port=${dumpPort} --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=${archivePath} --gzip`,
       `test -s ${archivePath}`,
       `gzip -t ${archivePath}`,
       `stat -c '%s' ${archivePath}`,
@@ -2413,6 +2467,14 @@ export class KubernetesService implements OnModuleInit {
         },
       ],
       volumeMounts: [{ name: 'backup-storage', mountPath: '/backup' }],
+      // A memory request lifts the pod out of BestEffort QoS so it is not the
+      // first thing evicted / OOM-killed under node memory pressure (the likely
+      // cause of intermittent backup failures). The limit is generous so a large
+      // dump never hits it.
+      resources: {
+        requests: { cpu: '100m', memory: '256Mi' },
+        limits: { cpu: '1000m', memory: '1Gi' },
+      },
     };
 
     // Best-effort off-site replica. Always exits 0: a failed/absent upload must
@@ -2444,6 +2506,10 @@ export class KubernetesService implements OnModuleInit {
       args: [uploadCmd],
       env: s3Env,
       volumeMounts: [{ name: 'backup-storage', mountPath: '/backup' }],
+      resources: {
+        requests: { cpu: '50m', memory: '64Mi' },
+        limits: { cpu: '250m', memory: '256Mi' },
+      },
     };
 
     // With off-site enabled, mongodump runs as an init container so the upload
