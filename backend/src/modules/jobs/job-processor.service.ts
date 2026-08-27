@@ -366,6 +366,27 @@ export class JobProcessorService implements OnModuleInit {
     const cluster = await this.clustersService.findById(clusterId);
     const plan = cluster?.plan || 'DEV';
 
+    // For a cluster on its own dedicated server (no pods in the shared cluster),
+    // the backup Job dumps the reachable external endpoint using the control-plane
+    // admin password. createBackup falls back to this only when the in-cluster
+    // service has no pods, so passing it always is harmless for shared clusters.
+    const c = cluster as any;
+    let backupHost: string | undefined;
+    let backupPort: number | undefined;
+    let adminPassword: string | undefined;
+    if (c?.externalHost && c?.externalPort) {
+      backupHost = c.externalHost;
+      backupPort = c.externalPort;
+      try {
+        const creds = await this.credentialsService.getDecrypted(clusterId);
+        adminPassword = creds.password;
+      } catch (e) {
+        this.logger.warn(
+          `[${clusterId}] Could not decrypt admin credentials for dedicated backup: ${e}`,
+        );
+      }
+    }
+
     await this.backupsService.startBackup(backupId);
 
     try {
@@ -374,6 +395,9 @@ export class JobProcessorService implements OnModuleInit {
         projectId,
         plan,
         backupId,
+        backupHost,
+        backupPort,
+        adminPassword,
       });
 
       await this.backupsService.completeBackup(backupId, {
