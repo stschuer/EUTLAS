@@ -39,14 +39,14 @@ spec:
               command: ["/bin/sh", "-c"]
               args:
                 - |
-                  echo "DR mirror fsn1 -> hel1 starting $(date -u +%FT%TZ)"
-                  rclone copy "src:$S3_BUCKET" "dr:eutlas-backups-dr" \
+                  echo "DR mirror fsn1 -> nbg1 starting $(date -u +%FT%TZ)"
+                  rclone copy "src:$S3_BUCKET" "dr:eutlas-backups-de-nbg" \
                     --transfers 4 --checkers 8 \
                     --stats-one-line --stats 30s -v
                   rc=$?
                   echo "rclone rc=$rc"
                   echo "DR bucket contents (newest):"
-                  rclone lsl dr:eutlas-backups-dr | sort -k2 | tail -6
+                  rclone lsl dr:eutlas-backups-de-nbg | sort -k2 | tail -6
                   exit $rc
               env:
                 - name: S3_BUCKET
