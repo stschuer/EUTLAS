@@ -110,6 +110,11 @@ interface UpdateNetworkPolicyParams {
   allowedCidrs: string[];
 }
 
+// Data-bearing volumes use LUKS-encrypted Hetzner Cloud Volumes (encryption at
+// rest, AES-256, managed by the hcloud CSI driver) instead of the unencrypted
+// node-local `local-path` storage — required for the platform's ISO 27001 goals.
+const ENCRYPTED_STORAGE_CLASS = 'hcloud-volumes-encrypted';
+
 interface BackupParams {
   clusterId: string;
   projectId: string;
@@ -1004,7 +1009,7 @@ export class KubernetesService implements OnModuleInit {
                 },
                 spec: {
                   accessModes: ['ReadWriteOnce'],
-                  storageClassName: 'local-path',
+                  storageClassName: ENCRYPTED_STORAGE_CLASS,
                   resources: {
                     requests: {
                       storage: params.resources.storage,
@@ -1018,7 +1023,7 @@ export class KubernetesService implements OnModuleInit {
                 },
                 spec: {
                   accessModes: ['ReadWriteOnce'],
-                  storageClassName: 'local-path',
+                  storageClassName: ENCRYPTED_STORAGE_CLASS,
                   resources: {
                     requests: {
                       storage: '1Gi',
@@ -1214,7 +1219,7 @@ export class KubernetesService implements OnModuleInit {
             metadata: { name: 'data' },
             spec: {
               accessModes: ['ReadWriteOnce'],
-              storageClassName: 'local-path',
+              storageClassName: ENCRYPTED_STORAGE_CLASS,
               resources: { requests: { storage: resources.storage } },
             },
           },
@@ -2343,7 +2348,7 @@ export class KubernetesService implements OnModuleInit {
           },
           spec: {
             accessModes: ['ReadWriteOnce'],
-            storageClassName: 'local-path',
+            storageClassName: ENCRYPTED_STORAGE_CLASS,
             resources: { requests: { storage: '5Gi' } },
           },
         });
@@ -2877,7 +2882,7 @@ export class KubernetesService implements OnModuleInit {
             metadata: { name: 'qdrant-storage' },
             spec: {
               accessModes: ['ReadWriteOnce'],
-              storageClassName: 'local-path',
+              storageClassName: ENCRYPTED_STORAGE_CLASS,
               resources: { requests: { storage: resources.storage } },
             },
           },

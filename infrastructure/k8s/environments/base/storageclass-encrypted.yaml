@@ -1,0 +1,20 @@
+# LUKS-encrypted Hetzner Cloud Volumes (encryption at rest, AES-256) via the
+# hcloud CSI driver. The passphrase lives in Secret kube-system/hcloud-encryption
+# and is intentionally NOT stored in git — it is the encryption key. Create it
+# out-of-band and back it up securely; losing it makes encrypted volumes
+# unrecoverable:
+#   kubectl create secret generic hcloud-encryption -n kube-system \
+#     --from-literal=encryption-passphrase='<STRONG-PASSPHRASE>'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: hcloud-volumes-encrypted
+provisioner: csi.hetzner.cloud
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  csi.storage.k8s.io/node-stage-secret-name: hcloud-encryption
+  csi.storage.k8s.io/node-stage-secret-namespace: kube-system
+  csi.storage.k8s.io/node-publish-secret-name: hcloud-encryption
+  csi.storage.k8s.io/node-publish-secret-namespace: kube-system
