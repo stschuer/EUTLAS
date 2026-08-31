@@ -17,6 +17,7 @@ resources:
   - platform-backup-cronjob.yaml
   - platform-backup-monitor-cronjob.yaml
   - platform-restore-drill-cronjob.yaml
+  - offsite-dr-mirror-cronjob.yaml
   - tls-cert-expiry-monitor-cronjob.yaml
 
 

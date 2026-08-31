@@ -1,0 +1,73 @@
+# Geo-redundant DR mirror of the off-site backups.
+#
+# The primary off-site copy lives in Hetzner Object Storage fsn1 (Falkenstein) —
+# the SAME location as the RKE2 cluster. That satisfies "copy outside the
+# cluster" but not "sufficient distance to escape a disaster at the main site"
+# (ISO 27002 A.8.13 guidance). This CronJob replicates every backup to a second
+# bucket in hel1 (Helsinki) — a different country / failure domain.
+#
+# Design choices:
+#   * rclone (not mc): Hetzner's per-location LocationConstraint makes mc's
+#     GetBucketLocation redirect fail on cross-region object writes. rclone pins
+#     region + endpoint per remote and uses virtual-host style, which works.
+#   * `rclone copy` (additive, never deletes in DR): the Helsinki copy survives
+#     not just a Falkenstein site loss but also accidental/malicious deletion or
+#     ransomware in the primary bucket. Cost is trivial (~0.75 GB/day).
+#   * Same S3 credentials as the primary bucket — Hetzner keys are project-wide,
+#     valid across locations (verified), so no extra secret is needed.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: offsite-dr-mirror
+spec:
+  schedule: "30 */6 * * *"      # every 6h — keeps DR well inside the 24h RPO
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 3600
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: rclone
+              image: rclone/rclone:latest
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  echo "DR mirror fsn1 -> hel1 starting $(date -u +%FT%TZ)"
+                  rclone copy "src:$S3_BUCKET" "dr:eutlas-backups-dr" \
+                    --transfers 4 --checkers 8 \
+                    --stats-one-line --stats 30s -v
+                  rc=$?
+                  echo "rclone rc=$rc"
+                  echo "DR bucket contents (newest):"
+                  rclone lsl dr:eutlas-backups-dr | sort -k2 | tail -6
+                  exit $rc
+              env:
+                - name: S3_BUCKET
+                  valueFrom: { secretKeyRef: { name: platform-backup-object-storage, key: bucket } }
+                # Source remote — fsn1 (primary off-site bucket)
+                - { name: RCLONE_CONFIG_SRC_TYPE, value: s3 }
+                - { name: RCLONE_CONFIG_SRC_PROVIDER, value: Other }
+                - { name: RCLONE_CONFIG_SRC_ENDPOINT, value: "https://fsn1.your-objectstorage.com" }
+                - { name: RCLONE_CONFIG_SRC_REGION, value: fsn1 }
+                - name: RCLONE_CONFIG_SRC_ACCESS_KEY_ID
+                  valueFrom: { secretKeyRef: { name: platform-backup-object-storage, key: accessKey } }
+                - name: RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY
+                  valueFrom: { secretKeyRef: { name: platform-backup-object-storage, key: secretKey } }
+                # DR remote — hel1 (Helsinki). Virtual-host style; NO force_path_style.
+                - { name: RCLONE_CONFIG_DR_TYPE, value: s3 }
+                - { name: RCLONE_CONFIG_DR_PROVIDER, value: Other }
+                - { name: RCLONE_CONFIG_DR_ENDPOINT, value: "https://hel1.your-objectstorage.com" }
+                - { name: RCLONE_CONFIG_DR_REGION, value: hel1 }
+                - name: RCLONE_CONFIG_DR_ACCESS_KEY_ID
+                  valueFrom: { secretKeyRef: { name: platform-backup-object-storage, key: accessKey } }
+                - name: RCLONE_CONFIG_DR_SECRET_ACCESS_KEY
+                  valueFrom: { secretKeyRef: { name: platform-backup-object-storage, key: secretKey } }
+              resources:
+                requests: { cpu: "100m", memory: 128Mi }
+                limits: { cpu: "1000m", memory: 512Mi }
