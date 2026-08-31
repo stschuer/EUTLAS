@@ -4,7 +4,8 @@
 # the SAME location as the RKE2 cluster. That satisfies "copy outside the
 # cluster" but not "sufficient distance to escape a disaster at the main site"
 # (ISO 27002 A.8.13 guidance). This CronJob replicates every backup to a second
-# bucket in hel1 (Helsinki) — a different country / failure domain.
+# bucket in nbg1 (Nuremberg) — a different datacenter ~200 km away, a separate
+# failure domain, while staying entirely within Germany (data residency).
 #
 # Design choices:
 #   * rclone (not mc): Hetzner's per-location LocationConstraint makes mc's
@@ -59,11 +60,11 @@ spec:
                   valueFrom: { secretKeyRef: { name: platform-backup-object-storage, key: accessKey } }
                 - name: RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY
                   valueFrom: { secretKeyRef: { name: platform-backup-object-storage, key: secretKey } }
-                # DR remote — hel1 (Helsinki). Virtual-host style; NO force_path_style.
+                # DR remote — nbg1 (Nuremberg). Virtual-host style; NO force_path_style.
                 - { name: RCLONE_CONFIG_DR_TYPE, value: s3 }
                 - { name: RCLONE_CONFIG_DR_PROVIDER, value: Other }
-                - { name: RCLONE_CONFIG_DR_ENDPOINT, value: "https://hel1.your-objectstorage.com" }
-                - { name: RCLONE_CONFIG_DR_REGION, value: hel1 }
+                - { name: RCLONE_CONFIG_DR_ENDPOINT, value: "https://nbg1.your-objectstorage.com" }
+                - { name: RCLONE_CONFIG_DR_REGION, value: nbg1 }
                 - name: RCLONE_CONFIG_DR_ACCESS_KEY_ID
                   valueFrom: { secretKeyRef: { name: platform-backup-object-storage, key: accessKey } }
                 - name: RCLONE_CONFIG_DR_SECRET_ACCESS_KEY
