@@ -79,6 +79,18 @@ describe('BackupRetentionService', () => {
     expect(model.updateMany).not.toHaveBeenCalled();
   });
 
+  it('fails backups abandoned in pending/in_progress for over 2h', async () => {
+    model.updateMany.mockReturnValue({ exec: jest.fn().mockResolvedValue({ modifiedCount: 1 }) });
+
+    expect(await service.failStaleBackups(now)).toBe(1);
+    const [filter, update] = model.updateMany.mock.calls[0];
+    expect(filter).toEqual({
+      status: { $in: ['pending', 'in_progress'] },
+      updatedAt: { $lte: new Date('2026-10-12T16:00:00Z') },
+    });
+    expect(update.$set.status).toBe('failed');
+  });
+
   it('ignores a missing legacy TTL index on startup', async () => {
     model.collection.dropIndex.mockRejectedValue({ code: 27, codeName: 'IndexNotFound' });
     await expect(service.onModuleInit()).resolves.toBeUndefined();

@@ -8,6 +8,10 @@ import { KubernetesService } from '../kubernetes/kubernetes.service';
 
 // Failed backups may leave a partial staged archive; give retries a day first.
 const FAILED_BACKUP_GRACE_MS = 24 * 60 * 60 * 1000;
+// Well past the backup Job's 1h deadline. A backend restart abandons the backup
+// it was waiting on, and a record left pending/in_progress blocks every later
+// backup of that cluster.
+const STALE_BACKUP_MS = 2 * 60 * 60 * 1000;
 const MAX_BACKUPS_PER_RUN = 500;
 
 /**
@@ -46,12 +50,36 @@ export class BackupRetentionService implements OnModuleInit {
     }
     this.isRunning = true;
     try {
-      await this.runPurge(new Date());
+      const now = new Date();
+      await this.failStaleBackups(now);
+      await this.runPurge(now);
     } catch (error: any) {
       this.logger.error(`Backup retention run failed: ${error.message}`);
     } finally {
       this.isRunning = false;
     }
+  }
+
+  async failStaleBackups(now: Date): Promise<number> {
+    const result = await this.backupModel
+      .updateMany(
+        {
+          status: { $in: ['pending', 'in_progress'] },
+          updatedAt: { $lte: new Date(now.getTime() - STALE_BACKUP_MS) },
+        },
+        {
+          $set: {
+            status: 'failed',
+            completedAt: now,
+            errorMessage: 'Backup abandoned: no progress for 2h (e.g. interrupted by a backend restart)',
+          },
+        },
+      )
+      .exec();
+    if (result.modifiedCount > 0) {
+      this.logger.warn(`Marked ${result.modifiedCount} abandoned backup(s) as failed`);
+    }
+    return result.modifiedCount;
   }
 
   async runPurge(now: Date): Promise<number> {

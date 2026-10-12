@@ -2587,6 +2587,9 @@ export class KubernetesService implements OnModuleInit {
       },
       spec: {
         backoffLimit: 2,
+        // Matches waitForJobCompletion's timeout; without it a Job whose image
+        // cannot be pulled sits in ImagePullBackOff forever.
+        activeDeadlineSeconds: 3600,
         ttlSecondsAfterFinished: 3600,
         template: { spec: podSpec },
       },
