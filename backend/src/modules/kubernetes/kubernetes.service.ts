@@ -114,6 +114,10 @@ interface UpdateNetworkPolicyParams {
 // rest, AES-256, managed by the hcloud CSI driver) instead of the unencrypted
 // node-local `local-path` storage — required for the platform's ISO 27001 goals.
 const ENCRYPTED_STORAGE_CLASS = 'hcloud-volumes-encrypted';
+// Dedicated K3s nodes have no hcloud CSI driver (it would need the project-wide
+// Hetzner token on customer servers). Their local-path storage lives on a
+// LUKS-encrypted Hetzner volume set up by HetznerProvisionerService instead.
+const DEDICATED_STORAGE_CLASS = 'local-path';
 
 // Off-site object storage for tenant backups. The image is pinned: the previous
 // `minio/mc:latest` was withdrawn from every public registry, which silently
@@ -310,6 +314,8 @@ export class KubernetesService implements OnModuleInit {
   private networkApi: k8s.NetworkingV1Api;
   private customApi: k8s.CustomObjectsApi;
   private rbacApi: k8s.RbacAuthorizationV1Api;
+  /** StorageClass for data PVCs; swapped together with the clients in withDedicatedClients. */
+  private dataStorageClass = ENCRYPTED_STORAGE_CLASS;
   private isConnected = false;
   private readonly devMode: boolean;
 
@@ -1043,7 +1049,7 @@ export class KubernetesService implements OnModuleInit {
                 },
                 spec: {
                   accessModes: ['ReadWriteOnce'],
-                  storageClassName: ENCRYPTED_STORAGE_CLASS,
+                  storageClassName: this.dataStorageClass,
                   resources: {
                     requests: {
                       storage: params.resources.storage,
@@ -1057,7 +1063,7 @@ export class KubernetesService implements OnModuleInit {
                 },
                 spec: {
                   accessModes: ['ReadWriteOnce'],
-                  storageClassName: ENCRYPTED_STORAGE_CLASS,
+                  storageClassName: this.dataStorageClass,
                   resources: {
                     requests: {
                       storage: '1Gi',
@@ -1253,7 +1259,7 @@ export class KubernetesService implements OnModuleInit {
             metadata: { name: 'data' },
             spec: {
               accessModes: ['ReadWriteOnce'],
-              storageClassName: ENCRYPTED_STORAGE_CLASS,
+              storageClassName: this.dataStorageClass,
               resources: { requests: { storage: resources.storage } },
             },
           },
@@ -2382,7 +2388,7 @@ export class KubernetesService implements OnModuleInit {
           },
           spec: {
             accessModes: ['ReadWriteOnce'],
-            storageClassName: ENCRYPTED_STORAGE_CLASS,
+            storageClassName: this.dataStorageClass,
             resources: { requests: { storage: '5Gi' } },
           },
         });
@@ -3044,7 +3050,7 @@ export class KubernetesService implements OnModuleInit {
             metadata: { name: 'qdrant-storage' },
             spec: {
               accessModes: ['ReadWriteOnce'],
-              storageClassName: ENCRYPTED_STORAGE_CLASS,
+              storageClassName: this.dataStorageClass,
               resources: { requests: { storage: resources.storage } },
             },
           },
@@ -3165,6 +3171,7 @@ export class KubernetesService implements OnModuleInit {
       customApi:  this.customApi,
       rbacApi:    this.rbacApi,
       connected:  this.isConnected,
+      storageClass: this.dataStorageClass,
     };
 
     try {
@@ -3178,6 +3185,7 @@ export class KubernetesService implements OnModuleInit {
       this.customApi  = kc.makeApiClient(k8s.CustomObjectsApi);
       this.rbacApi    = kc.makeApiClient(k8s.RbacAuthorizationV1Api);
       this.isConnected = true;
+      this.dataStorageClass = DEDICATED_STORAGE_CLASS;
       return await fn();
     } finally {
       this.kc         = saved.kc;
@@ -3188,6 +3196,7 @@ export class KubernetesService implements OnModuleInit {
       this.customApi  = saved.customApi;
       this.rbacApi    = saved.rbacApi;
       this.isConnected = saved.connected;
+      this.dataStorageClass = saved.storageClass;
     }
   }
 

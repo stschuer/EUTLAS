@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { createHmac } from 'crypto';
 import { Client as SshClient } from 'ssh2';
+import { PLAN_NAMESPACE_STORAGE_QUOTA } from '../kubernetes/kubernetes.service';
 
 // Hetzner server type per EUTLAS plan.
 // Every plan (including DEV/SMALL/MEDIUM) runs on its own dedicated Hetzner
@@ -25,10 +27,29 @@ const PLAN_SERVER_TYPES: Record<string, string> = {
 // Fallback server type for unknown plans — cheapest current-gen Intel.
 const DEFAULT_SERVER_TYPE = 'cx23';
 
+// K3s local-path provisioner root; mounted from the encrypted data volume.
+const LOCAL_PATH_ROOT = '/var/lib/rancher/k3s/storage';
+const MIN_VOLUME_GB = 10;
+
+/** Data volume size: the plan's namespace storage budget (data × replicas, logs, headroom). */
+export function dataVolumeSizeGb(plan: string): number {
+  const quota = PLAN_NAMESPACE_STORAGE_QUOTA[plan] ?? PLAN_NAMESPACE_STORAGE_QUOTA.DEV;
+  const match = /^(\d+)(Gi|Ti)$/.exec(quota);
+  if (!match) return MIN_VOLUME_GB;
+  const gb = Number(match[1]) * (match[2] === 'Ti' ? 1024 : 1);
+  return Math.max(MIN_VOLUME_GB, gb);
+}
+
 export interface DedicatedServerInfo {
   serverId: number;
   serverIp: string;
   kubeconfig: string; // raw YAML, already patched with public IP
+  volumeId: number;   // LUKS-encrypted Hetzner volume backing local-path storage
+}
+
+interface DataVolume {
+  id: number;
+  linuxDevice: string;
 }
 
 @Injectable()
@@ -79,19 +100,26 @@ export class HetznerProvisionerService {
     await this.waitForServerRunning(server.id);
     this.logger.log(`[${clusterId}] Server ${server.id} is running`);
 
-    // ---- 3. Wait for sshd to become available ----
+    // ---- 3. Create + attach the data volume (encrypted on the node in step 5) ----
+    const volume = await this.ensureDataVolume(clusterId, server.id, plan);
+    this.logger.log(`[${clusterId}] Data volume ${volume.id} attached (${dataVolumeSizeGb(plan)} GB)`);
+
+    // ---- 4. Wait for sshd to become available ----
     await this.waitForSsh(ip);
     this.logger.log(`[${clusterId}] SSH available on ${ip}`);
 
-    // ---- 4. Bootstrap K3s + MongoDB operator via SSH ----
-    const kubeconfig = await this.bootstrapServer(ip, clusterId);
+    // ---- 5. Bootstrap encrypted storage + K3s + MongoDB operator via SSH ----
+    const kubeconfig = await this.bootstrapServer(ip, clusterId, volume);
     this.logger.log(`[${clusterId}] Bootstrap complete`);
 
-    return { serverId: server.id, serverIp: ip, kubeconfig };
+    return { serverId: server.id, serverIp: ip, kubeconfig, volumeId: volume.id };
   }
 
-  /** Deletes a Hetzner server by its numeric ID. */
-  async deprovisionServer(serverId: number): Promise<void> {
+  /**
+   * Deletes a Hetzner server by its numeric ID. With a cluster ID, its data
+   * volume (found by name) is deleted too.
+   */
+  async deprovisionServer(serverId: number, clusterId?: string): Promise<void> {
     if (!this.hcloudToken) {
       this.logger.warn(`HCLOUD_TOKEN not set — skipping deprovisioning of server ${serverId}`);
       return;
@@ -105,15 +133,113 @@ export class HetznerProvisionerService {
       this.logger.log(`Server ${serverId} deleted`);
     } catch (error: any) {
       // 404 = already gone, ignore
-      if (error.response?.status === 404) return;
-      this.logger.error(`Failed to delete server ${serverId}: ${error.message}`);
-      throw error;
+      if (error.response?.status !== 404) {
+        this.logger.error(`Failed to delete server ${serverId}: ${error.message}`);
+        throw error;
+      }
+    }
+
+    if (clusterId) {
+      await this.deleteDataVolume(clusterId);
     }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Private helpers
   // ─────────────────────────────────────────────────────────────────────────────
+
+  private get api() {
+    return { headers: { Authorization: `Bearer ${this.hcloudToken}` } };
+  }
+
+  /** Creates (or, on a retry, reuses) the cluster's data volume and attaches it to the server. */
+  private async ensureDataVolume(clusterId: string, serverId: number, plan: string): Promise<DataVolume> {
+    const name = `eutlas-data-${clusterId}`;
+    let volume = await this.findVolumeByName(name);
+
+    if (!volume) {
+      // Passing `server` creates the volume in the server's location and attaches it.
+      const response = await axios.post(
+        'https://api.hetzner.cloud/v1/volumes',
+        {
+          name,
+          size: dataVolumeSizeGb(plan),
+          server: serverId,
+          automount: false,
+          labels: { 'managed-by': 'eutlas', type: 'customer-cluster-data', cluster: clusterId },
+        },
+        this.api,
+      );
+      volume = response.data.volume;
+      const actions = [response.data.action, ...(response.data.next_actions ?? [])].filter(Boolean);
+      for (const action of actions) {
+        await this.waitForAction(action.id);
+      }
+    } else if (volume.server !== serverId) {
+      if (volume.server) {
+        throw new Error(`Volume ${volume.id} (${name}) is attached to another server ${volume.server}`);
+      }
+      const response = await axios.post(
+        `https://api.hetzner.cloud/v1/volumes/${volume.id}/actions/attach`,
+        { server: serverId, automount: false },
+        this.api,
+      );
+      await this.waitForAction(response.data.action.id);
+    }
+
+    return { id: volume.id, linuxDevice: volume.linux_device };
+  }
+
+  private async findVolumeByName(name: string): Promise<any | null> {
+    const response = await axios.get('https://api.hetzner.cloud/v1/volumes', { ...this.api, params: { name } });
+    return response.data.volumes?.[0] ?? null;
+  }
+
+  private async deleteDataVolume(clusterId: string): Promise<void> {
+    const volume = await this.findVolumeByName(`eutlas-data-${clusterId}`);
+    if (!volume) return;
+
+    // Deleting the server detaches the volume asynchronously; a volume can only
+    // be deleted once detached.
+    const deadline = Date.now() + 120_000;
+    let current = volume;
+    while (current.server && Date.now() < deadline) {
+      await this.sleep(5_000);
+      current = (await axios.get(`https://api.hetzner.cloud/v1/volumes/${volume.id}`, this.api)).data.volume;
+    }
+    if (current.server) {
+      throw new Error(`Volume ${volume.id} is still attached to server ${current.server}; not deleting`);
+    }
+
+    await axios.delete(`https://api.hetzner.cloud/v1/volumes/${volume.id}`, this.api);
+    this.logger.log(`Data volume ${volume.id} of cluster ${clusterId} deleted`);
+  }
+
+  private async waitForAction(actionId: number, maxMs = 180_000): Promise<void> {
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+      const { action } = (await axios.get(`https://api.hetzner.cloud/v1/actions/${actionId}`, this.api)).data;
+      if (action.status === 'success') return;
+      if (action.status === 'error') {
+        throw new Error(`Hetzner action ${actionId} (${action.command}) failed: ${action.error?.message}`);
+      }
+      await this.sleep(2_000);
+    }
+    throw new Error(`Hetzner action ${actionId} did not finish within ${maxMs / 1000}s`);
+  }
+
+  /**
+   * LUKS passphrase for a cluster's data volume, derived from the platform
+   * master key so a retried bootstrap reproduces it and nothing extra needs
+   * storing. The node keeps a copy in /etc/eutlas/data.key to unlock at boot.
+   */
+  private dataVolumeKey(clusterId: string, volumeId: number): string {
+    const master = this.configService.get<string>('CREDENTIALS_ENCRYPTION_KEY');
+    if (!master) {
+      throw new Error('CREDENTIALS_ENCRYPTION_KEY is not configured — cannot derive volume encryption key');
+    }
+    return createHmac('sha256', master).update(`luks:${clusterId}:${volumeId}`).digest('base64url');
+  }
 
   private async createHetznerServer(name: string, serverType: string, location: string): Promise<any> {
     const sshKeyId = await this.getSshKeyId();
@@ -204,12 +330,13 @@ export class HetznerProvisionerService {
 
   /**
    * SSHs into the fresh server and runs the full bootstrap sequence:
+   *   - LUKS-encrypted data volume mounted as the local-path storage root
    *   - K3s single-node install
    *   - Helm install
    *   - MongoDB Community Operator via Helm
    *   - Returns the kubeconfig with the public IP substituted in
    */
-  private bootstrapServer(ip: string, clusterId: string): Promise<string> {
+  private bootstrapServer(ip: string, clusterId: string, volume: DataVolume): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.sshPrivateKey) {
         return reject(new Error('HETZNER_CLUSTER_SSH_PRIVATE_KEY is not configured'));
@@ -220,7 +347,7 @@ export class HetznerProvisionerService {
       conn.on('ready', () => {
         this.logger.debug(`[${clusterId}] SSH connected to ${ip}, running bootstrap`);
 
-        const script = this.buildBootstrapScript();
+        const script = this.buildBootstrapScript(volume, this.dataVolumeKey(clusterId, volume.id));
 
         conn.exec(script, (err, stream) => {
           if (err) {
@@ -273,7 +400,7 @@ export class HetznerProvisionerService {
   }
 
   /** Returns a shell script that bootstraps K3s + operator and prints the kubeconfig as base64. */
-  private buildBootstrapScript(): string {
+  private buildBootstrapScript(volume: DataVolume, volumeKey: string): string {
     // We deliberately emit a single heredoc-free, quote-safe string.
     return [
       'set -e',
@@ -330,6 +457,23 @@ export class HetznerProvisionerService {
       'EOF',
       'systemctl daemon-reload',
       'systemctl enable --now eutlas-host-firewall.service',
+
+      // ── Encrypted data volume (backs K3s local-path storage) ──────────────
+      // Every step is idempotent so a retried bootstrap reuses the volume.
+      'echo "=== Preparing encrypted data volume ==="',
+      `DATA_DEV='${volume.linuxDevice}'`,
+      'for i in $(seq 1 60); do [ -b "$DATA_DEV" ] && break; sleep 2; done',
+      '[ -b "$DATA_DEV" ] || { echo "data volume $DATA_DEV not present" >&2; exit 1; }',
+      'command -v cryptsetup >/dev/null 2>&1 || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cryptsetup; }',
+      'install -d -m 700 /etc/eutlas',
+      `(umask 077; printf '%s' '${volumeKey}' > /etc/eutlas/data.key)`,
+      'cryptsetup isLuks "$DATA_DEV" || cryptsetup luksFormat --batch-mode --type luks2 --key-file /etc/eutlas/data.key "$DATA_DEV"',
+      '[ -e /dev/mapper/eutlas-data ] || cryptsetup open --key-file /etc/eutlas/data.key "$DATA_DEV" eutlas-data',
+      'blkid /dev/mapper/eutlas-data >/dev/null 2>&1 || mkfs.ext4 -q -L eutlas-data /dev/mapper/eutlas-data',
+      `mkdir -p ${LOCAL_PATH_ROOT}`,
+      'grep -q "^eutlas-data " /etc/crypttab 2>/dev/null || echo "eutlas-data $DATA_DEV /etc/eutlas/data.key luks,nofail" >> /etc/crypttab',
+      `grep -q " ${LOCAL_PATH_ROOT} " /etc/fstab || echo "/dev/mapper/eutlas-data ${LOCAL_PATH_ROOT} ext4 defaults,nofail 0 2" >> /etc/fstab`,
+      `mountpoint -q ${LOCAL_PATH_ROOT} || mount /dev/mapper/eutlas-data ${LOCAL_PATH_ROOT}`,
 
       // ── K3s ──────────────────────────────────────────────────────────────
       'echo "=== Installing K3s ==="',

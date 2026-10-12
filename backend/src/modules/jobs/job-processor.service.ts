@@ -278,7 +278,7 @@ export class JobProcessorService implements OnModuleInit {
     if (dedicatedServerId) {
       this.logger.log(`[${clusterId}] Deprovisioning dedicated Hetzner server ${dedicatedServerId}`);
       try {
-        await this.hetznerProvisioner.deprovisionServer(dedicatedServerId);
+        await this.hetznerProvisioner.deprovisionServer(dedicatedServerId, clusterId);
       } catch (e: any) {
         this.logger.error(`[${clusterId}] Failed to delete Hetzner server ${dedicatedServerId}: ${e.message}`);
         // Don't throw — cluster DB record is already deleted; log and move on
