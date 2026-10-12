@@ -1,0 +1,111 @@
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { Model, Types } from 'mongoose';
+import { Backup, BackupDocument } from './schemas/backup.schema';
+import { KubernetesService } from '../kubernetes/kubernetes.service';
+
+// Failed backups may leave a partial staged archive; give retries a day first.
+const FAILED_BACKUP_GRACE_MS = 24 * 60 * 60 * 1000;
+const MAX_BACKUPS_PER_RUN = 500;
+
+/**
+ * Removes the archives of expired, deleted and long-failed backups — staged
+ * local copy and off-site object — and only then marks the record as purged.
+ * The newest completed backup of a cluster is always kept, even when expired,
+ * so a cluster whose scheduled backups stopped is never left with none.
+ */
+@Injectable()
+export class BackupRetentionService implements OnModuleInit {
+  private readonly logger = new Logger(BackupRetentionService.name);
+  private isRunning = false;
+
+  constructor(
+    @InjectModel(Backup.name) private readonly backupModel: Model<BackupDocument>,
+    private readonly configService: ConfigService,
+    private readonly kubernetesService: KubernetesService,
+  ) {}
+
+  /** Drop the legacy TTL index that deleted records while orphaning their archives. */
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.backupModel.collection.dropIndex('expiresAt_1');
+      this.logger.log('Dropped legacy TTL index expiresAt_1 on backups');
+    } catch (error: any) {
+      if (error?.codeName !== 'IndexNotFound' && error?.code !== 27 && error?.codeName !== 'NamespaceNotFound') {
+        this.logger.warn(`Could not drop legacy backups TTL index: ${error.message}`);
+      }
+    }
+  }
+
+  @Cron(CronExpression.EVERY_30_MINUTES)
+  async purgeDueBackups(): Promise<void> {
+    if (this.configService.get<string>('NODE_ENV') === 'test' || this.isRunning) {
+      return;
+    }
+    this.isRunning = true;
+    try {
+      await this.runPurge(new Date());
+    } catch (error: any) {
+      this.logger.error(`Backup retention run failed: ${error.message}`);
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  async runPurge(now: Date): Promise<number> {
+    const due = await this.backupModel
+      .find({
+        purgedAt: { $exists: false },
+        $or: [
+          { status: 'completed', expiresAt: { $lte: now } },
+          { status: 'deleted' },
+          { status: 'failed', createdAt: { $lte: new Date(now.getTime() - FAILED_BACKUP_GRACE_MS) } },
+        ],
+      })
+      .select({ _id: 1, clusterId: 1, projectId: 1, status: 1 })
+      .limit(MAX_BACKUPS_PER_RUN)
+      .lean()
+      .exec();
+
+    const byCluster = new Map<string, { projectId: string; ids: Types.ObjectId[] }>();
+    for (const backup of due) {
+      const clusterId = backup.clusterId.toString();
+      const entry = byCluster.get(clusterId) ?? { projectId: backup.projectId.toString(), ids: [] };
+      entry.ids.push(backup._id as Types.ObjectId);
+      byCluster.set(clusterId, entry);
+    }
+
+    let purged = 0;
+    for (const [clusterId, { projectId, ids }] of byCluster) {
+      const newest = await this.backupModel
+        .findOne({ clusterId, status: 'completed' })
+        .sort({ completedAt: -1 })
+        .select({ _id: 1 })
+        .lean()
+        .exec();
+      const keepId = newest?._id?.toString();
+      const purgeIds = ids.filter((id) => id.toString() !== keepId);
+      if (purgeIds.length === 0) continue;
+
+      try {
+        await this.kubernetesService.purgeBackupArchives({
+          clusterId,
+          projectId,
+          backupIds: purgeIds.map((id) => id.toString()),
+        });
+      } catch (error: any) {
+        this.logger.error(`Purging ${purgeIds.length} backup(s) of cluster ${clusterId} failed: ${error.message}`);
+        continue;
+      }
+
+      await this.backupModel
+        .updateMany({ _id: { $in: purgeIds } }, { $set: { status: 'deleted', purgedAt: now } })
+        .exec();
+      purged += purgeIds.length;
+      this.logger.log(`Purged ${purgeIds.length} backup(s) of cluster ${clusterId}`);
+    }
+    return purged;
+  }
+}

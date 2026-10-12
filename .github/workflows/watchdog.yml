@@ -108,3 +108,18 @@ jobs:
           else
             echo "Recovery successful! EUTLAS is back online."
           fi
+
+      # Alert only, no auto-recovery: the checks above probe the frontend, which
+      # kept answering 200 while the API was down for ~19 days (2026-09-23 →
+      # 2026-10-12). A failed scheduled run notifies the repo owner. Restarts or
+      # node reboots would not fix API outages caused by its database/storage.
+      - name: API health (alert only)
+        if: always()
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 https://app.eutlas.eu/api/v1/health/ready 2>/dev/null) || STATUS="000"
+          [ -z "$STATUS" ] && STATUS="000"
+          echo "API readiness: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::EUTLAS API is not ready (HTTP $STATUS). Check platform MongoDB and node DiskPressure."
+            exit 1
+          fi

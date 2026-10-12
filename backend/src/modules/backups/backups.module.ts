@@ -7,6 +7,8 @@ import { BackupPolicy, BackupPolicySchema } from './schemas/backup-policy.schema
 import { BackupPolicyController } from './backup-policy.controller';
 import { BackupPolicyService } from './backup-policy.service';
 import { BackupSchedulerService } from './backup-scheduler.service';
+import { BackupRetentionService } from './backup-retention.service';
+import { KubernetesModule } from '../kubernetes/kubernetes.module';
 import { ClustersModule } from '../clusters/clusters.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { OrgsModule } from '../orgs/orgs.module';
@@ -26,9 +28,10 @@ import { AuditModule } from '../audit/audit.module';
     OrgsModule,
     EventsModule,
     AuditModule,
+    KubernetesModule,
   ],
   controllers: [BackupsController, BackupPolicyController],
-  providers: [BackupsService, BackupPolicyService, BackupSchedulerService],
+  providers: [BackupsService, BackupPolicyService, BackupSchedulerService, BackupRetentionService],
   exports: [BackupsService, BackupPolicyService],
 })
 export class BackupsModule {}

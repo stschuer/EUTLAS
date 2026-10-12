@@ -71,7 +71,8 @@ spec:
                   memory: 256Mi
           containers:
             - name: upload-offsite
-              image: minio/mc:latest
+              # Pinned rclone: minio/mc was withdrawn from all public registries.
+              image: rclone/rclone:1.75.1
               command: ["/bin/sh", "-c"]
               args:
                 - |
@@ -82,16 +83,17 @@ spec:
                     exit 1
                   fi
 
-                  if [ -z "${S3_ENDPOINT:-}" ] || [ -z "${S3_BUCKET:-}" ] || [ -z "${S3_ACCESS_KEY:-}" ] || [ -z "${S3_SECRET_KEY:-}" ]; then
+                  if [ -z "${RCLONE_CONFIG_OFFSITE_ENDPOINT:-}" ] || [ -z "${S3_BUCKET:-}" ] || [ -z "${RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID:-}" ] || [ -z "${RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY:-}" ]; then
                     echo "Object storage secret not configured; backup kept on PVC only"
                     exit 0
                   fi
 
-                  mc alias set offsite "${S3_ENDPOINT}" "${S3_ACCESS_KEY}" "${S3_SECRET_KEY}"
-                  mc mb --region "${S3_REGION:-fsn1}" --ignore-existing "offsite/${S3_BUCKET}"
+                  # Hetzner endpoints are https://<location>.your-objectstorage.com.
+                  export RCLONE_CONFIG_OFFSITE_REGION="${S3_REGION:-$(echo "${RCLONE_CONFIG_OFFSITE_ENDPOINT}" | sed -E 's#^https?://([^.]+)\..*#\1#')}"
+                  DEST="offsite:${S3_BUCKET}/${S3_PREFIX:-platform-mongodb}/$(basename "${LATEST}")"
 
                   for attempt in 1 2 3 4 5 6; do
-                    if mc ls "offsite/${S3_BUCKET}" >/dev/null 2>&1 && mc cp "${LATEST}" "offsite/${S3_BUCKET}/${S3_PREFIX:-platform-mongodb}/"; then
+                    if rclone copyto "${LATEST}" "${DEST}"; then
                       break
                     fi
 
@@ -100,12 +102,14 @@ spec:
                       exit 1
                     fi
 
-                    echo "Bucket not ready or upload failed; retrying (${attempt}/6)"
+                    echo "Upload failed; retrying (${attempt}/6)"
                     sleep 10
                   done
                   echo "Uploaded ${LATEST} to off-site object storage"
               env:
-                - name: S3_ENDPOINT
+                - { name: RCLONE_CONFIG_OFFSITE_TYPE, value: s3 }
+                - { name: RCLONE_CONFIG_OFFSITE_PROVIDER, value: Other }
+                - name: RCLONE_CONFIG_OFFSITE_ENDPOINT
                   valueFrom:
                     secretKeyRef:
                       name: platform-backup-object-storage
@@ -129,13 +133,13 @@ spec:
                       name: platform-backup-object-storage
                       key: region
                       optional: true
-                - name: S3_ACCESS_KEY
+                - name: RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
                       name: platform-backup-object-storage
                       key: accessKey
                       optional: true
-                - name: S3_SECRET_KEY
+                - name: RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
                       name: platform-backup-object-storage

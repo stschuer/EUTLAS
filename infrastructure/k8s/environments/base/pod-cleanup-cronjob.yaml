@@ -4,10 +4,17 @@ metadata:
   name: completed-pod-cleanup
 spec:
   schedule: "*/30 * * * *"   # every 30 minutes
+  # Explicit so an apply re-enables a CronJob that was suspended by hand.
+  suspend: false
+  # Never stack runs: while the nodes were under DiskPressure the cleanup pods
+  # could not schedule and ~950 Jobs piled up, one every 30 minutes.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
+      activeDeadlineSeconds: 900
       ttlSecondsAfterFinished: 60
       template:
         spec:

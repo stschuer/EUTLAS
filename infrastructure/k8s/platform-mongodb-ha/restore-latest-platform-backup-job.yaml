@@ -16,19 +16,15 @@ spec:
       restartPolicy: Never
       initContainers:
         - name: download-latest-backup
-          image: minio/mc:latest
+          # Pinned rclone: minio/mc was withdrawn from all public registries.
+          image: rclone/rclone:1.75.1
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -eu
-
-              if [ -z "${S3_ENDPOINT:-}" ] || [ -z "${S3_BUCKET:-}" ] || [ -z "${S3_ACCESS_KEY:-}" ] || [ -z "${S3_SECRET_KEY:-}" ]; then
-                echo "Object storage secret is not configured"
-                exit 1
-              fi
-
-              mc alias set offsite "${S3_ENDPOINT}" "${S3_ACCESS_KEY}" "${S3_SECRET_KEY}"
-              LATEST="$(mc find "offsite/${S3_BUCKET}/${S3_PREFIX:-platform-mongodb}" --name 'platform-*.gz' | sort | tail -1)"
+              export RCLONE_CONFIG_OFFSITE_REGION="$(echo "${RCLONE_CONFIG_OFFSITE_ENDPOINT}" | sed -E 's#^https?://([^.]+)\..*#\1#')"
+              SRC="offsite:${S3_BUCKET}/${S3_PREFIX:-platform-mongodb}"
+              LATEST="$(rclone lsf --files-only --include 'platform-*.gz' "${SRC}" | sort | tail -1)"
 
               if [ -z "${LATEST}" ]; then
                 echo "No platform backup archive found in object storage"
@@ -36,11 +32,13 @@ spec:
               fi
 
               echo "Downloading ${LATEST}"
-              mc cp "${LATEST}" /restore/platform-latest.gz
+              rclone copyto "${SRC}/${LATEST}" /restore/platform-latest.gz
               test -s /restore/platform-latest.gz
               ls -lh /restore/platform-latest.gz
           env:
-            - name: S3_ENDPOINT
+            - { name: RCLONE_CONFIG_OFFSITE_TYPE, value: s3 }
+            - { name: RCLONE_CONFIG_OFFSITE_PROVIDER, value: Other }
+            - name: RCLONE_CONFIG_OFFSITE_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: platform-backup-object-storage
@@ -56,12 +54,12 @@ spec:
                   name: platform-backup-object-storage
                   key: prefix
                   optional: true
-            - name: S3_ACCESS_KEY
+            - name: RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: platform-backup-object-storage
                   key: accessKey
-            - name: S3_SECRET_KEY
+            - name: RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: platform-backup-object-storage

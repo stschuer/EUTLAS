@@ -115,6 +115,19 @@ interface UpdateNetworkPolicyParams {
 // node-local `local-path` storage — required for the platform's ISO 27001 goals.
 const ENCRYPTED_STORAGE_CLASS = 'hcloud-volumes-encrypted';
 
+// Off-site object storage for tenant backups. The image is pinned: the previous
+// `minio/mc:latest` was withdrawn from every public registry, which silently
+// stopped all off-site uploads from 2026-09-11 while archives kept piling up on
+// node-local PVCs until the nodes hit DiskPressure.
+const RCLONE_IMAGE = 'rclone/rclone:1.75.1';
+const OBJECT_STORAGE_SECRET = 'platform-backup-object-storage';
+
+// Hetzner endpoints are https://<location>.your-objectstorage.com; the location
+// doubles as the S3 signing region.
+const OFFSITE_REGION_EXPORT = String.raw`export RCLONE_CONFIG_OFFSITE_REGION="$(echo "$RCLONE_CONFIG_OFFSITE_ENDPOINT" | sed -E 's#^https?://([^.]+)\..*#\1#')"`;
+
+const BACKUP_ID_PATTERN = /^[a-f0-9]{24}$/;
+
 interface BackupParams {
   clusterId: string;
   projectId: string;
@@ -813,7 +826,7 @@ export class KubernetesService implements OnModuleInit {
   // the backup job can upload archives off-site. Returns false (off-site skipped)
   // when the platform has no such secret — tenant backups then stay local-only.
   private async ensureObjectStorageSecret(namespace: string): Promise<boolean> {
-    const secretName = 'platform-backup-object-storage';
+    const secretName = OBJECT_STORAGE_SECRET;
     const platformNamespace = 'eutlas';
 
     let source: k8s.V1Secret;
@@ -845,6 +858,27 @@ export class KubernetesService implements OnModuleInit {
       });
     }
     return true;
+  }
+
+  /** rclone env for the `offsite:` remote, read from the mirrored object-storage secret. */
+  private offsiteEnv(): k8s.V1EnvVar[] {
+    const fromSecret = (name: string, key: string): k8s.V1EnvVar => ({
+      name,
+      valueFrom: { secretKeyRef: { name: OBJECT_STORAGE_SECRET, key } },
+    });
+    return [
+      fromSecret('S3_BUCKET', 'bucket'),
+      fromSecret('RCLONE_CONFIG_OFFSITE_ENDPOINT', 'endpoint'),
+      fromSecret('RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID', 'accessKey'),
+      fromSecret('RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY', 'secretKey'),
+      { name: 'RCLONE_CONFIG_OFFSITE_TYPE', value: 's3' },
+      { name: 'RCLONE_CONFIG_OFFSITE_PROVIDER', value: 'Other' },
+    ];
+  }
+
+  /** Off-site object path of a tenant backup archive (expanded by the container shell). */
+  private offsiteArchivePath(resourceName: string, backupId: string): string {
+    return `offsite:$S3_BUCKET/tenant-backups/${resourceName}/${backupId}.gz`;
   }
 
   private async createMongoDBCommunityResource(
@@ -2490,34 +2524,36 @@ export class KubernetesService implements OnModuleInit {
       },
     };
 
-    // Best-effort off-site replica. Always exits 0: a failed/absent upload must
-    // never fail the backup, whose authoritative copy is already on the PVC.
+    // Off-site is the authoritative copy: the archive only stages on the PVC and
+    // is removed once the upload is verified, so node-local storage holds at most
+    // one in-flight dump. A failed upload fails the backup (and drops the staged
+    // archive) instead of leaving an unnoticed local-only copy behind.
     const uploadCmd = [
       'set -u',
       `ARCHIVE=${archivePath}`,
-      'if [ ! -s "$ARCHIVE" ]; then echo "no archive to upload"; exit 0; fi',
-      `if mc alias set offsite "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" >/dev/null 2>&1 ` +
-        `&& mc cp "$ARCHIVE" "offsite/$S3_BUCKET/tenant-backups/${resourceName}/${params.backupId}.gz"; then ` +
-        'echo "offsite upload ok"; else echo "offsite upload FAILED (non-fatal)"; fi',
-      'exit 0',
+      `DEST="${this.offsiteArchivePath(resourceName, params.backupId)}"`,
+      'if [ ! -s "$ARCHIVE" ]; then echo "no archive to upload"; exit 1; fi',
+      OFFSITE_REGION_EXPORT,
+      'if rclone copyto "$ARCHIVE" "$DEST"; then',
+      '  LOCAL_SIZE=$(stat -c %s "$ARCHIVE")',
+      '  REMOTE_SIZE=$(rclone lsf --format s "$DEST" 2>/dev/null)',
+      '  if [ -n "$REMOTE_SIZE" ] && [ "$LOCAL_SIZE" = "$REMOTE_SIZE" ]; then',
+      '    rm -f "$ARCHIVE"; echo "offsite upload ok ($REMOTE_SIZE bytes); staged archive removed"; exit 0',
+      '  fi',
+      '  echo "offsite size mismatch (local=$LOCAL_SIZE remote=$REMOTE_SIZE)"',
+      'else',
+      '  echo "offsite upload FAILED"',
+      'fi',
+      'rm -f "$ARCHIVE"',
+      'exit 1',
     ].join('\n');
-
-    const s3Env = ['endpoint:S3_ENDPOINT', 'accessKey:S3_ACCESS_KEY', 'secretKey:S3_SECRET_KEY', 'bucket:S3_BUCKET'].map(
-      (pair) => {
-        const [key, name] = pair.split(':');
-        return {
-          name,
-          valueFrom: { secretKeyRef: { name: 'platform-backup-object-storage', key } },
-        };
-      },
-    );
 
     const uploadContainer = {
       name: 'offsite-upload',
-      image: 'minio/mc:latest',
+      image: RCLONE_IMAGE,
       command: ['/bin/sh', '-c'],
       args: [uploadCmd],
-      env: s3Env,
+      env: this.offsiteEnv(),
       volumeMounts: [{ name: 'backup-storage', mountPath: '/backup' }],
       resources: {
         requests: { cpu: '50m', memory: '64Mi' },
@@ -2592,7 +2628,40 @@ export class KubernetesService implements OnModuleInit {
     }
 
     const jobName = `restore-${params.backupId}`.substring(0, 63).toLowerCase();
-    
+
+    // Archives only stage locally until their off-site upload is verified, so a
+    // restore normally fetches the archive from object storage first. A fetched
+    // copy is dropped again afterwards so it does not linger on the PVC.
+    const archivePath = `/backup/${params.backupId}.gz`;
+    const fetchedMarker = `${archivePath}.fetched`;
+    const offsiteEnabled = await this.ensureObjectStorageSecret(namespace);
+    const fetchContainers = offsiteEnabled
+      ? [
+          {
+            name: 'fetch-archive',
+            image: RCLONE_IMAGE,
+            command: ['/bin/sh', '-c'],
+            args: [
+              [
+                'set -eu',
+                `if [ -s ${archivePath} ]; then echo "using staged archive"; exit 0; fi`,
+                OFFSITE_REGION_EXPORT,
+                `rclone copyto "${this.offsiteArchivePath(resourceName, params.backupId)}" ${archivePath}`,
+                `test -s ${archivePath}`,
+                `touch ${fetchedMarker}`,
+              ].join('\n'),
+            ],
+            env: this.offsiteEnv(),
+            volumeMounts: [{ name: 'backup-storage', mountPath: '/backup' }],
+            resources: {
+              requests: { cpu: '50m', memory: '64Mi' },
+              limits: { cpu: '500m', memory: '256Mi' },
+            },
+          },
+        ]
+      : [];
+    restoreCmd = `${restoreCmd}; rc=$?; if [ -f ${fetchedMarker} ]; then rm -f ${archivePath} ${fetchedMarker}; fi; exit $rc`;
+
     const restoreJob: k8s.V1Job = {
       metadata: {
         name: jobName,
@@ -2609,6 +2678,7 @@ export class KubernetesService implements OnModuleInit {
         template: {
           spec: {
             restartPolicy: 'Never',
+            initContainers: fetchContainers,
             containers: [
               {
                 name: 'mongorestore',
@@ -2652,6 +2722,91 @@ export class KubernetesService implements OnModuleInit {
     await batchApi.createNamespacedJob(namespace, restoreJob);
     
     this.logger.log(`Restore job ${jobName} created (databases: ${params.databases?.join(', ') || 'all'})`);
+  }
+
+  /**
+   * Remove backup archives (staged local copy and off-site object) for expired or
+   * deleted backups, and wait for the purge Job to finish. Missing objects are
+   * not an error, so a purge can safely be retried.
+   */
+  async purgeBackupArchives(params: {
+    clusterId: string;
+    projectId: string;
+    backupIds: string[];
+  }): Promise<void> {
+    const backupIds = params.backupIds.filter((id) => BACKUP_ID_PATTERN.test(id));
+    if (backupIds.length === 0 || this.shouldSimulate()) {
+      return;
+    }
+
+    const namespace = this.getNamespace(params.projectId);
+    const resourceName = this.getResourceName(params.clusterId);
+    const pvcName = `${resourceName}-backups`;
+
+    let hasPvc = true;
+    try {
+      await this.coreApi.readNamespacedPersistentVolumeClaim(pvcName, namespace);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 404) throw error;
+      hasPvc = false;
+    }
+    const offsiteEnabled = await this.ensureObjectStorageSecret(namespace);
+    if (!hasPvc && !offsiteEnabled) {
+      return;
+    }
+
+    const lines = ['set -u', 'failed=0'];
+    if (offsiteEnabled) lines.push(OFFSITE_REGION_EXPORT);
+    for (const id of backupIds) {
+      if (hasPvc) lines.push(`rm -f /backup/${id}.gz /backup/${id}.gz.fetched`);
+      if (offsiteEnabled) {
+        const object = this.offsiteArchivePath(resourceName, id);
+        // deletefile fails on an already-missing object; only a still-present one is an error.
+        lines.push(
+          `rclone deletefile "${object}" 2>/dev/null || ! rclone lsf "${object}" 2>/dev/null | grep -q . || failed=1`,
+        );
+      }
+    }
+    lines.push(`echo "purged ${backupIds.length} archive(s), failed=$failed"`, 'exit $failed');
+
+    const jobName = `purge-${resourceName}-${Date.now().toString(36)}`.substring(0, 63).toLowerCase();
+    const job: k8s.V1Job = {
+      metadata: {
+        name: jobName,
+        namespace,
+        labels: { 'eutlas.eu/managed-by': 'eutlas', 'eutlas.eu/cluster': resourceName },
+      },
+      spec: {
+        backoffLimit: 2,
+        ttlSecondsAfterFinished: 3600,
+        template: {
+          spec: {
+            restartPolicy: 'Never',
+            containers: [
+              {
+                name: 'purge',
+                image: RCLONE_IMAGE,
+                command: ['/bin/sh', '-c'],
+                args: [lines.join('\n')],
+                env: offsiteEnabled ? this.offsiteEnv() : [],
+                volumeMounts: hasPvc ? [{ name: 'backup-storage', mountPath: '/backup' }] : [],
+                resources: {
+                  requests: { cpu: '20m', memory: '32Mi' },
+                  limits: { cpu: '250m', memory: '128Mi' },
+                },
+              },
+            ],
+            volumes: hasPvc
+              ? [{ name: 'backup-storage', persistentVolumeClaim: { claimName: pvcName } }]
+              : [],
+          },
+        },
+      },
+    };
+
+    await this.batchApi.createNamespacedJob(namespace, job);
+    await this.waitForJobCompletion(namespace, jobName, 30 * 60 * 1000);
+    this.logger.log(`Purged ${backupIds.length} backup archive(s) of ${resourceName}`);
   }
 
   getBackupJobName(backupId: string): string {
@@ -2775,19 +2930,23 @@ export class KubernetesService implements OnModuleInit {
       }
 
       const podResponse = await this.coreApi.readNamespacedPod(podName, namespace);
-      const containerStatus = podResponse.body.status?.containerStatuses?.[0];
+      const statuses = [
+        ...(podResponse.body.status?.initContainerStatuses || []),
+        ...(podResponse.body.status?.containerStatuses || []),
+      ];
+      // Report the container that actually failed (e.g. the off-site upload),
+      // not just the first one.
+      const containerStatus =
+        statuses.find((s) => (s.state?.terminated?.exitCode ?? 0) !== 0) || statuses[0];
       const terminated = containerStatus?.state?.terminated;
       if (terminated?.message) {
         return terminated.message;
-      }
-      if (terminated?.reason) {
-        return terminated.reason;
       }
 
       const containerName = containerStatus?.name || 'mongodump';
       const logs = await this.coreApi.readNamespacedPodLog(podName, namespace, containerName);
       const tail = logs.body.split('\n').slice(-10).join('\n').trim();
-      return tail || 'unknown error';
+      return tail ? `${containerName}: ${tail}` : terminated?.reason || 'unknown error';
     } catch (error: any) {
       return error.message || 'unknown error';
     }

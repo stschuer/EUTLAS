@@ -70,6 +70,10 @@ export class Backup {
   @Prop()
   expiresAt?: Date;
 
+  // Set once the archive has been removed from staging and object storage.
+  @Prop()
+  purgedAt?: Date;
+
   // Retention
   @Prop({ default: 7 })
   retentionDays: number;
@@ -116,5 +120,8 @@ export const BackupSchema = SchemaFactory.createForClass(Backup);
 BackupSchema.index({ clusterId: 1, createdAt: -1 });
 BackupSchema.index({ projectId: 1 });
 BackupSchema.index({ status: 1 });
-BackupSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index
+// No TTL index on expiresAt: it deleted records while their archives stayed on
+// disk/object storage, orphaning them. BackupRetentionService purges archives
+// first and only then marks the record (see purgedAt).
+BackupSchema.index({ status: 1, expiresAt: 1 });
 BackupSchema.index({ type: 1, status: 1 });
