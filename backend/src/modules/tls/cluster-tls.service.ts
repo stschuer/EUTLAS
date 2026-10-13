@@ -83,6 +83,14 @@ export class ClusterTlsService {
     };
   }
 
+  /** Remove a cluster's public records (members m0–m3, SRV, TXT). */
+  async removeDnsRecords(label: string): Promise<void> {
+    const name = this.dns.clusterName(label);
+    for (let i = 0; i < 4; i++) await this.dns.deleteRecords(`m${i}.${name}`, 'A');
+    await this.dns.deleteRecords(`_mongodb._tcp.${name}`, 'SRV');
+    await this.dns.deleteRecords(name, 'TXT');
+  }
+
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   @Exclusive('cluster-tls-renewal', 60 * 60_000)
   async renewExpiring(): Promise<void> {

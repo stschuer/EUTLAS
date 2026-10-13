@@ -90,6 +90,36 @@ describe('HetznerProvisionerService', () => {
     });
   });
 
+  describe('multi-site bootstrap roles', () => {
+    const volume = { id: 7, linuxDevice: '/dev/disk/by-id/scsi-0HC_Volume_7' };
+    const labels = { 'eutlas.eu/role': 'data', 'topology.kubernetes.io/zone': 'fsn1' };
+
+    it('starts the K3s server on the private network and still installs the operator', () => {
+      const script: string = (service as any).buildBootstrapScript(volume, 'k', {
+        kind: 'server', token: 'tok', publicIp: '1.2.3.4', labels,
+      });
+      expect(script).toContain("K3S_TOKEN='tok'");
+      expect(script).toContain('--advertise-address=$PRIV_IP');
+      expect(script).toContain('--node-external-ip=1.2.3.4');
+      expect(script).toContain('--node-label=topology.kubernetes.io/zone=fsn1');
+      expect(script).toContain('mongodb-kubernetes');
+      expect(script.trim().split('\n').pop()).toBe('base64 -w 0 /etc/rancher/k3s/k3s.yaml');
+      expect(() => execFileSync('bash', ['-n'], { input: script })).not.toThrow();
+    });
+
+    it('joins agents without operator or volume and taints the arbiter', () => {
+      const script: string = (service as any).buildBootstrapScript(null, null, {
+        kind: 'agent', token: 'tok', publicIp: '5.6.7.8', serverPrivateIp: '10.73.0.2',
+        labels: { 'eutlas.eu/role': 'arbiter' }, taints: ['eutlas.eu/arbiter=true:NoSchedule'],
+      });
+      expect(script).toContain("K3S_URL='https://10.73.0.2:6443'");
+      expect(script).toContain('--node-taint=eutlas.eu/arbiter=true:NoSchedule');
+      expect(script).not.toContain('cryptsetup luksFormat');
+      expect(script).not.toContain('helm upgrade');
+      expect(() => execFileSync('bash', ['-n'], { input: script })).not.toThrow();
+    });
+  });
+
   describe('bootstrap script', () => {
     const volume = { id: 7, linuxDevice: '/dev/disk/by-id/scsi-0HC_Volume_7' };
 

@@ -15,7 +15,7 @@ import { ResizeClusterDto } from './dto/resize-cluster.dto';
 import { UpdateClusterDto } from './dto/update-cluster.dto';
 import { JobsService } from '../jobs/jobs.service';
 import { CredentialsService } from '../credentials/credentials.service';
-import { resolveVectorSearchBackend } from '../kubernetes/kubernetes.service';
+import { PLAN_RESOURCES, resolveVectorSearchBackend } from '../kubernetes/kubernetes.service';
 import { markBackupsDeletedForClusters } from '../backups/backup-cascade';
 
 const DEFAULT_MONGO_VERSION = '7.0.5';
@@ -64,12 +64,22 @@ export class ClustersService {
     const credentials = await this.credentialsService.generateCredentials();
 
     // Create cluster in pending state
+    const topology = createClusterDto.topology ?? 'single-server';
+    if (topology === 'multi-site' && (PLAN_RESOURCES[createClusterDto.plan]?.replicas ?? 1) < 3) {
+      throw new BadRequestException({
+        code: 'TOPOLOGY_NOT_AVAILABLE',
+        message: 'Multi-site clusters are available for LARGE plans and above',
+      });
+    }
+
     const cluster = new this.clusterModel({
       projectId,
       orgId,
       name: createClusterDto.name,
       plan: createClusterDto.plan,
       mongoVersion,
+      region: topology === 'multi-site' ? 'fsn1' : createClusterDto.region || 'fsn1',
+      topology,
       status: 'creating' as ClusterStatus,
       credentialsEncrypted: credentials.encrypted,
       vectorSearchEnabled: createClusterDto.enableVectorSearch || false,
@@ -91,6 +101,9 @@ export class ClustersService {
         createdBy,
         vectorSearchEnabled: createClusterDto.enableVectorSearch || false,
         vectorSearchBackend,
+        // The region used to be dropped here, so every cluster landed in fsn1.
+        region: cluster.region,
+        topology,
       },
     });
 
@@ -280,7 +293,12 @@ export class ClustersService {
   /** Persists dedicated-server metadata after a Hetzner node has been provisioned. */
   async updateDedicatedServer(
     clusterId: string,
-    info: { serverId: number; serverIp: string; kubeconfigEncrypted: string },
+    info: {
+      serverId: number;
+      serverIp: string;
+      kubeconfigEncrypted: string;
+      servers?: Array<{ serverId: number; publicIp: string; location: string; role: 'data' | 'arbiter' }>;
+    },
   ): Promise<ClusterDocument> {
     const cluster = await this.clusterModel.findByIdAndUpdate(
       clusterId,
@@ -289,6 +307,7 @@ export class ClustersService {
           dedicatedServerId: info.serverId,
           dedicatedServerIp: info.serverIp,
           dedicatedKubeconfigEncrypted: info.kubeconfigEncrypted,
+          ...(info.servers ? { dedicatedServers: info.servers } : {}),
         },
       },
       { new: true },

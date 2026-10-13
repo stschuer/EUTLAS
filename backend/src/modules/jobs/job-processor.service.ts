@@ -12,6 +12,7 @@ import { ProjectsService } from '../projects/projects.service';
 import { MigrationService } from '../migration/migration.service';
 import { HetznerProvisionerService } from '../hetzner/hetzner-provisioner.service';
 import { CredentialsService } from '../credentials/credentials.service';
+import { ClusterTlsService } from '../tls/cluster-tls.service';
 import { JobDocument } from './schemas/job.schema';
 import { MongoClient } from 'mongodb';
 
@@ -37,6 +38,8 @@ export class JobProcessorService implements OnModuleInit {
     private readonly migrationService: MigrationService,
     private readonly hetznerProvisioner: HetznerProvisionerService,
     private readonly credentialsService: CredentialsService,
+    @Inject(forwardRef(() => ClusterTlsService))
+    private readonly clusterTls: ClusterTlsService,
   ) {}
 
   onModuleInit() {
@@ -127,7 +130,8 @@ export class JobProcessorService implements OnModuleInit {
   }
 
   private async processCreateCluster(job: JobDocument) {
-    const { plan, mongoVersion, credentials, clusterName, createdBy, vectorSearchEnabled, vectorSearchBackend, region } = job.payload as any;
+    const { plan, mongoVersion, credentials, clusterName, createdBy, vectorSearchEnabled, vectorSearchBackend, region, topology } = job.payload as any;
+    const multiSite = topology === 'multi-site';
     const clusterId = job.targetClusterId!.toString();
     const projectId = job.targetProjectId!.toString();
     const orgId = job.targetOrgId!.toString();
@@ -135,7 +139,18 @@ export class JobProcessorService implements OnModuleInit {
     // ── Dedicated server provisioning (every plan gets its own node) ──────
     let dedicatedKubeconfig: string | undefined;
 
-    if (this.hetznerProvisioner.needsDedicatedServer(plan)) {
+    if (multiSite) {
+      this.logger.log(`[${clusterId}] Provisioning multi-site cluster (fsn1 data + arbiter, nbg1 data)`);
+      const info = await this.hetznerProvisioner.provisionMultiSiteCluster(clusterId, plan);
+      const k3sServer = info.servers[0];
+      await this.clustersService.updateDedicatedServer(clusterId, {
+        serverId: k3sServer.serverId,
+        serverIp: k3sServer.publicIp,
+        kubeconfigEncrypted: this.credentialsService.encryptString(info.kubeconfig),
+        servers: info.servers.map(({ serverId, publicIp, location, role }) => ({ serverId, publicIp, location, role })),
+      });
+      dedicatedKubeconfig = info.kubeconfig;
+    } else if (this.hetznerProvisioner.needsDedicatedServer(plan)) {
       this.logger.log(`[${clusterId}] Plan ${plan} requires a dedicated server — provisioning via Hetzner`);
 
       const serverInfo = await this.hetznerProvisioner.provisionClusterServer(
@@ -175,7 +190,12 @@ export class JobProcessorService implements OnModuleInit {
       vectorSearchEnabled: vectorSearchEnabled || false,
       vectorSearchBackend: vectorBackend,
       dedicatedKubeconfig,
+      topology: multiSite ? 'multi-site' : 'single-server',
     });
+
+    if (multiSite) {
+      await this.kubernetesService.finalizeMultiSiteTopology({ clusterId, projectId, kubeconfig: dedicatedKubeconfig! });
+    }
 
     // Update cluster with connection info (including replicaSet, SRV, external endpoint, and Qdrant if enabled)
     await this.clustersService.updateStatus(clusterId, 'ready', {
@@ -189,6 +209,11 @@ export class JobProcessorService implements OnModuleInit {
     });
 
     await this.backupPolicyService.getOrCreate(clusterId);
+
+    if (multiSite) {
+      // Clients must discover both data members: public DNS name, TLS and horizons.
+      await this.clusterTls.enable(clusterId, 'required');
+    }
 
     // Create event
     await this.eventsService.createEvent({
@@ -276,8 +301,22 @@ export class JobProcessorService implements OnModuleInit {
     // Hard delete cluster from database
     await this.clustersService.hardDelete(clusterId);
 
-    // Deprovision the dedicated Hetzner server (after K8s cleanup and DB deletion)
-    if (dedicatedServerId) {
+    // Public DNS records of the cluster (m<i>, SRV, TXT)
+    if ((clusterDoc as any)?.dnsLabel) {
+      await this.clusterTls.removeDnsRecords((clusterDoc as any).dnsLabel).catch((e: any) =>
+        this.logger.error(`[${clusterId}] Failed to remove DNS records: ${e.message}`),
+      );
+    }
+
+    // Multi-site: every server, volume, network and placement group labelled for the cluster
+    if ((clusterDoc as any)?.topology === 'multi-site') {
+      try {
+        await this.hetznerProvisioner.deprovisionClusterResources(clusterId);
+      } catch (e: any) {
+        this.logger.error(`[${clusterId}] Failed to deprovision multi-site resources: ${e.message}`);
+      }
+    } else if (dedicatedServerId) {
+      // Deprovision the dedicated Hetzner server (after K8s cleanup and DB deletion)
       this.logger.log(`[${clusterId}] Deprovisioning dedicated Hetzner server ${dedicatedServerId}`);
       try {
         await this.hetznerProvisioner.deprovisionServer(dedicatedServerId, clusterId);

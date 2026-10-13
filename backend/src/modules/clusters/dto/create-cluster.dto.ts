@@ -1,4 +1,4 @@
-import { IsString, MinLength, MaxLength, Matches, IsEnum, IsOptional, IsArray, IsBoolean } from 'class-validator';
+import { IsString, MinLength, MaxLength, Matches, IsEnum, IsOptional, IsArray, IsBoolean, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateClusterDto {
@@ -32,6 +32,17 @@ export class CreateClusterDto {
   @IsOptional()
   @IsBoolean()
   enableVectorSearch?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['single-server', 'multi-site'],
+    default: 'single-server',
+    description:
+      'multi-site (LARGE and above): data members in fsn1 and nbg1 plus an arbiter in fsn1 on separate servers; ' +
+      'survives a server or nbg1 outage automatically. Requires TLS clients (mongodb+srv, platform CA).',
+  })
+  @IsOptional()
+  @IsIn(['single-server', 'multi-site'])
+  topology?: 'single-server' | 'multi-site';
 }
 
 export class CloneClusterDto {

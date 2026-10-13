@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { createHmac } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
 import { Client as SshClient } from 'ssh2';
 import { PLAN_NAMESPACE_STORAGE_QUOTA } from '../kubernetes/kubernetes.service';
 
@@ -26,6 +26,9 @@ const PLAN_SERVER_TYPES: Record<string, string> = {
 
 // Fallback server type for unknown plans — cheapest current-gen Intel.
 const DEFAULT_SERVER_TYPE = 'cx23';
+// Arbiters hold no data; the smallest type suffices.
+const ARBITER_SERVER_TYPE = 'cx23';
+const HCLOUD_API = 'https://api.hetzner.cloud/v1';
 
 // K3s local-path provisioner root; mounted from the encrypted data volume.
 const LOCAL_PATH_ROOT = '/var/lib/rancher/k3s/storage';
@@ -47,10 +50,39 @@ export interface DedicatedServerInfo {
   volumeId: number;   // LUKS-encrypted Hetzner volume backing local-path storage
 }
 
+export interface MultiSiteClusterInfo {
+  kubeconfig: string;
+  networkId: number;
+  placementGroupId: number;
+  servers: Array<{
+    serverId: number;
+    publicIp: string;
+    privateIp: string;
+    location: string;
+    role: 'data' | 'arbiter';
+    volumeId?: number;
+  }>;
+}
+
 interface DataVolume {
   id: number;
   linuxDevice: string;
 }
+
+// Private network of a multi-site cluster; outside K3s' pod (10.42/16) and service (10.43/16) ranges.
+const PRIVATE_PREFIX = '10.73.';
+
+type K3sRole =
+  | { kind: 'single' }
+  | { kind: 'server'; token: string; publicIp: string; labels: Record<string, string> }
+  | { kind: 'agent'; token: string; publicIp: string; serverPrivateIp: string; labels: Record<string, string>; taints?: string[] };
+
+/**
+ * Taint on the arbiter node until both data members are scheduled: the
+ * operator's arbiter StatefulSet shares the data members' pod template, so
+ * this is what keeps data pods off the (small, volume-less) arbiter node.
+ */
+export const ARBITER_TAINT = 'eutlas.eu/arbiter=true:NoSchedule';
 
 @Injectable()
 export class HetznerProvisionerService {
@@ -116,6 +148,171 @@ export class HetznerProvisionerService {
   }
 
   /**
+   * Multi-site topology (Germany only): a data node in fsn1 (preferred
+   * primary), an arbiter node in fsn1 on different hardware (spread placement
+   * group) and a data node in nbg1. One K3s cluster spans all three over a
+   * private network; each data node gets its own LUKS-encrypted volume.
+   * Survives a host failure automatically and the loss of nbg1; losing fsn1
+   * entirely needs a manual forced reconfig (see scripts/multi-site-failover.sh).
+   */
+  async provisionMultiSiteCluster(clusterId: string, plan: string): Promise<MultiSiteClusterInfo> {
+    if (!this.hcloudToken) {
+      throw new Error('HCLOUD_TOKEN is not configured — cannot provision dedicated servers');
+    }
+    const dataType = PLAN_SERVER_TYPES[plan] ?? DEFAULT_SERVER_TYPE;
+    const labels = { cluster: clusterId };
+    const network = await this.ensureNetwork(`eutlas-net-${clusterId}`, labels);
+    const placementGroupId = await this.ensurePlacementGroup(`eutlas-pg-${clusterId}`, labels);
+
+    const specs: Array<{ role: 'data' | 'arbiter'; location: string; type: string; suffix: string; pg?: number }> = [
+      { role: 'data', location: 'fsn1', type: dataType, suffix: 'a', pg: placementGroupId },
+      { role: 'arbiter', location: 'fsn1', type: ARBITER_SERVER_TYPE, suffix: 'arb', pg: placementGroupId },
+      { role: 'data', location: 'nbg1', type: dataType, suffix: 'b' },
+    ];
+    this.logger.log(`[${clusterId}] Provisioning multi-site cluster (plan=${plan}, data=${dataType})`);
+
+    const servers = await Promise.all(
+      specs.map(async (spec) => {
+        const server = await this.createHetznerServer(`eutlas-cluster-${clusterId}-${spec.suffix}`, spec.type, spec.location, {
+          networkId: network,
+          placementGroupId: spec.pg,
+          labels: { ...labels, role: spec.role },
+        });
+        await this.waitForServerRunning(server.id);
+        const privateIp = await this.waitForPrivateIp(server.id, network);
+        const volume = spec.role === 'data'
+          ? await this.ensureDataVolume(clusterId, server.id, plan, `-${spec.suffix}`)
+          : null;
+        await this.waitForSsh(server.public_net.ipv4.ip);
+        return { ...spec, serverId: server.id as number, publicIp: server.public_net.ipv4.ip as string, privateIp, volume };
+      }),
+    );
+
+    const token = randomBytes(24).toString('hex');
+    const [primary, ...agents] = servers;
+    const nodeLabels = (sv: (typeof servers)[number]) => ({
+      'eutlas.eu/role': sv.role,
+      'topology.kubernetes.io/zone': sv.location,
+    });
+
+    const serverScript = this.buildBootstrapScript(
+      primary.volume,
+      primary.volume ? this.dataVolumeKey(clusterId, primary.volume.id) : null,
+      { kind: 'server', token, publicIp: primary.publicIp, labels: nodeLabels(primary) },
+    );
+    const kubeconfig = this.kubeconfigFromOutput(await this.runRemoteScript(primary.publicIp, clusterId, serverScript), primary.publicIp);
+    this.logger.log(`[${clusterId}] K3s server ready on ${primary.publicIp}`);
+
+    await Promise.all(
+      agents.map((agent) =>
+        this.runRemoteScript(
+          agent.publicIp,
+          clusterId,
+          this.buildBootstrapScript(
+            agent.volume,
+            agent.volume ? this.dataVolumeKey(clusterId, agent.volume.id) : null,
+            {
+              kind: 'agent',
+              token,
+              publicIp: agent.publicIp,
+              serverPrivateIp: primary.privateIp,
+              labels: nodeLabels(agent),
+              taints: agent.role === 'arbiter' ? [ARBITER_TAINT] : [],
+            },
+          ),
+        ),
+      ),
+    );
+
+    // All three nodes must be Ready before the replica set is created.
+    await this.runRemoteScript(
+      primary.publicIp,
+      clusterId,
+      [
+        'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml',
+        'for i in $(seq 1 60); do n=$(kubectl get nodes --no-headers 2>/dev/null | grep -c " Ready"); [ "$n" -ge 3 ] && exit 0; sleep 5; done',
+        'kubectl get nodes >&2; exit 1',
+      ].join('\n'),
+    );
+    this.logger.log(`[${clusterId}] Multi-site cluster nodes ready`);
+
+    return {
+      kubeconfig,
+      networkId: network,
+      placementGroupId,
+      servers: servers.map((sv) => ({
+        serverId: sv.serverId,
+        publicIp: sv.publicIp,
+        privateIp: sv.privateIp,
+        location: sv.location,
+        role: sv.role,
+        volumeId: sv.volume?.id,
+      })),
+    };
+  }
+
+  /** Deletes every Hetzner resource labelled for a cluster: servers, volumes, network, placement group. */
+  async deprovisionClusterResources(clusterId: string): Promise<void> {
+    if (!this.hcloudToken) return;
+    const selector = { label_selector: `cluster=${clusterId}` };
+    const servers: any[] = (await axios.get(`${HCLOUD_API}/servers`, { ...this.api, params: selector })).data.servers ?? [];
+    await Promise.all(servers.map((sv) => this.deprovisionServer(sv.id)));
+
+    const volumes: any[] = (await axios.get(`${HCLOUD_API}/volumes`, { ...this.api, params: selector })).data.volumes ?? [];
+    for (const volume of volumes) {
+      await this.deleteVolumeWhenDetached(volume.id);
+    }
+    for (const kind of ['networks', 'placement_groups']) {
+      const items: any[] = (await axios.get(`${HCLOUD_API}/${kind}`, { ...this.api, params: selector })).data[kind] ?? [];
+      for (const item of items) {
+        await axios.delete(`${HCLOUD_API}/${kind}/${item.id}`, this.api).catch((e) => {
+          if (e.response?.status !== 404) throw e;
+        });
+      }
+    }
+    this.logger.log(`[${clusterId}] Deprovisioned ${servers.length} server(s), ${volumes.length} volume(s)`);
+  }
+
+  private async ensureNetwork(name: string, labels: Record<string, string>): Promise<number> {
+    const existing = (await axios.get(`${HCLOUD_API}/networks`, { ...this.api, params: { name } })).data.networks?.[0];
+    if (existing) return existing.id;
+    const res = await axios.post(
+      `${HCLOUD_API}/networks`,
+      {
+        name,
+        ip_range: `${PRIVATE_PREFIX}0.0/16`,
+        // eu-central spans fsn1, nbg1 and hel1.
+        subnets: [{ type: 'cloud', network_zone: 'eu-central', ip_range: `${PRIVATE_PREFIX}0.0/24` }],
+        labels: { 'managed-by': 'eutlas', ...labels },
+      },
+      this.api,
+    );
+    return res.data.network.id;
+  }
+
+  private async ensurePlacementGroup(name: string, labels: Record<string, string>): Promise<number> {
+    const existing = (await axios.get(`${HCLOUD_API}/placement_groups`, { ...this.api, params: { name } })).data.placement_groups?.[0];
+    if (existing) return existing.id;
+    const res = await axios.post(
+      `${HCLOUD_API}/placement_groups`,
+      { name, type: 'spread', labels: { 'managed-by': 'eutlas', ...labels } },
+      this.api,
+    );
+    return res.data.placement_group.id;
+  }
+
+  private async waitForPrivateIp(serverId: number, networkId: number, maxMs = 120_000): Promise<string> {
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+      const { server } = (await axios.get(`${HCLOUD_API}/servers/${serverId}`, this.api)).data;
+      const ip = (server.private_net ?? []).find((n: any) => n.network === networkId)?.ip;
+      if (ip) return ip;
+      await this.sleep(3_000);
+    }
+    throw new Error(`Server ${serverId} has no private IP in network ${networkId}`);
+  }
+
+  /**
    * Deletes a Hetzner server by its numeric ID. With a cluster ID, its data
    * volume (found by name) is deleted too.
    */
@@ -153,8 +350,8 @@ export class HetznerProvisionerService {
   }
 
   /** Creates (or, on a retry, reuses) the cluster's data volume and attaches it to the server. */
-  private async ensureDataVolume(clusterId: string, serverId: number, plan: string): Promise<DataVolume> {
-    const name = `eutlas-data-${clusterId}`;
+  private async ensureDataVolume(clusterId: string, serverId: number, plan: string, suffix = ''): Promise<DataVolume> {
+    const name = `eutlas-data-${clusterId}${suffix}`;
     let volume = await this.findVolumeByName(name);
 
     if (!volume) {
@@ -197,22 +394,25 @@ export class HetznerProvisionerService {
 
   private async deleteDataVolume(clusterId: string): Promise<void> {
     const volume = await this.findVolumeByName(`eutlas-data-${clusterId}`);
-    if (!volume) return;
+    if (volume) await this.deleteVolumeWhenDetached(volume.id);
+  }
 
-    // Deleting the server detaches the volume asynchronously; a volume can only
-    // be deleted once detached.
+  /**
+   * Deleting a server detaches its volumes asynchronously; a volume can only
+   * be deleted once detached.
+   */
+  private async deleteVolumeWhenDetached(volumeId: number): Promise<void> {
     const deadline = Date.now() + 120_000;
-    let current = volume;
+    let current = (await axios.get(`${HCLOUD_API}/volumes/${volumeId}`, this.api)).data.volume;
     while (current.server && Date.now() < deadline) {
       await this.sleep(5_000);
-      current = (await axios.get(`https://api.hetzner.cloud/v1/volumes/${volume.id}`, this.api)).data.volume;
+      current = (await axios.get(`${HCLOUD_API}/volumes/${volumeId}`, this.api)).data.volume;
     }
     if (current.server) {
-      throw new Error(`Volume ${volume.id} is still attached to server ${current.server}; not deleting`);
+      throw new Error(`Volume ${volumeId} is still attached to server ${current.server}; not deleting`);
     }
-
-    await axios.delete(`https://api.hetzner.cloud/v1/volumes/${volume.id}`, this.api);
-    this.logger.log(`Data volume ${volume.id} of cluster ${clusterId} deleted`);
+    await axios.delete(`${HCLOUD_API}/volumes/${volumeId}`, this.api);
+    this.logger.log(`Data volume ${volumeId} deleted`);
   }
 
   private async waitForAction(actionId: number, maxMs = 180_000): Promise<void> {
@@ -241,7 +441,12 @@ export class HetznerProvisionerService {
     return createHmac('sha256', master).update(`luks:${clusterId}:${volumeId}`).digest('base64url');
   }
 
-  private async createHetznerServer(name: string, serverType: string, location: string): Promise<any> {
+  private async createHetznerServer(
+    name: string,
+    serverType: string,
+    location: string,
+    extra: { networkId?: number; placementGroupId?: number; labels?: Record<string, string> } = {},
+  ): Promise<any> {
     const sshKeyId = await this.getSshKeyId();
 
     const payload: Record<string, any> = {
@@ -249,9 +454,11 @@ export class HetznerProvisionerService {
       server_type: serverType,
       location,
       image: 'ubuntu-22.04',
-      labels: { 'managed-by': 'eutlas', type: 'customer-cluster' },
+      labels: { 'managed-by': 'eutlas', type: 'customer-cluster', ...(extra.labels ?? {}) },
     };
     if (sshKeyId) payload.ssh_keys = [sshKeyId];
+    if (extra.networkId) payload.networks = [extra.networkId];
+    if (extra.placementGroupId) payload.placement_group = extra.placementGroupId;
 
     try {
       const response = await axios.post('https://api.hetzner.cloud/v1/servers', payload, {
@@ -336,73 +543,68 @@ export class HetznerProvisionerService {
    *   - MongoDB Community Operator via Helm
    *   - Returns the kubeconfig with the public IP substituted in
    */
-  private bootstrapServer(ip: string, clusterId: string, volume: DataVolume): Promise<string> {
+  private async bootstrapServer(ip: string, clusterId: string, volume: DataVolume): Promise<string> {
+    const stdout = await this.runRemoteScript(
+      ip,
+      clusterId,
+      this.buildBootstrapScript(volume, this.dataVolumeKey(clusterId, volume.id)),
+    );
+    return this.kubeconfigFromOutput(stdout, ip);
+  }
+
+  /** The last stdout line of a server bootstrap is the kubeconfig (base64), patched to the public IP. */
+  private kubeconfigFromOutput(stdout: string, ip: string): string {
+    const lines = stdout.trim().split('\n');
+    const raw = Buffer.from(lines[lines.length - 1], 'base64').toString('utf-8');
+    if (!raw.includes('apiVersion')) {
+      throw new Error(`Failed to decode kubeconfig from bootstrap output: ${stdout.slice(-300)}`);
+    }
+    return raw
+      .replace(/https:\/\/127\.0\.0\.1:6443/g, `https://${ip}:6443`)
+      .replace(/https:\/\/localhost:6443/g, `https://${ip}:6443`);
+  }
+
+  /** Runs a script as root over SSH and resolves with its stdout (rejects on non-zero exit). */
+  private runRemoteScript(ip: string, clusterId: string, script: string): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.sshPrivateKey) {
         return reject(new Error('HETZNER_CLUSTER_SSH_PRIVATE_KEY is not configured'));
       }
-
       const conn = new SshClient();
-
       conn.on('ready', () => {
-        this.logger.debug(`[${clusterId}] SSH connected to ${ip}, running bootstrap`);
-
-        const script = this.buildBootstrapScript(volume, this.dataVolumeKey(clusterId, volume.id));
-
+        this.logger.debug(`[${clusterId}] SSH connected to ${ip}, running script`);
         conn.exec(script, (err, stream) => {
           if (err) {
             conn.end();
             return reject(err);
           }
-
           let stdout = '';
           let stderr = '';
-
           stream.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
           stream.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-
           stream.on('close', (code: number) => {
             conn.end();
-
             if (code !== 0) {
-              this.logger.error(`[${clusterId}] Bootstrap script exited with code ${code}\nstderr: ${stderr}`);
-              return reject(new Error(`Bootstrap failed (exit ${code}): ${stderr.slice(-500)}`));
+              this.logger.error(`[${clusterId}] Script on ${ip} exited with code ${code}\nstderr: ${stderr}`);
+              return reject(new Error(`Remote script on ${ip} failed (exit ${code}): ${stderr.slice(-500)}`));
             }
-
-            // The last line of stdout is the kubeconfig (base64-encoded)
-            const lines = stdout.trim().split('\n');
-            const lastLine = lines[lines.length - 1];
-
-            try {
-              const rawKubeconfig = Buffer.from(lastLine, 'base64').toString('utf-8');
-              // Patch the kubeconfig to use the real IP instead of 127.0.0.1 / localhost
-              const kubeconfig = rawKubeconfig
-                .replace(/https:\/\/127\.0\.0\.1:6443/g, `https://${ip}:6443`)
-                .replace(/https:\/\/localhost:6443/g, `https://${ip}:6443`);
-              resolve(kubeconfig);
-            } catch (e) {
-              reject(new Error(`Failed to decode kubeconfig: ${e}\nstdout: ${stdout.slice(-300)}`));
-            }
+            resolve(stdout);
           });
         });
       });
-
       conn.on('error', (err) => reject(err));
-
-      conn.connect({
-        host: ip,
-        port: 22,
-        username: 'root',
-        privateKey: this.sshPrivateKey,
-        readyTimeout: 30_000,
-      });
+      conn.connect({ host: ip, port: 22, username: 'root', privateKey: this.sshPrivateKey, readyTimeout: 30_000 });
     });
   }
 
-  /** Returns a shell script that bootstraps K3s + operator and prints the kubeconfig as base64. */
-  private buildBootstrapScript(volume: DataVolume, volumeKey: string): string {
+  /**
+   * Shell script for one node: host hardening, the encrypted data volume (if
+   * any) and K3s in the given role. Server/single nodes also install the
+   * operator and print the kubeconfig as base64 on the last line.
+   */
+  private buildBootstrapScript(volume: DataVolume | null, volumeKey: string | null, role: K3sRole = { kind: 'single' }): string {
     // We deliberately emit a single heredoc-free, quote-safe string.
-    return [
+    const hostSteps = [
       'set -e',
 
       // ── Host hardening ────────────────────────────────────────────────────
@@ -457,7 +659,8 @@ export class HetznerProvisionerService {
       'EOF',
       'systemctl daemon-reload',
       'systemctl enable --now eutlas-host-firewall.service',
-
+    ];
+    const volumeSteps = volume && volumeKey ? [
       // ── Encrypted data volume (backs K3s local-path storage) ──────────────
       // Every step is idempotent so a retried bootstrap reuses the volume.
       'echo "=== Preparing encrypted data volume ==="',
@@ -474,10 +677,8 @@ export class HetznerProvisionerService {
       'grep -q "^eutlas-data " /etc/crypttab 2>/dev/null || echo "eutlas-data $DATA_DEV /etc/eutlas/data.key luks,nofail" >> /etc/crypttab',
       `grep -q " ${LOCAL_PATH_ROOT} " /etc/fstab || echo "/dev/mapper/eutlas-data ${LOCAL_PATH_ROOT} ext4 defaults,nofail 0 2" >> /etc/fstab`,
       `mountpoint -q ${LOCAL_PATH_ROOT} || mount /dev/mapper/eutlas-data ${LOCAL_PATH_ROOT}`,
-
-      // ── K3s ──────────────────────────────────────────────────────────────
-      'echo "=== Installing K3s ==="',
-      'if ! systemctl is-active --quiet k3s; then curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -s -; fi',
+    ] : [];
+    const operatorSteps = [
       'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml',
 
       // Wait until K3s API is up
@@ -551,7 +752,38 @@ export class HetznerProvisionerService {
       // ── Output kubeconfig as base64 (last line, easy to parse) ────────────
       'echo "=== Bootstrap complete ==="',
       'base64 -w 0 /etc/rancher/k3s/k3s.yaml',
-    ].join('\n');
+    ];
+
+    const k3sSteps = ['echo "=== Installing K3s ==="', ...this.k3sInstallSteps(role)];
+    if (role.kind === 'agent') {
+      return [...hostSteps, ...volumeSteps, ...k3sSteps, 'echo "=== Agent joined ==="'].join('\n');
+    }
+    return [...hostSteps, ...volumeSteps, ...k3sSteps, ...operatorSteps].join('\n');
+  }
+
+  /** K3s install line for a node role. Multi-node clusters talk over the private network. */
+  private k3sInstallSteps(role: K3sRole): string[] {
+    if (role.kind === 'single') {
+      return ['if ! systemctl is-active --quiet k3s; then curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -s -; fi'];
+    }
+    const labels = Object.entries(role.labels).map(([k, v]) => `--node-label=${k}=${v}`).join(' ');
+    const common = `--node-ip="$PRIV_IP" --node-external-ip=${role.publicIp} --flannel-iface="$PRIV_IF" ${labels}`;
+    const detectPrivate = [
+      // Wait for the Hetzner private network interface (10.73.0.0/16) to come up.
+      `for i in $(seq 1 90); do PRIV_IF=$(ip -o -4 addr show | awk '$4 ~ /^${PRIVATE_PREFIX.replace(/\./g, '\\.')}/ {print $2; exit}'); [ -n "$PRIV_IF" ] && break; sleep 2; done`,
+      '[ -n "$PRIV_IF" ] || { echo "private network interface not found" >&2; exit 1; }',
+      'PRIV_IP=$(ip -o -4 addr show dev "$PRIV_IF" | awk \'{print $4}\' | cut -d/ -f1)',
+    ];
+    if (role.kind === 'server') {
+      return [
+        ...detectPrivate,
+        `if ! systemctl is-active --quiet k3s; then curl -sfL https://get.k3s.io | K3S_TOKEN='${role.token}' INSTALL_K3S_EXEC="server --disable traefik --advertise-address=$PRIV_IP --tls-san=${role.publicIp} ${common}" sh -s -; fi`,
+      ];
+    }
+    return [
+      ...detectPrivate,
+      `if ! systemctl is-active --quiet k3s-agent; then curl -sfL https://get.k3s.io | K3S_URL='https://${role.serverPrivateIp}:6443' K3S_TOKEN='${role.token}' INSTALL_K3S_EXEC="agent ${common}${(role.taints ?? []).map((t) => ` --node-taint=${t}`).join('')}" sh -s -; fi`,
+    ];
   }
 
   private sleep(ms: number): Promise<void> {

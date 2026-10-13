@@ -12,6 +12,7 @@ import { ProjectsModule } from '../projects/projects.module';
 import { MigrationModule } from '../migration/migration.module';
 import { HetznerModule } from '../hetzner/hetzner.module';
 import { CredentialsModule } from '../credentials/credentials.module';
+import { TlsModule } from '../tls/tls.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { CredentialsModule } from '../credentials/credentials.module';
     UsersModule,
     HetznerModule,
     forwardRef(() => CredentialsModule),
+    forwardRef(() => TlsModule),
   ],
   providers: [JobsService, JobProcessorService],
   exports: [JobsService],

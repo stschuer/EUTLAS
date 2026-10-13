@@ -32,6 +32,8 @@ interface CreateClusterParams {
    * the customer's own whitelist is restored.
    */
   additionalIngressIps?: string[];
+  /** multi-site: 2 data members (fsn1 + nbg1) and 1 arbiter (fsn1) on separate nodes. */
+  topology?: 'single-server' | 'multi-site';
 }
 
 interface ResizeClusterParams {
@@ -970,7 +972,9 @@ export class KubernetesService implements OnModuleInit {
         },
       },
       spec: {
-        members: params.resources.replicas,
+        // Multi-site: two data members plus an arbiter (finalizeMultiSiteTopology places it).
+        members: params.topology === 'multi-site' ? 2 : params.resources.replicas,
+        ...(params.topology === 'multi-site' ? { arbiters: 1 } : {}),
         type: 'ReplicaSet', // MongoDB Community Operator only supports ReplicaSet
         version: params.mongoVersion || DEFAULT_MONGO_VERSION,
         security: {
@@ -3304,6 +3308,66 @@ export class KubernetesService implements OnModuleInit {
     }
     const kubeconfig = await this.dedicatedKubeconfigResolver(clusterId);
     return kubeconfig ? this.withDedicatedClients(kubeconfig, fn) : fn();
+  }
+
+  /**
+   * After creating a multi-site replica set: wait until both data members are
+   * scheduled (the arbiter node is tainted, so they land on the two data
+   * nodes, one per location), then lift the taint so the operator's arbiter
+   * goes to the only free node, and prefer the fsn1 member as primary.
+   */
+  async finalizeMultiSiteTopology(params: { clusterId: string; projectId: string; kubeconfig: string }): Promise<{ primaryZone: string }> {
+    return this.withDedicatedClients(params.kubeconfig, async () => {
+      const namespace = this.getNamespace(params.projectId);
+      const resourceName = this.getResourceName(params.clusterId);
+
+      const zoneOf = new Map<string, string>();
+      const deadline = Date.now() + 20 * 60_000;
+      while (Date.now() < deadline) {
+        zoneOf.clear();
+        for (const i of [0, 1]) {
+          try {
+            const { body: pod } = await this.coreApi.readNamespacedPod(`${resourceName}-${i}`, namespace);
+            if (!pod.spec?.nodeName) continue;
+            const { body: node } = await this.coreApi.readNode(pod.spec.nodeName);
+            zoneOf.set(`${i}`, node.metadata?.labels?.['topology.kubernetes.io/zone'] ?? '?');
+          } catch (error: any) {
+            if (error.response?.statusCode !== 404) throw error;
+          }
+        }
+        if (zoneOf.size === 2) break;
+        await new Promise((r) => setTimeout(r, 10_000));
+      }
+      if (zoneOf.size !== 2) throw new Error(`Data members of ${resourceName} were not scheduled within 20 minutes`);
+      if (new Set(zoneOf.values()).size !== 2) {
+        throw new Error(`Data members of ${resourceName} landed in one location (${[...zoneOf.values()].join(', ')})`);
+      }
+
+      const { body: nodes } = await this.coreApi.listNode(undefined, undefined, undefined, undefined, 'eutlas.eu/role=arbiter');
+      for (const node of nodes.items) {
+        const taints = (node.spec?.taints || []).filter((t) => t.key !== 'eutlas.eu/arbiter');
+        await this.coreApi.patchNode(
+          node.metadata!.name!,
+          { spec: { taints } },
+          undefined, undefined, undefined, undefined, undefined,
+          // Merge patch replaces the whole taint list (strategic merge would merge entries).
+          { headers: { 'Content-Type': 'application/merge-patch+json' } },
+        );
+      }
+
+      const { body: cr } = (await this.customApi.getNamespacedCustomObject(
+        'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName,
+      )) as { body: any };
+      cr.spec.memberConfig = [0, 1].map((i) => ({
+        votes: 1,
+        priority: zoneOf.get(`${i}`) === 'fsn1' ? '2' : '1',
+      }));
+      await this.customApi.replaceNamespacedCustomObject(
+        'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName, cr,
+      );
+      this.logger.log(`Multi-site ${resourceName}: members ${JSON.stringify(Object.fromEntries(zoneOf))}, arbiter untainted`);
+      return { primaryZone: 'fsn1' };
+    });
   }
 
   /**

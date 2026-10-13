@@ -118,6 +118,14 @@ export class Cluster {
   @Prop()
   dedicatedKubeconfigEncrypted?: string;
 
+  /** single-server (default) or multi-site (data fsn1 + data nbg1 + arbiter fsn1). */
+  @Prop({ type: String, enum: ['single-server', 'multi-site'], default: 'single-server' })
+  topology?: 'single-server' | 'multi-site';
+
+  /** All Hetzner servers of a multi-site cluster (dedicatedServerId is the K3s server node). */
+  @Prop({ type: [Object], default: undefined })
+  dedicatedServers?: Array<{ serverId: number; publicIp: string; location: string; role: 'data' | 'arbiter' }>;
+
   // ── Public endpoint & TLS ─────────────────────────────────────────────────
   /** DNS label under the platform DB zone: <dnsLabel>.db.eutlas.eu (+ m<i>.<…> per member). */
   @Prop()
