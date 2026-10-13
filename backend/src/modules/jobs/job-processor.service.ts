@@ -65,10 +65,12 @@ export class JobProcessorService implements OnModuleInit {
   }
 
   private async processJob(job: JobDocument) {
+    // Claim the job; another replica may already be processing it.
+    const claimed = await this.jobsService.startJob(job.id);
+    if (!claimed) {
+      return;
+    }
     this.logger.log(`Processing job ${job.id} of type ${job.type}`);
-    
-    // Mark job as in progress
-    await this.jobsService.startJob(job.id);
 
     try {
       switch (job.type) {

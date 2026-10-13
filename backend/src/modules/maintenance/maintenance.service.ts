@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { MaintenanceWindow, MaintenanceWindowDocument, DayOfWeek } from './schemas/maintenance-window.schema';
 import { CreateMaintenanceWindowDto, UpdateMaintenanceWindowDto, DeferMaintenanceDto, ScheduleEmergencyMaintenanceDto } from './dto/maintenance.dto';
 import { EventsService } from '../events/events.service';
+import { Exclusive } from '../../common/scheduler-lock';
 
 const DAY_TO_NUMBER: Record<DayOfWeek, number> = {
   sunday: 0,
@@ -286,6 +287,7 @@ export class MaintenanceService {
 
   // Check for maintenance windows that need to start
   @Cron(CronExpression.EVERY_MINUTE)
+  @Exclusive('maintenance-windows', 50_000)
   async checkMaintenanceWindows(): Promise<void> {
     const now = new Date();
     

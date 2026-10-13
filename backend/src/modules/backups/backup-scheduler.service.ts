@@ -5,6 +5,7 @@ import { BackupPolicyService } from './backup-policy.service';
 import { BackupsService } from './backups.service';
 import { ClustersService } from '../clusters/clusters.service';
 import { BackupPolicyDocument } from './schemas/backup-policy.schema';
+import { Exclusive } from '../../common/scheduler-lock';
 
 @Injectable()
 export class BackupSchedulerService {
@@ -19,6 +20,7 @@ export class BackupSchedulerService {
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
+  @Exclusive('backup-scheduler', 50 * 60_000)
   async runScheduledBackups(): Promise<void> {
     if (this.configService.get<string>('NODE_ENV') === 'test') {
       return;

@@ -62,9 +62,13 @@ export class JobsService {
       .exec();
   }
 
+  /**
+   * Atomically claim a pending job. Returns null if another backend replica
+   * claimed it first — every replica polls the same pending jobs.
+   */
   async startJob(jobId: string): Promise<JobDocument | null> {
-    return this.jobModel.findByIdAndUpdate(
-      jobId,
+    return this.jobModel.findOneAndUpdate(
+      { _id: jobId, status: 'pending' },
       {
         $set: { status: 'in_progress', startedAt: new Date() },
         $inc: { attempts: 1 },

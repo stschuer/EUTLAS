@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ArchiveRule, ArchiveRuleDocument } from './schemas/archive-rule.schema';
 import { CreateArchiveRuleDto, UpdateArchiveRuleDto } from './dto/archive.dto';
 import { EventsService } from '../events/events.service';
+import { Exclusive } from '../../common/scheduler-lock';
 
 @Injectable()
 export class OnlineArchiveService {
@@ -221,6 +222,7 @@ export class OnlineArchiveService {
 
   // Process archive rules on schedule
   @Cron(CronExpression.EVERY_HOUR)
+  @Exclusive('online-archive', 50 * 60_000)
   async processArchiveRules(): Promise<void> {
     const now = new Date();
     const rulesToRun = await this.archiveRuleModel.find({

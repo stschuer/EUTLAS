@@ -12,6 +12,7 @@ import { IndexSuggestion, IndexSuggestionDocument, ImpactLevel } from './schemas
 import { DataExplorerService } from '../data-explorer/data-explorer.service';
 import { ClustersService } from '../clusters/clusters.service';
 import { QuerySlowQueriesDto, ExplainQueryDto, AnalyzeQueryDto } from './dto/performance-advisor.dto';
+import { Exclusive } from '../../common/scheduler-lock';
 
 export interface QueryExplainResult {
   queryPlanner: {
@@ -350,6 +351,7 @@ export class PerformanceAdvisorService {
   // ==================== Background Analysis ====================
 
   @Interval(300000) // Every 5 minutes
+  @Exclusive('performance-advisor', 4 * 60_000)
   async collectSlowQueries(): Promise<void> {
     // In production, this would poll the MongoDB profiler
     // For now, we'll simulate or integrate with actual profiler data

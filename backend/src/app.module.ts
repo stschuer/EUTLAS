@@ -4,6 +4,9 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_FILTER, APP_INTERCEPTOR, APP_GUARD } from '@nestjs/core';
+import { getConnectionToken } from '@nestjs/mongoose';
+import { Connection } from 'mongoose';
+import { setSchedulerLockConnection } from './common/scheduler-lock';
 
 // Common
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
@@ -146,6 +149,12 @@ import { HetznerModule } from './modules/hetzner/hetzner.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: LoggingInterceptor,
+    },
+    // One replica per scheduled job run (see common/scheduler-lock)
+    {
+      provide: 'SCHEDULER_LOCK',
+      useFactory: (connection: Connection) => setSchedulerLockConnection(connection),
+      inject: [getConnectionToken()],
     },
     // Tenant isolation for every route with :orgId/:projectId/:clusterId
     {

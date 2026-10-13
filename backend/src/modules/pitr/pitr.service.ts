@@ -9,6 +9,7 @@ import { EnablePitrDto, UpdatePitrConfigDto, CreatePitrRestoreDto, OplogStatsRes
 import { EventsEnhancedService } from '../events/events-enhanced.service';
 import { BackupsService } from '../backups/backups.service';
 import { v4 as uuidv4 } from 'uuid';
+import { Exclusive } from '../../common/scheduler-lock';
 
 @Injectable()
 export class PitrService {
@@ -411,6 +412,7 @@ export class PitrService {
    * Falls back to simulated oplog capture in development or for non-replica-set clusters.
    */
   @Cron(CronExpression.EVERY_10_SECONDS)
+  @Exclusive('pitr-oplog', 8_000)
   async captureOplog(): Promise<void> {
     const enabledConfigs = await this.pitrConfigModel.find({ enabled: true }).exec();
 

@@ -9,6 +9,7 @@ import { AlertHistory } from './schemas/alert-history.schema';
 import { Cluster, ClusterDocument } from '../clusters/schemas/cluster.schema';
 import { MetricsService, CurrentMetrics } from '../metrics/metrics.service';
 import { OrgsService } from '../orgs/orgs.service';
+import { Exclusive } from '../../common/scheduler-lock';
 
 interface MetricEvaluation {
   clusterId: string;
@@ -35,6 +36,7 @@ export class AlertEngineService implements OnModuleInit {
   }
 
   @Interval(60000) // Evaluate every minute
+  @Exclusive('alert-engine', 50_000)
   async evaluateAlerts() {
     if (this.isEvaluating) {
       return;

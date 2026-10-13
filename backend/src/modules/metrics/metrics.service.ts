@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { Metric, MetricDocument, MetricType } from './schemas/metric.schema';
 import { Cluster, ClusterDocument } from '../clusters/schemas/cluster.schema';
 import { CredentialsService } from '../credentials/credentials.service';
+import { Exclusive } from '../../common/scheduler-lock';
 
 export interface MetricDataPoint {
   timestamp: Date;
@@ -55,6 +56,7 @@ export class MetricsService {
 
   // Collect metrics every 30 seconds in development
   @Interval(30000)
+  @Exclusive('metrics-collect', 25_000)
   async collectMetrics() {
     try {
       const clusters = await this.clusterModel.find({

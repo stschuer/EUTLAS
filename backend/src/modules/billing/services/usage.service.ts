@@ -5,6 +5,7 @@ import { Interval } from '@nestjs/schedule';
 import { UsageRecord, UsageRecordDocument, UsageType } from '../schemas/usage-record.schema';
 import { Cluster, ClusterDocument } from '../../clusters/schemas/cluster.schema';
 import { PricingService } from './pricing.service';
+import { Exclusive } from '../../../common/scheduler-lock';
 
 export interface UsageSummary {
   clusterId?: string;
@@ -229,6 +230,7 @@ export class UsageService {
   // ==================== Automatic Usage Collection ====================
 
   @Interval(3600000) // Every hour
+  @Exclusive('usage-collection', 50 * 60_000)
   async collectClusterUsage(): Promise<void> {
     this.logger.debug('Collecting cluster usage...');
 

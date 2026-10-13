@@ -6,6 +6,7 @@ import { Model, Types } from 'mongoose';
 import { Backup, BackupDocument } from './schemas/backup.schema';
 import { KubernetesService } from '../kubernetes/kubernetes.service';
 import { idVariants } from '../../common/id-variants';
+import { Exclusive } from '../../common/scheduler-lock';
 
 // Failed backups may leave a partial staged archive; give retries a day first.
 const FAILED_BACKUP_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -45,6 +46,7 @@ export class BackupRetentionService implements OnModuleInit {
   }
 
   @Cron(CronExpression.EVERY_30_MINUTES)
+  @Exclusive('backup-retention', 25 * 60_000)
   async purgeDueBackups(): Promise<void> {
     if (this.configService.get<string>('NODE_ENV') === 'test' || this.isRunning) {
       return;

@@ -9,6 +9,7 @@ import { ClusterSettingsService } from '../cluster-settings/cluster-settings.ser
 import { JobsService } from '../jobs/jobs.service';
 import { EventsService } from '../events/events.service';
 import { AuditService } from '../audit/audit.service';
+import { Exclusive } from '../../common/scheduler-lock';
 
 export interface AutoScalingConfig {
   enabled: boolean;
@@ -41,6 +42,7 @@ export class AutoScalingService {
    * Check and execute auto-scaling every 5 minutes
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
+  @Exclusive('auto-scaling', 4 * 60_000)
   async checkAutoScaling(): Promise<void> {
     this.logger.debug('Running auto-scaling check...');
 

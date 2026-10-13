@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { ScalingRecommendation, ScalingRecommendationDocument, RecommendationType, RecommendationPriority } from './schemas/scaling-recommendation.schema';
 import { MetricsService } from '../metrics/metrics.service';
 import { ClustersService } from '../clusters/clusters.service';
+import { Exclusive } from '../../common/scheduler-lock';
 
 interface PlanSpec {
   name: string;
@@ -249,6 +250,7 @@ export class ScalingService {
 
   // Run analysis for all clusters periodically
   @Cron(CronExpression.EVERY_HOUR)
+  @Exclusive('scaling-recommendations', 50 * 60_000)
   async analyzeAllClusters(): Promise<void> {
     this.logger.log('Running cluster scaling analysis...');
     
