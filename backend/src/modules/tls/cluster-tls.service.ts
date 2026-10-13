@@ -62,10 +62,11 @@ export class ClusterTlsService {
     for (const m of topology.members) {
       await this.dns.setRecords(`m${m.index}.${clusterRecord}`, 'A', [m.host]);
     }
+    // Seed list: data members only (drivers discover arbiters from the set).
     await this.dns.setRecords(
       `_mongodb._tcp.${clusterRecord}`,
       'SRV',
-      topology.members.map((m) => `0 0 ${m.port} m${m.index}.${dnsBase}.`),
+      topology.members.filter((m) => !m.arbiter).map((m) => `0 0 ${m.port} m${m.index}.${dnsBase}.`),
     );
     await this.dns.setRecords(clusterRecord, 'TXT', [`"authSource=admin&replicaSet=${topology.replicaSet}"`]);
 
@@ -78,7 +79,7 @@ export class ClusterTlsService {
     return {
       dnsName: dnsBase,
       mode,
-      members: topology.members.map((m) => ({ host: `m${m.index}.${dnsBase}`, port: m.port })),
+      members: topology.members.map((m) => ({ host: `m${m.index}.${dnsBase}`, port: m.port, arbiter: m.arbiter })),
       certificateExpiresAt: cert.expiresAt,
     };
   }

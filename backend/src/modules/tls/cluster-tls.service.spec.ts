@@ -23,8 +23,9 @@ describe('ClusterTlsService', () => {
       configureClusterTls: jest.fn().mockResolvedValue({
         replicaSet: 'mongo-6a248667d84fab3fe888d269',
         members: [
-          { index: 0, host: '178.105.121.60', port: 31001 },
-          { index: 1, host: '159.69.10.20', port: 31002 },
+          { index: 0, host: '178.105.121.60', port: 31001, arbiter: false },
+          { index: 1, host: '159.69.10.20', port: 31002, arbiter: false },
+          { index: 2, host: '88.198.1.2', port: 31003, arbiter: true },
         ],
       }),
     };
@@ -61,6 +62,8 @@ describe('ClusterTlsService', () => {
     );
     expect(dns.setRecords).toHaveBeenCalledWith('m0.aihub-staging-88d269.db', 'A', ['178.105.121.60']);
     expect(dns.setRecords).toHaveBeenCalledWith('m1.aihub-staging-88d269.db', 'A', ['159.69.10.20']);
+    // Arbiter gets a reachable name (drivers monitor it) but is not in the SRV seed list.
+    expect(dns.setRecords).toHaveBeenCalledWith('m2.aihub-staging-88d269.db', 'A', ['88.198.1.2']);
     expect(dns.setRecords).toHaveBeenCalledWith('_mongodb._tcp.aihub-staging-88d269.db', 'SRV', [
       `0 0 31001 m0.${base}.`,
       `0 0 31002 m1.${base}.`,
@@ -72,8 +75,9 @@ describe('ClusterTlsService', () => {
     expect(cluster.tlsMode).toBe('optional');
     expect(cluster.save).toHaveBeenCalled();
     expect(result.members).toEqual([
-      { host: `m0.${base}`, port: 31001 },
-      { host: `m1.${base}`, port: 31002 },
+      { host: `m0.${base}`, port: 31001, arbiter: false },
+      { host: `m1.${base}`, port: 31002, arbiter: false },
+      { host: `m2.${base}`, port: 31003, arbiter: true },
     ]);
   });
 

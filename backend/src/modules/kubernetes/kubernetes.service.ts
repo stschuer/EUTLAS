@@ -167,7 +167,7 @@ export interface BackupRunResult {
 
 export interface ClusterTlsTopology {
   replicaSet: string;
-  members: Array<{ index: number; podName: string; host: string; port: number; horizon: string }>;
+  members: Array<{ index: number; podName: string; host: string; port: number; horizon: string; arbiter: boolean }>;
 }
 
 export interface PlatformDiagnostics {
@@ -3443,13 +3443,22 @@ export class KubernetesService implements OnModuleInit {
       throw new Error(`Replica set ${resourceName} is ${cr.status?.phase ?? 'not running'}; enable TLS once it is Running`);
     }
     const memberCount: number = cr.spec.members;
+    const arbiterCount: number = cr.spec.arbiters ?? 0;
 
+    // The operator assigns replicaSetHorizons by process index: data members
+    // first, then arbiters. Every member of a replica set config must carry
+    // the same horizon names, and drivers also monitor arbiters, so arbiters
+    // get a real, reachable horizon too (m<members + j>).
+    const processes = [
+      ...Array.from({ length: memberCount }, (_, i) => ({ podName: `${resourceName}-${i}`, arbiter: false })),
+      ...Array.from({ length: arbiterCount }, (_, j) => ({ podName: `${resourceName}-arb-${j}`, arbiter: true })),
+    ];
     const members: ClusterTlsTopology['members'] = [];
-    for (let i = 0; i < memberCount; i++) {
-      const podName = `${resourceName}-${i}`;
-      const port = await this.ensureMemberNodePort(namespace, resourceName, podName, `${resourceName}-m${i}`);
-      const host = await this.nodeIpOfPod(namespace, podName);
-      members.push({ index: i, podName, host, port, horizon: `m${i}.${params.dnsBase}:${port}` });
+    for (const [i, proc] of processes.entries()) {
+      // Arbiter pods share the data members' template, hence their app label.
+      const port = await this.ensureMemberNodePort(namespace, resourceName, proc.podName, `${resourceName}-m${i}`);
+      const host = await this.nodeIpOfPod(namespace, proc.podName);
+      members.push({ index: i, podName: proc.podName, host, port, horizon: `m${i}.${params.dnsBase}:${port}`, arbiter: proc.arbiter });
     }
 
     await this.updateMongoDbResource(namespace, resourceName, (current) => {
