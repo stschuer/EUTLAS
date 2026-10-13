@@ -972,9 +972,9 @@ export class KubernetesService implements OnModuleInit {
         },
       },
       spec: {
-        // Multi-site: two data members plus an arbiter (finalizeMultiSiteTopology places it).
+        // Multi-site: two data members; the arbiter is added by
+        // finalizeMultiSiteTopology once both are placed (see there).
         members: params.topology === 'multi-site' ? 2 : params.resources.replicas,
-        ...(params.topology === 'multi-site' ? { arbiters: 1 } : {}),
         type: 'ReplicaSet', // MongoDB Community Operator only supports ReplicaSet
         version: params.mongoVersion || DEFAULT_MONGO_VERSION,
         security: {
@@ -1516,7 +1516,11 @@ export class KubernetesService implements OnModuleInit {
       `SVC="${externalServiceName}"`,
       `APP_LABEL="${podAppLabel}"`,
       'PW="$(kubectl get secret -n "$NS" "$CID-admin-password" -o jsonpath="{.data.password}" | base64 -d)"',
-      'PRIMARY="$(kubectl exec -n "$NS" "$CID-0" -c mongod -- mongosh --quiet --host 127.0.0.1 --port 27017 -u admin -p "$PW" --authenticationDatabase admin --eval "const p=db.hello().primary || \'\'; print(p.split(\'.\')[0]);" 2>/dev/null | awk \'/^mongo-/ { print; exit }\')"',
+      // TLS first (required once a cluster's TLS mode is "required"; the
+      // certificate is not issued for 127.0.0.1, so skip validation for this
+      // in-pod loopback check), plaintext for clusters without TLS.
+      'Q="const p=db.hello().primary || \'\'; print(p.split(\'.\')[0]);"',
+      'PRIMARY="$( { kubectl exec -n "$NS" "$CID-0" -c mongod -- mongosh --quiet --tls --tlsAllowInvalidCertificates --host 127.0.0.1 --port 27017 -u admin -p "$PW" --authenticationDatabase admin --eval "$Q" 2>/dev/null || kubectl exec -n "$NS" "$CID-0" -c mongod -- mongosh --quiet --host 127.0.0.1 --port 27017 -u admin -p "$PW" --authenticationDatabase admin --eval "$Q" 2>/dev/null; } | awk \'/^mongo-/ { print; exit }\')"',
       'if [ -z "$PRIMARY" ]; then',
       '  echo "Could not determine MongoDB primary" >&2',
       '  exit 1',
@@ -3313,8 +3317,11 @@ export class KubernetesService implements OnModuleInit {
   /**
    * After creating a multi-site replica set: wait until both data members are
    * scheduled (the arbiter node is tainted, so they land on the two data
-   * nodes, one per location), then lift the taint so the operator's arbiter
-   * goes to the only free node, and prefer the fsn1 member as primary.
+   * nodes, one per location), then lift the taint, add the arbiter — host
+   * anti-affinity leaves it only the arbiter node — and prefer the fsn1
+   * member as primary. The arbiter cannot be part of the initial spec: the
+   * operator creates its StatefulSet right away (same pod template), and it
+   * grabbed a data node before the second data member was scheduled.
    */
   async finalizeMultiSiteTopology(params: { clusterId: string; projectId: string; kubeconfig: string }): Promise<{ primaryZone: string }> {
     return this.withDedicatedClients(params.kubeconfig, async () => {
@@ -3356,6 +3363,7 @@ export class KubernetesService implements OnModuleInit {
       }
 
       await this.updateMongoDbResource(namespace, resourceName, (cr) => {
+        cr.spec.arbiters = 1;
         cr.spec.memberConfig = [0, 1].map((i) => ({
           votes: 1,
           priority: zoneOf.get(`${i}`) === 'fsn1' ? '2' : '1',
