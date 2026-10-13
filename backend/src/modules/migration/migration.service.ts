@@ -16,6 +16,8 @@ import {
   MigrationDocument,
   MigrationStatus,
 } from './schemas/migration.schema';
+import { RequestContext } from '../../common/request-context';
+import { assertPublicSourceUri } from './source-uri-guard';
 
 @Injectable()
 export class MigrationService {
@@ -59,6 +61,14 @@ export class MigrationService {
     warnings?: string[];
     error?: string;
   }> {
+    // Platform-admin keys may migrate from internal sources; customers may not.
+    if (!RequestContext.isPlatformAdmin()) {
+      try {
+        await assertPublicSourceUri(sourceUri);
+      } catch (error: any) {
+        return { valid: false, error: error.message };
+      }
+    }
     let client: any;
     try {
       const { MongoClient } = require('mongodb');
@@ -249,6 +259,10 @@ export class MigrationService {
       compressTransfer?: boolean;
     };
   }): Promise<MigrationDocument> {
+    // Platform-admin keys may migrate from internal sources; customers may not.
+    if (!RequestContext.isPlatformAdmin()) {
+      await assertPublicSourceUri(params.sourceUri);
+    }
     // Validate target cluster
     const cluster = await this.clustersService.findById(params.targetClusterId);
     if (!cluster) {

@@ -9,6 +9,8 @@ import { APP_FILTER, APP_INTERCEPTOR, APP_GUARD } from '@nestjs/core';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { RequestContextMiddleware } from './common/middleware/request-context.middleware';
+import { TenantAccessInterceptor } from './common/interceptors/tenant-access.interceptor';
 import { SecurityMiddleware, IpExtractionMiddleware } from './common/middleware/security.middleware';
 
 // Feature Modules
@@ -145,6 +147,11 @@ import { HetznerModule } from './modules/hetzner/hetzner.module';
       provide: APP_INTERCEPTOR,
       useClass: LoggingInterceptor,
     },
+    // Tenant isolation for every route with :orgId/:projectId/:clusterId
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TenantAccessInterceptor,
+    },
     // Global rate limiting
     {
       provide: APP_GUARD,
@@ -155,7 +162,7 @@ import { HetznerModule } from './modules/hetzner/hetzner.module';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
-      .apply(IpExtractionMiddleware, SecurityMiddleware, CorrelationIdMiddleware)
+      .apply(RequestContextMiddleware, IpExtractionMiddleware, SecurityMiddleware, CorrelationIdMiddleware)
       .forRoutes('*');
   }
 }

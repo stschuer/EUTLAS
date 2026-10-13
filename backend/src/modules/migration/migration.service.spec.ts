@@ -108,7 +108,7 @@ describe('MigrationService', () => {
 
       await expect(
         service.startMigration({
-          sourceUri: 'mongodb://localhost:27017',
+          sourceUri: 'mongodb://203.0.113.10:27017',
           sourceProvider: 'self-hosted',
           targetClusterId: CLUSTER_ID,
           projectId: PROJECT_ID,
@@ -126,7 +126,7 @@ describe('MigrationService', () => {
 
       await expect(
         service.startMigration({
-          sourceUri: 'mongodb://localhost:27017',
+          sourceUri: 'mongodb://203.0.113.10:27017',
           sourceProvider: 'self-hosted',
           targetClusterId: CLUSTER_ID,
           projectId: PROJECT_ID,
@@ -149,7 +149,7 @@ describe('MigrationService', () => {
 
       await expect(
         service.startMigration({
-          sourceUri: 'mongodb://localhost:27017',
+          sourceUri: 'mongodb://203.0.113.10:27017',
           sourceProvider: 'self-hosted',
           targetClusterId: CLUSTER_ID,
           projectId: PROJECT_ID,
@@ -294,7 +294,7 @@ describe('MigrationService', () => {
       const mockMigration = {
         id: MIGRATION_ID,
         status: 'failed',
-        sourceUri: 'mongodb://localhost:27017',
+        sourceUri: 'mongodb://203.0.113.10:27017',
         databases: ['testdb'],
         options: { dropExisting: true },
         targetClusterId: { toString: () => CLUSTER_ID },

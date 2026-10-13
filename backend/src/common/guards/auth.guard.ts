@@ -11,6 +11,7 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ApiKeysService } from '../../modules/api-keys/api-keys.service';
 import { ApiKeyScope } from '../../modules/api-keys/schemas/api-key.schema';
 import { API_KEY_SCOPE } from './api-key.guard';
+import { RequestContext } from '../request-context';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -96,6 +97,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     // Also attach API key info for API-key-specific logic
     request.apiKey = result.apiKey;
     request.orgId = result.apiKey!.orgId.toString();
+
+    if (await this.apiKeysService!.isPlatformAdminKey(result.apiKey!)) {
+      request.platformAdmin = true;
+      RequestContext.markPlatformAdmin();
+      this.logger.log(`Platform-admin API key ${publicKey} (${result.apiKey!.name}) used: ${request.method} ${request.originalUrl}`);
+    }
 
     this.logger.debug(`API key ${publicKey} authenticated for org ${request.orgId}`);
 

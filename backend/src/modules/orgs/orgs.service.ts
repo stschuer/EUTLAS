@@ -12,6 +12,7 @@ import { Organization, OrganizationDocument } from './schemas/org.schema';
 import { OrgMember, OrgMemberDocument, OrgRole } from './schemas/org-member.schema';
 import { CreateOrgDto } from './dto/create-org.dto';
 import { markBackupsDeletedForClusters } from '../backups/backup-cascade';
+import { RequestContext } from '../../common/request-context';
 
 @Injectable()
 export class OrgsService {
@@ -78,6 +79,11 @@ export class OrgsService {
     userId: string,
     requiredRoles: OrgRole[] = [],
   ): Promise<OrgRole> {
+    // Platform-admin API keys (admin MCP) act as owner in every org.
+    if (RequestContext.isPlatformAdmin()) {
+      return 'OWNER';
+    }
+
     const role = await this.getUserRole(orgId, userId);
     
     if (!role) {

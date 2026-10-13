@@ -2,14 +2,18 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  ForbiddenException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel, InjectConnection } from '@nestjs/mongoose';
+import { Connection, Model, Types } from 'mongoose';
 import { randomBytes, createHash } from 'crypto';
 import { ApiKey, ApiKeyDocument, ApiKeyScope } from './schemas/api-key.schema';
 import { CreateApiKeyDto, UpdateApiKeyDto } from './dto/create-api-key.dto';
 import { EventsService } from '../events/events.service';
+
+const PLATFORM_KEY_MAX_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface ApiKeyValidationResult {
   valid: boolean;
@@ -24,6 +28,7 @@ export class ApiKeysService {
   constructor(
     @InjectModel(ApiKey.name) private apiKeyModel: Model<ApiKeyDocument>,
     private readonly eventsService: EventsService,
+    @InjectConnection() private readonly connection: Connection,
   ) {}
 
   async create(
@@ -38,6 +43,9 @@ export class ApiKeysService {
 
     // Default scopes if not provided
     const scopes = createDto.scopes || ['clusters:read', 'projects:read'];
+    if (scopes.includes('platform:admin')) {
+      await this.assertCanCreatePlatformKey(userId, createDto.expiresAt);
+    }
 
     const apiKey = new this.apiKeyModel({
       orgId,
@@ -95,7 +103,13 @@ export class ApiKeysService {
 
     if (updateDto.name !== undefined) apiKey.name = updateDto.name;
     if (updateDto.description !== undefined) apiKey.description = updateDto.description;
-    if (updateDto.scopes !== undefined) apiKey.scopes = updateDto.scopes as ApiKeyScope[];
+    if (updateDto.scopes !== undefined) {
+      // platform:admin only via create(), which enforces creator and expiry rules.
+      if (updateDto.scopes.includes('platform:admin') !== apiKey.scopes.includes('platform:admin')) {
+        throw new BadRequestException('The platform:admin scope cannot be added or removed; create a new key');
+      }
+      apiKey.scopes = updateDto.scopes as ApiKeyScope[];
+    }
     if (updateDto.allowedIps !== undefined) apiKey.allowedIps = updateDto.allowedIps;
     if (updateDto.isActive !== undefined) apiKey.isActive = updateDto.isActive;
 
@@ -151,9 +165,36 @@ export class ApiKeysService {
     return { valid: true, apiKey };
   }
 
+  /**
+   * A platform:admin key acts across all orgs. Re-checked on every request so
+   * revoking the creator's global-admin flag disables their keys immediately.
+   */
+  async isPlatformAdminKey(apiKey: ApiKeyDocument): Promise<boolean> {
+    if (!apiKey.scopes.includes('platform:admin')) return false;
+    return this.isActiveGlobalAdmin(apiKey.createdBy.toString());
+  }
+
+  private async isActiveGlobalAdmin(userId: string): Promise<boolean> {
+    if (!Types.ObjectId.isValid(userId)) return false;
+    const user = await this.connection
+      .collection('users')
+      .findOne({ _id: new Types.ObjectId(userId) }, { projection: { isGlobalAdmin: 1, isActive: 1 } });
+    return user?.isGlobalAdmin === true && user?.isActive !== false;
+  }
+
+  private async assertCanCreatePlatformKey(userId: string, expiresAt?: string): Promise<void> {
+    if (!(await this.isActiveGlobalAdmin(userId))) {
+      throw new ForbiddenException('Only global admins can create platform:admin API keys');
+    }
+    const expiry = expiresAt ? new Date(expiresAt) : undefined;
+    if (!expiry || expiry.getTime() > Date.now() + PLATFORM_KEY_MAX_LIFETIME_MS) {
+      throw new BadRequestException('platform:admin API keys must expire within 30 days');
+    }
+  }
+
   hasScope(apiKey: ApiKeyDocument, requiredScope: ApiKeyScope): boolean {
-    // Admin scope grants all access
-    if (apiKey.scopes.includes('admin')) {
+    // Admin scopes grant all access
+    if (apiKey.scopes.includes('admin') || apiKey.scopes.includes('platform:admin')) {
       return true;
     }
     return apiKey.scopes.includes(requiredScope);

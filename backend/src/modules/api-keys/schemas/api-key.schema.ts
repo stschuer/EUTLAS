@@ -11,7 +11,10 @@ export type ApiKeyScope =
   | 'metrics:read'
   | 'members:read'
   | 'members:write'
-  | 'admin';
+  | 'admin'
+  // Platform-wide access across all orgs for global admins (admin MCP). Only
+  // honoured while the creating user is still an active global admin.
+  | 'platform:admin';
 
 export type ApiKeyDocument = ApiKey & Document;
 

@@ -23,8 +23,14 @@ export class GlobalAdminGuard implements CanActivate {
       throw new UnauthorizedException('Authentication required');
     }
 
-    // Fetch the full user document to check isGlobalAdmin
-    const fullUser = await this.userModel.findById(user.sub).lean();
+    // API keys only reach admin endpoints with the platform:admin scope (set by
+    // JwtAuthGuard after re-checking the creator); ordinary keys never do.
+    if (request.apiKey && !request.platformAdmin) {
+      throw new ForbiddenException('API keys need the platform:admin scope for admin endpoints');
+    }
+
+    // Fetch the full user document to check isGlobalAdmin (JWT: sub, API key: creator)
+    const fullUser = await this.userModel.findById(user.sub ?? user.userId).lean();
 
     if (!fullUser) {
       throw new UnauthorizedException('User not found');
