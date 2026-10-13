@@ -47,6 +47,10 @@ export function registerOperationsTools(server: McpServer, api: Api) {
       plan: z.enum(PLANS),
       region: z.enum(["fsn1", "nbg1"]).default("fsn1").describe("Hetzner location (Germany only)"),
       mongoVersion: z.string().optional().describe("e.g. 7.0, 8.0"),
+      topology: z
+        .enum(["single-server", "multi-site"])
+        .optional()
+        .describe("multi-site (LARGE+): data members in fsn1 + nbg1 and an arbiter in fsn1; TLS required, connect via mongodb+srv"),
     },
     ({ projectId, ...body }) => ["POST", `/projects/${projectId}/clusters`, body]);
 
