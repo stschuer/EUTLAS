@@ -42,7 +42,10 @@ export class AdminOpsService {
 
     const names = async (collection: string, ids: unknown[]) =>
       new Map(
-        (await this.connection.collection(collection).find({ _id: { $in: ids as any[] } }, { projection: { name: 1 } }).toArray())
+        (await this.connection
+          .collection(collection)
+          .find({ _id: { $in: ids.filter(Boolean).flatMap((id) => idVariants(String(id))) as any[] } }, { projection: { name: 1 } })
+          .toArray())
           .map((d) => [d._id.toString(), d.name as string]),
       );
     const orgNames = await names('organizations', clusters.map((c) => c.orgId));

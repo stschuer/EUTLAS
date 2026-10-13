@@ -145,6 +145,9 @@ interface BackupParams {
   backupHost?: string;
   backupPort?: number;
   adminPassword?: string;
+  // The cluster lives on its own dedicated node: always use the external
+  // endpoint, even if stale pods of a pre-migration copy still run here.
+  dedicated?: boolean;
 }
 
 export interface BackupRunResult {
@@ -2540,7 +2543,7 @@ export class KubernetesService implements OnModuleInit {
     } catch (error: any) {
       if (error.response?.statusCode !== 404) throw error;
     }
-    if (hasLocalPods) {
+    if (hasLocalPods && !params.dedicated) {
       return { host: serviceName, port: 27017, inCluster: true };
     }
 

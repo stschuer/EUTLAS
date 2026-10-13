@@ -366,7 +366,7 @@ export class JobProcessorService implements OnModuleInit {
     const cluster = await this.clustersService.findById(clusterId);
     const plan = cluster?.plan || 'DEV';
 
-    const { backupHost, backupPort, adminPassword } = await this.externalMongoTarget(clusterId, cluster);
+    const { backupHost, backupPort, adminPassword, dedicated } = await this.externalMongoTarget(clusterId, cluster);
 
     await this.backupsService.startBackup(backupId);
 
@@ -379,6 +379,7 @@ export class JobProcessorService implements OnModuleInit {
         backupHost,
         backupPort,
         adminPassword,
+        dedicated,
       });
 
       await this.backupsService.completeBackup(backupId, {
@@ -402,7 +403,7 @@ export class JobProcessorService implements OnModuleInit {
   private async externalMongoTarget(
     clusterId: string,
     cluster: any,
-  ): Promise<{ backupHost?: string; backupPort?: number; adminPassword?: string }> {
+  ): Promise<{ backupHost?: string; backupPort?: number; adminPassword?: string; dedicated?: boolean }> {
     if (!cluster?.externalHost || !cluster?.externalPort) {
       return {};
     }
@@ -412,7 +413,12 @@ export class JobProcessorService implements OnModuleInit {
     } catch (e) {
       this.logger.warn(`[${clusterId}] Could not decrypt admin credentials for dedicated backup/restore: ${e}`);
     }
-    return { backupHost: cluster.externalHost, backupPort: cluster.externalPort, adminPassword };
+    return {
+      backupHost: cluster.externalHost,
+      backupPort: cluster.externalPort,
+      adminPassword,
+      dedicated: !!cluster.dedicatedServerId,
+    };
   }
 
   private async processRestoreCluster(job: JobDocument) {
