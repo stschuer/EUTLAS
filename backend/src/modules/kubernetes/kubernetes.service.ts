@@ -3355,16 +3355,12 @@ export class KubernetesService implements OnModuleInit {
         );
       }
 
-      const { body: cr } = (await this.customApi.getNamespacedCustomObject(
-        'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName,
-      )) as { body: any };
-      cr.spec.memberConfig = [0, 1].map((i) => ({
-        votes: 1,
-        priority: zoneOf.get(`${i}`) === 'fsn1' ? '2' : '1',
-      }));
-      await this.customApi.replaceNamespacedCustomObject(
-        'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName, cr,
-      );
+      await this.updateMongoDbResource(namespace, resourceName, (cr) => {
+        cr.spec.memberConfig = [0, 1].map((i) => ({
+          votes: 1,
+          priority: zoneOf.get(`${i}`) === 'fsn1' ? '2' : '1',
+        }));
+      });
       this.logger.log(`Multi-site ${resourceName}: members ${JSON.stringify(Object.fromEntries(zoneOf))}, arbiter untainted`);
       return { primaryZone: 'fsn1' };
     });
@@ -3437,21 +3433,42 @@ export class KubernetesService implements OnModuleInit {
       members.push({ index: i, podName, host, port, horizon: `m${i}.${params.dnsBase}:${port}` });
     }
 
-    cr.spec.security = {
-      ...(cr.spec.security || {}),
-      tls: {
-        enabled: true,
-        optional: params.mode === 'optional',
-        certificateKeySecretRef: { name: tlsSecret },
-        caConfigMapRef: { name: caConfigMap },
-      },
-    };
-    cr.spec.replicaSetHorizons = members.map((m) => ({ external: m.horizon }));
-    await this.customApi.replaceNamespacedCustomObject(
-      'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName, cr,
-    );
+    await this.updateMongoDbResource(namespace, resourceName, (current) => {
+      current.spec.security = {
+        ...(current.spec.security || {}),
+        tls: {
+          enabled: true,
+          optional: params.mode === 'optional',
+          certificateKeySecretRef: { name: tlsSecret },
+          caConfigMapRef: { name: caConfigMap },
+        },
+      };
+      current.spec.replicaSetHorizons = members.map((m) => ({ external: m.horizon }));
+    });
     this.logger.log(`TLS (${params.mode}) configured for ${resourceName}: ${members.map((m) => m.horizon).join(', ')}`);
     return { replicaSet: resourceName, members };
+  }
+
+  /**
+   * Read-modify-replace a MongoDBCommunity resource, retrying on 409: the
+   * operator updates the same object (status, annotations) concurrently.
+   */
+  private async updateMongoDbResource(namespace: string, name: string, mutate: (cr: any) => void): Promise<any> {
+    for (let attempt = 1; ; attempt++) {
+      const { body: cr } = (await this.customApi.getNamespacedCustomObject(
+        'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', name,
+      )) as { body: any };
+      mutate(cr);
+      try {
+        await this.customApi.replaceNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', name, cr,
+        );
+        return cr;
+      } catch (error: any) {
+        if (error.response?.statusCode !== 409 || attempt >= 5) throw error;
+        await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
+    }
   }
 
   /** NodePort service for exactly one member pod; returns its node port. */
