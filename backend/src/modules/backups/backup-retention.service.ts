@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Model, Types } from 'mongoose';
 import { Backup, BackupDocument } from './schemas/backup.schema';
 import { KubernetesService } from '../kubernetes/kubernetes.service';
+import { idVariants } from '../../common/id-variants';
 
 // Failed backups may leave a partial staged archive; give retries a day first.
 const FAILED_BACKUP_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -107,12 +108,11 @@ export class BackupRetentionService implements OnModuleInit {
 
     let purged = 0;
     for (const [clusterId, { projectId, ids }] of byCluster) {
-      const newest = await this.backupModel
-        .findOne({ clusterId, status: 'completed' })
-        .sort({ completedAt: -1 })
-        .select({ _id: 1 })
-        .lean()
-        .exec();
+      // Raw query: clusterId is stored as a string, which the model would cast away.
+      const newest = await this.backupModel.collection.findOne(
+        { clusterId: { $in: idVariants(clusterId) }, status: 'completed' },
+        { sort: { completedAt: -1 }, projection: { _id: 1 } },
+      );
       const keepId = newest?._id?.toString();
       const purgeIds = ids.filter((id) => id.toString() !== keepId);
       if (purgeIds.length === 0) continue;

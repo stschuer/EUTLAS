@@ -1,4 +1,5 @@
 import { Connection, Types } from 'mongoose';
+import { idVariants } from '../../common/id-variants';
 
 /**
  * Cascade deletes must not hard-delete backup records: their archives (staged
@@ -12,7 +13,7 @@ export async function markBackupsDeletedForClusters(
 ): Promise<number> {
   if (clusterIds.length === 0) return 0;
   const result = await connection.collection('backups').updateMany(
-    { clusterId: { $in: clusterIds }, purgedAt: { $exists: false } },
+    { clusterId: { $in: clusterIds.flatMap((id) => idVariants(id)) }, purgedAt: { $exists: false } },
     { $set: { status: 'deleted', updatedAt: new Date() } },
   );
   return result.modifiedCount;

@@ -5,6 +5,7 @@ import { Connection, Types } from 'mongoose';
 import { KubernetesService, PlatformDiagnostics } from '../kubernetes/kubernetes.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { JobsService } from '../jobs/jobs.service';
+import { idVariants } from '../../common/id-variants';
 
 // A scheduled backup older than this means the schedule is not being kept.
 const BACKUP_STALE_HOURS = 26;
@@ -78,11 +79,11 @@ export class AdminOpsService {
       clusters.map(async (cluster) => {
         const [completed, failed] = await Promise.all([
           this.connection.collection('backups').findOne(
-            { clusterId: cluster._id, status: 'completed' },
+            { clusterId: { $in: idVariants(cluster._id) }, status: 'completed' },
             { sort: { completedAt: -1 }, projection: { completedAt: 1, sizeBytes: 1 } },
           ),
           this.connection.collection('backups').findOne(
-            { clusterId: cluster._id, status: 'failed' },
+            { clusterId: { $in: idVariants(cluster._id) }, status: 'failed' },
             { sort: { createdAt: -1 }, projection: { createdAt: 1, errorMessage: 1 } },
           ),
         ]);
@@ -167,7 +168,7 @@ export class AdminOpsService {
       }
       const accessList = await this.connection
         .collection('ipwhitelists')
-        .find({ clusterId: cluster._id, isActive: true }, { projection: { cidrBlock: 1, comment: 1 } })
+        .find({ clusterId: { $in: idVariants(cluster._id) }, isActive: true }, { projection: { cidrBlock: 1, comment: 1 } })
         .toArray();
       return {
         clusterId,
@@ -186,7 +187,7 @@ export class AdminOpsService {
     const query: Record<string, unknown> = {};
     if (filter.status) query.status = filter.status;
     if (filter.clusterId && Types.ObjectId.isValid(filter.clusterId)) {
-      query.targetClusterId = new Types.ObjectId(filter.clusterId);
+      query.targetClusterId = { $in: idVariants(filter.clusterId) };
     }
     const jobs = await this.connection
       .collection('jobs')

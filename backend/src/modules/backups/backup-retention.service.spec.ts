@@ -23,9 +23,8 @@ describe('BackupRetentionService', () => {
   beforeEach(() => {
     model = {
       find: jest.fn(),
-      findOne: jest.fn(),
       updateMany: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue({}) }),
-      collection: { dropIndex: jest.fn() },
+      collection: { dropIndex: jest.fn(), findOne: jest.fn() },
     };
     kubernetes = { purgeBackupArchives: jest.fn().mockResolvedValue(undefined) };
     service = new BackupRetentionService(model, { get: jest.fn() } as any, kubernetes);
@@ -37,9 +36,9 @@ describe('BackupRetentionService', () => {
     const b1 = backup(clusterB);
     model.find.mockReturnValue(chain([a1, a2, b1]));
     // a2 is cluster A's newest completed backup; cluster B's newest is a different one.
-    model.findOne
-      .mockReturnValueOnce(chain({ _id: a2._id }))
-      .mockReturnValueOnce(chain({ _id: new Types.ObjectId() }));
+    model.collection.findOne
+      .mockResolvedValueOnce({ _id: a2._id })
+      .mockResolvedValueOnce({ _id: new Types.ObjectId() });
 
     const purged = await service.runPurge(now);
 
@@ -54,6 +53,8 @@ describe('BackupRetentionService', () => {
       projectId: projectId.toString(),
       backupIds: [b1._id.toString()],
     });
+    // Newest-completed lookup must match string-stored clusterIds too.
+    expect(model.collection.findOne.mock.calls[0][0].clusterId.$in).toContain(clusterA.toString());
     expect(model.updateMany).toHaveBeenCalledWith(
       { _id: { $in: [a1._id] } },
       { $set: { status: 'deleted', purgedAt: now } },
@@ -63,7 +64,7 @@ describe('BackupRetentionService', () => {
   it('skips a cluster whose only due backup is its newest completed one', async () => {
     const only = backup(clusterA);
     model.find.mockReturnValue(chain([only]));
-    model.findOne.mockReturnValue(chain({ _id: only._id }));
+    model.collection.findOne.mockResolvedValue({ _id: only._id });
 
     expect(await service.runPurge(now)).toBe(0);
     expect(kubernetes.purgeBackupArchives).not.toHaveBeenCalled();
@@ -72,7 +73,7 @@ describe('BackupRetentionService', () => {
 
   it('leaves records untouched when removing the archives fails', async () => {
     model.find.mockReturnValue(chain([backup(clusterA)]));
-    model.findOne.mockReturnValue(chain(null));
+    model.collection.findOne.mockResolvedValue(null);
     kubernetes.purgeBackupArchives.mockRejectedValue(new Error('job failed'));
 
     expect(await service.runPurge(now)).toBe(0);
