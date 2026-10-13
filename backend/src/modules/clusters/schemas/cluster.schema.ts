@@ -26,6 +26,8 @@ export type ClusterDocument = Cluster & Document;
       delete ret._id;
       delete ret.__v;
       delete ret.credentialsEncrypted;
+      // Encrypted, but still a cluster-admin credential for the dedicated node.
+      delete ret.dedicatedKubeconfigEncrypted;
       return ret;
     },
   },

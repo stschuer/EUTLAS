@@ -10,6 +10,7 @@ import { Model, Connection } from 'mongoose';
 import { Project, ProjectDocument } from './schemas/project.schema';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { markBackupsDeletedForClusters } from '../backups/backup-cascade';
 
 @Injectable()
 export class ProjectsService {
@@ -112,7 +113,6 @@ export class ProjectsService {
 
     // Collections that reference clusterId
     const clusterIdCollections = [
-      'backups',
       'backuppolicies',
       'databaseusers',
       'ipwhitelists',
@@ -133,6 +133,9 @@ export class ProjectsService {
       'alertrules',
       'alerthistories',
     ];
+
+    const backupsMarked = await markBackupsDeletedForClusters(this.connection, clusterIds);
+    if (backupsMarked > 0) deletedCounts['backups'] = backupsMarked;
 
     // Delete cluster-related data first
     if (clusterIds.length > 0) {

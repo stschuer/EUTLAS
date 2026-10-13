@@ -11,6 +11,7 @@ import { Model, Connection } from 'mongoose';
 import { Organization, OrganizationDocument } from './schemas/org.schema';
 import { OrgMember, OrgMemberDocument, OrgRole } from './schemas/org-member.schema';
 import { CreateOrgDto } from './dto/create-org.dto';
+import { markBackupsDeletedForClusters } from '../backups/backup-cascade';
 
 @Injectable()
 export class OrgsService {
@@ -231,11 +232,10 @@ export class OrgsService {
       'alerthistories',
       'notificationchannels',
       'billingaccounts',
-      'invoices',
-      'usagerecords',
+      // invoices + usagerecords (statutory retention, GoBD / § 147 AO) and
+      // auditlogs (audit trail must outlive what it audits) are kept.
       'ssoconfigs',
       'events',
-      'auditlogs',
       'dashboards',
       'scalingrecommendations',
     ];
@@ -251,7 +251,6 @@ export class OrgsService {
 
     // Collections that reference clusterId
     const clusterIdCollections = [
-      'backups',
       'backuppolicies',
       'databaseusers',
       'ipwhitelists',
@@ -275,6 +274,9 @@ export class OrgsService {
     const projectIdCollections = [
       'privatenetworks',
     ];
+
+    const backupsMarked = await markBackupsDeletedForClusters(this.connection, clusterIds);
+    if (backupsMarked > 0) deletedCounts['backups'] = backupsMarked;
 
     // Delete cluster-related data first
     if (clusterIds.length > 0) {

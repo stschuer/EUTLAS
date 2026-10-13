@@ -7,6 +7,12 @@ spec:
     spec:
       containers:
         - name: backend
+          env:
+            # Public IPs of eutlas-prod-node-1..3. Pod egress is SNATed to these,
+            # so every tenant NetworkPolicy must allow them (backups, metrics,
+            # migrations reach dedicated clusters via their external NodePort).
+            - name: PLATFORM_EGRESS_CIDRS
+              value: "46.224.9.177/32,168.119.50.19/32,46.224.170.167/32"
           volumeMounts:
             - name: platform-mongodb-ha-ca
               mountPath: /etc/eutlas/mongodb

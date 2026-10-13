@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as k8s from '@kubernetes/client-node';
+import { AsyncLocalStorage } from 'async_hooks';
 import { randomBytes } from 'crypto';
 
 // ========== Interfaces ==========
@@ -302,21 +303,61 @@ function parseMemoryToGB(mem: string): number {
   return mib / 1024; // GB (GiB)
 }
 
+interface K8sClients {
+  kc: k8s.KubeConfig;
+  coreApi: k8s.CoreV1Api;
+  appsApi: k8s.AppsV1Api;
+  batchApi: k8s.BatchV1Api;
+  networkApi: k8s.NetworkingV1Api;
+  customApi: k8s.CustomObjectsApi;
+  rbacApi: k8s.RbacAuthorizationV1Api;
+  dataStorageClass: string;
+}
+
+function buildClients(kc: k8s.KubeConfig, dataStorageClass: string): K8sClients {
+  return {
+    kc,
+    coreApi: kc.makeApiClient(k8s.CoreV1Api),
+    appsApi: kc.makeApiClient(k8s.AppsV1Api),
+    batchApi: kc.makeApiClient(k8s.BatchV1Api),
+    networkApi: kc.makeApiClient(k8s.NetworkingV1Api),
+    customApi: kc.makeApiClient(k8s.CustomObjectsApi),
+    rbacApi: kc.makeApiClient(k8s.RbacAuthorizationV1Api),
+    dataStorageClass,
+  };
+}
+
 @Injectable()
 export class KubernetesService implements OnModuleInit {
   private readonly logger = new Logger(KubernetesService.name);
   private readonly namespacePrefix: string;
   private readonly controlPlaneNamespace: string;
-  private kc: k8s.KubeConfig;
-  private coreApi: k8s.CoreV1Api;
-  private appsApi: k8s.AppsV1Api;
-  private batchApi: k8s.BatchV1Api;
-  private networkApi: k8s.NetworkingV1Api;
-  private customApi: k8s.CustomObjectsApi;
-  private rbacApi: k8s.RbacAuthorizationV1Api;
-  /** StorageClass for data PVCs; swapped together with the clients in withDedicatedClients. */
-  private dataStorageClass = ENCRYPTED_STORAGE_CLASS;
-  private isConnected = false;
+  /** Clients for the shared (control-plane) cluster. */
+  private defaults: K8sClients = { dataStorageClass: ENCRYPTED_STORAGE_CLASS } as K8sClients;
+  /**
+   * Per-async-context clients for a cluster's dedicated node. Operations for
+   * different clusters run concurrently (metrics, user changes, jobs), so the
+   * target cluster must never be swapped in shared instance fields.
+   */
+  private readonly clusterContext = new AsyncLocalStorage<K8sClients>();
+  private dedicatedKubeconfigResolver?: (clusterId: string) => Promise<string | undefined>;
+  private defaultConnected = false;
+
+  private get clients(): K8sClients {
+    return this.clusterContext.getStore() ?? this.defaults;
+  }
+  private get kc() { return this.clients.kc; }
+  private get coreApi() { return this.clients.coreApi; }
+  private get appsApi() { return this.clients.appsApi; }
+  private get batchApi() { return this.clients.batchApi; }
+  private get networkApi() { return this.clients.networkApi; }
+  private get customApi() { return this.clients.customApi; }
+  private get rbacApi() { return this.clients.rbacApi; }
+  /** StorageClass for data PVCs on the cluster currently being operated on. */
+  private get dataStorageClass() { return this.clients.dataStorageClass; }
+  private get isConnected() {
+    return this.clusterContext.getStore() ? true : this.defaultConnected;
+  }
   private readonly devMode: boolean;
 
   constructor(private readonly configService: ConfigService) {
@@ -334,18 +375,18 @@ export class KubernetesService implements OnModuleInit {
 
   private async initializeKubeClient(): Promise<void> {
     try {
-      this.kc = new k8s.KubeConfig();
+      const kc = new k8s.KubeConfig();
       
       const inCluster = this.configService.get<boolean>('K8S_IN_CLUSTER', false);
       
       if (inCluster) {
         // Running inside Kubernetes
-        this.kc.loadFromCluster();
+        kc.loadFromCluster();
         this.logger.log('Loaded Kubernetes config from cluster');
       } else {
         // Try to load from default location (~/.kube/config)
         try {
-          this.kc.loadFromDefault();
+          kc.loadFromDefault();
           this.logger.log('Loaded Kubernetes config from default location');
         } catch (e) {
           if (!this.devMode) {
@@ -356,24 +397,19 @@ export class KubernetesService implements OnModuleInit {
         }
       }
 
-      this.coreApi = this.kc.makeApiClient(k8s.CoreV1Api);
-      this.appsApi = this.kc.makeApiClient(k8s.AppsV1Api);
-      this.batchApi = this.kc.makeApiClient(k8s.BatchV1Api);
-      this.networkApi = this.kc.makeApiClient(k8s.NetworkingV1Api);
-      this.customApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
-      this.rbacApi = this.kc.makeApiClient(k8s.RbacAuthorizationV1Api);
+      this.defaults = buildClients(kc, ENCRYPTED_STORAGE_CLASS);
 
       // Test connection
       if (!this.devMode) {
         await this.coreApi.listNamespace();
-        this.isConnected = true;
+        this.defaultConnected = true;
         this.logger.log('Successfully connected to Kubernetes cluster');
       }
     } catch (error: any) {
       this.logger.error(`Failed to connect to Kubernetes: ${error.message}`);
       this.logger.warn('Falling back to simulation mode for Kubernetes operations');
       // Don't crash the app - fall back to simulation mode
-      this.isConnected = false;
+      this.defaultConnected = false;
     }
   }
 
@@ -1635,6 +1671,14 @@ export class KubernetesService implements OnModuleInit {
     projectId: string,
     plan?: string,
   ): Promise<{ host: string; port: number } | null> {
+    return this.onClusterNode(clusterId, () => this.enableExternalAccessOnNode(clusterId, projectId, plan));
+  }
+
+  private async enableExternalAccessOnNode(
+    clusterId: string,
+    projectId: string,
+    plan?: string,
+  ): Promise<{ host: string; port: number } | null> {
     const namespace = this.getNamespace(projectId);
     const resourceName = this.getResourceName(clusterId);
     const externalServiceName = `${resourceName}-external`;
@@ -1660,8 +1704,10 @@ export class KubernetesService implements OnModuleInit {
     additionalIngressIps?: string[],
   ): Promise<void> {
     const policyName = `${resourceName}-network-policy`;
-    const externalIngressCidrs =
-      additionalIngressIps && additionalIngressIps.length > 0 ? additionalIngressIps : ['0.0.0.0/0'];
+    // Closed by default (like Atlas): only the platform and explicitly passed
+    // CIDRs until the customer adds IP access-list entries. This used to be
+    // 0.0.0.0/0, and later access-list changes never reached dedicated nodes.
+    const externalIngressCidrs = [...this.platformEgressCidrs, ...(additionalIngressIps ?? [])];
 
     const ingressRules: k8s.V1NetworkPolicyIngressRule[] = [
       {
@@ -1705,11 +1751,7 @@ export class KubernetesService implements OnModuleInit {
         },
       },
       spec: {
-        podSelector: {
-          matchLabels: {
-            app: resourceName,
-          },
-        },
+        podSelector: this.mongoPodSelector(resourceName),
         policyTypes: ['Ingress'],
         ingress: ingressRules,
       },
@@ -1725,6 +1767,10 @@ export class KubernetesService implements OnModuleInit {
   }
 
   async resizeMongoCluster(params: ResizeClusterParams & { currentPlan?: string }): Promise<void> {
+    return this.onClusterNode(params.clusterId, () => this.resizeMongoClusterOnNode(params));
+  }
+
+  private async resizeMongoClusterOnNode(params: ResizeClusterParams & { currentPlan?: string }): Promise<void> {
     this.logger.log(`Resizing cluster ${params.clusterId} to ${params.newPlan}`);
 
     const namespace = this.getNamespace(params.projectId);
@@ -1921,6 +1967,10 @@ export class KubernetesService implements OnModuleInit {
   }
 
   async pauseMongoCluster(params: PauseClusterParams): Promise<void> {
+    return this.onClusterNode(params.clusterId, () => this.pauseMongoClusterOnNode(params));
+  }
+
+  private async pauseMongoClusterOnNode(params: PauseClusterParams): Promise<void> {
     this.logger.log(`Pausing cluster ${params.clusterId}`);
 
     const namespace = this.getNamespace(params.projectId);
@@ -1960,6 +2010,10 @@ export class KubernetesService implements OnModuleInit {
   }
 
   async resumeMongoCluster(params: ResumeClusterParams): Promise<void> {
+    return this.onClusterNode(params.clusterId, () => this.resumeMongoClusterOnNode(params));
+  }
+
+  private async resumeMongoClusterOnNode(params: ResumeClusterParams): Promise<void> {
     this.logger.log(`Resuming cluster ${params.clusterId}`);
 
     const namespace = this.getNamespace(params.projectId);
@@ -2002,6 +2056,10 @@ export class KubernetesService implements OnModuleInit {
   // ========== Database User Management ==========
 
   async createDatabaseUser(params: CreateDatabaseUserParams): Promise<void> {
+    return this.onClusterNode(params.clusterId, () => this.createDatabaseUserOnNode(params));
+  }
+
+  private async createDatabaseUserOnNode(params: CreateDatabaseUserParams): Promise<void> {
     this.logger.log(`Creating database user ${params.username} for cluster ${params.clusterId}`);
 
     if (this.shouldSimulate()) {
@@ -2063,6 +2121,10 @@ export class KubernetesService implements OnModuleInit {
   }
 
   async updateDatabaseUser(params: UpdateDatabaseUserParams): Promise<void> {
+    return this.onClusterNode(params.clusterId, () => this.updateDatabaseUserOnNode(params));
+  }
+
+  private async updateDatabaseUserOnNode(params: UpdateDatabaseUserParams): Promise<void> {
     this.logger.log(`Updating database user ${params.username} for cluster ${params.clusterId}`);
 
     if (this.shouldSimulate()) {
@@ -2118,6 +2180,10 @@ export class KubernetesService implements OnModuleInit {
   }
 
   async deleteDatabaseUser(params: DeleteDatabaseUserParams): Promise<void> {
+    return this.onClusterNode(params.clusterId, () => this.deleteDatabaseUserOnNode(params));
+  }
+
+  private async deleteDatabaseUserOnNode(params: DeleteDatabaseUserParams): Promise<void> {
     this.logger.log(`Deleting database user ${params.username} from cluster ${params.clusterId}`);
 
     if (this.shouldSimulate()) {
@@ -2208,6 +2274,10 @@ export class KubernetesService implements OnModuleInit {
   // ========== Network Policy Management ==========
 
   async updateNetworkPolicy(params: UpdateNetworkPolicyParams): Promise<void> {
+    return this.onClusterNode(params.clusterId, () => this.updateNetworkPolicyOnNode(params));
+  }
+
+  private async updateNetworkPolicyOnNode(params: UpdateNetworkPolicyParams): Promise<void> {
     this.logger.log(`Updating network policy for cluster ${params.clusterId}`);
 
     const namespace = this.getNamespace(params.projectId);
@@ -2243,8 +2313,10 @@ export class KubernetesService implements OnModuleInit {
         ports: [{ protocol: 'TCP', port: 27017 }],
       });
 
-      // Add rules for each CIDR
-      for (const cidr of params.allowedCidrs) {
+      // Add rules for each CIDR (the platform's own egress IPs always stay
+      // allowed so backups, metrics and migrations keep working).
+      const cidrs = [...new Set([...this.platformEgressCidrs, ...params.allowedCidrs])];
+      for (const cidr of cidrs) {
         ingressRules.push({
           from: [
             {
@@ -2267,11 +2339,7 @@ export class KubernetesService implements OnModuleInit {
           },
         },
         spec: {
-          podSelector: {
-            matchLabels: {
-              app: resourceName,
-            },
-          },
+          podSelector: this.mongoPodSelector(resourceName),
           policyTypes: ['Ingress'],
           ingress: ingressRules,
         },
@@ -2288,6 +2356,10 @@ export class KubernetesService implements OnModuleInit {
   // ========== Status & Health ==========
 
   async getClusterStatus(clusterId: string, projectId: string): Promise<ClusterStatus> {
+    return this.onClusterNode(clusterId, () => this.getClusterStatusOnNode(clusterId, projectId));
+  }
+
+  private async getClusterStatusOnNode(clusterId: string, projectId: string): Promise<ClusterStatus> {
     const namespace = this.getNamespace(projectId);
     const resourceName = this.getResourceName(clusterId);
 
@@ -2430,6 +2502,43 @@ export class KubernetesService implements OnModuleInit {
     });
   }
 
+  /**
+   * Where a backup/restore Job in the shared cluster reaches the cluster's
+   * MongoDB. If the in-cluster service has backing pods, the live replica set
+   * runs here → use the service. Otherwise the cluster lives on its own
+   * dedicated server → use that server's reachable external endpoint,
+   * materialising the control-plane admin password as a local secret so the
+   * Job's secretKeyRef resolves. If neither is possible, fail fast (a missing
+   * secret would otherwise sit in CreateContainerConfigError, piling up
+   * against the node pod limit).
+   */
+  private async resolveMongoTarget(
+    namespace: string,
+    resourceName: string,
+    serviceName: string,
+    params: BackupParams,
+  ): Promise<{ host: string; port: number; inCluster: boolean }> {
+    let hasLocalPods = false;
+    try {
+      const ep = await this.coreApi.readNamespacedEndpoints(serviceName, namespace);
+      hasLocalPods = (ep.body.subsets || []).some((s) => (s.addresses || []).length > 0);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 404) throw error;
+    }
+    if (hasLocalPods) {
+      return { host: serviceName, port: 27017, inCluster: true };
+    }
+
+    if (!params.backupHost || !params.backupPort || !params.adminPassword) {
+      throw new Error(
+        `Cluster ${resourceName} has no in-cluster pods and no reachable dedicated ` +
+          `endpoint/credentials in ${namespace}; cannot reach its MongoDB`,
+      );
+    }
+    await this.ensureAdminSecretValue(namespace, `${resourceName}-admin-password`, resourceName, params.adminPassword);
+    return { host: params.backupHost, port: params.backupPort, inCluster: false };
+  }
+
   async createBackup(params: BackupParams): Promise<void> {
     this.logger.log(`Creating backup ${params.backupId} for cluster ${params.clusterId}`);
 
@@ -2438,45 +2547,21 @@ export class KubernetesService implements OnModuleInit {
       return;
     }
 
-    const namespace = this.getNamespace(params.projectId);
+    // The backup Job always runs in the shared cluster. Clusters created on a
+    // dedicated node have no tenant namespace here yet, so create it first.
+    const namespace = await this.ensureNamespace(params.projectId);
     const resourceName = this.getResourceName(params.clusterId);
     const serviceName = this.getServiceName(resourceName, params.plan);
 
     // Ensure the backup PVC exists
     await this.ensureBackupPvc(namespace, resourceName);
 
-    // Decide what to dump. If the in-cluster service has backing pods, the live
-    // replica set runs here → dump the service. Otherwise the cluster lives on its
-    // own dedicated server → dump that server's reachable external endpoint,
-    // materialising the control-plane admin password as a local secret so the
-    // Job's secretKeyRef resolves. If neither is possible, fail fast (a missing
-    // container would otherwise sit in CreateContainerConfigError, piling up
-    // against the node pod limit).
-    const secretName = `${resourceName}-admin-password`;
-    let hasLocalPods = false;
-    try {
-      const ep = await this.coreApi.readNamespacedEndpoints(serviceName, namespace);
-      hasLocalPods = (ep.body.subsets || []).some(
-        (s) => (s.addresses || []).length > 0,
-      );
-    } catch (error: any) {
-      if (error.response?.statusCode !== 404) throw error;
-    }
-
-    let dumpHost = serviceName;
-    let dumpPort = 27017;
-
-    if (!hasLocalPods) {
-      if (!params.backupHost || !params.backupPort || !params.adminPassword) {
-        throw new Error(
-          `Cluster ${resourceName} has no in-cluster pods and no reachable dedicated ` +
-            `endpoint/credentials in ${namespace}; cannot run a mongodump backup`,
-        );
-      }
-      dumpHost = params.backupHost;
-      dumpPort = params.backupPort;
-      await this.ensureAdminSecretValue(namespace, secretName, resourceName, params.adminPassword);
-    }
+    const { host: dumpHost, port: dumpPort, inCluster: hasLocalPods } = await this.resolveMongoTarget(
+      namespace,
+      resourceName,
+      serviceName,
+      params,
+    );
 
     // Build mongodump command with proper auth and verify the compressed archive before the Job succeeds.
     const archivePath = `/backup/${params.backupId}.gz`;
@@ -2617,12 +2702,15 @@ export class KubernetesService implements OnModuleInit {
       return;
     }
 
-    const namespace = this.getNamespace(params.projectId);
+    const namespace = await this.ensureNamespace(params.projectId);
     const resourceName = this.getResourceName(params.clusterId);
     const serviceName = this.getServiceName(resourceName, params.plan);
+    await this.ensureBackupPvc(namespace, resourceName);
+    // Dedicated clusters are restored through their external endpoint, like backups.
+    const target = await this.resolveMongoTarget(namespace, resourceName, serviceName, params);
 
     // Build mongorestore command with proper auth and correct service name
-    let restoreCmd = `mongorestore --host="${serviceName}" --port=27017 --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=/backup/${params.backupId}.gz --gzip --drop`;
+    let restoreCmd = `mongorestore --host="${target.host}" --port=${target.port} --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase=admin --archive=/backup/${params.backupId}.gz --gzip --drop`;
 
     if (params.databases?.length) {
       for (const db of params.databases) {
@@ -2748,16 +2836,27 @@ export class KubernetesService implements OnModuleInit {
       return;
     }
 
-    const namespace = this.getNamespace(params.projectId);
     const resourceName = this.getResourceName(params.clusterId);
     const pvcName = `${resourceName}-backups`;
 
+    // Backups of a deleted cluster/project outlive its tenant namespace; their
+    // off-site objects are then removed from the platform namespace instead.
+    let namespace = this.getNamespace(params.projectId);
     let hasPvc = true;
     try {
+      await this.coreApi.readNamespace(namespace);
       await this.coreApi.readNamespacedPersistentVolumeClaim(pvcName, namespace);
     } catch (error: any) {
       if (error.response?.statusCode !== 404) throw error;
       hasPvc = false;
+    }
+    if (!hasPvc) {
+      try {
+        await this.coreApi.readNamespace(namespace);
+      } catch (error: any) {
+        if (error.response?.statusCode !== 404) throw error;
+        namespace = this.controlPlaneNamespace;
+      }
     }
     const offsiteEnabled = await this.ensureObjectStorageSecret(namespace);
     if (!hasPvc && !offsiteEnabled) {
@@ -3162,42 +3261,26 @@ export class KubernetesService implements OnModuleInit {
    * This is safe because the job processor processes one job at a time (isProcessing guard).
    */
   private async withDedicatedClients<T>(kubeconfigYaml: string, fn: () => Promise<T>): Promise<T> {
-    const saved = {
-      kc:         this.kc,
-      coreApi:    this.coreApi,
-      appsApi:    this.appsApi,
-      batchApi:   this.batchApi,
-      networkApi: this.networkApi,
-      customApi:  this.customApi,
-      rbacApi:    this.rbacApi,
-      connected:  this.isConnected,
-      storageClass: this.dataStorageClass,
-    };
+    const kc = new k8s.KubeConfig();
+    kc.loadFromString(kubeconfigYaml);
+    return this.clusterContext.run(buildClients(kc, DEDICATED_STORAGE_CLASS), fn);
+  }
 
-    try {
-      const kc = new k8s.KubeConfig();
-      kc.loadFromString(kubeconfigYaml);
-      this.kc         = kc;
-      this.coreApi    = kc.makeApiClient(k8s.CoreV1Api);
-      this.appsApi    = kc.makeApiClient(k8s.AppsV1Api);
-      this.batchApi   = kc.makeApiClient(k8s.BatchV1Api);
-      this.networkApi = kc.makeApiClient(k8s.NetworkingV1Api);
-      this.customApi  = kc.makeApiClient(k8s.CustomObjectsApi);
-      this.rbacApi    = kc.makeApiClient(k8s.RbacAuthorizationV1Api);
-      this.isConnected = true;
-      this.dataStorageClass = DEDICATED_STORAGE_CLASS;
-      return await fn();
-    } finally {
-      this.kc         = saved.kc;
-      this.coreApi    = saved.coreApi;
-      this.appsApi    = saved.appsApi;
-      this.batchApi   = saved.batchApi;
-      this.networkApi = saved.networkApi;
-      this.customApi  = saved.customApi;
-      this.rbacApi    = saved.rbacApi;
-      this.isConnected = saved.connected;
-      this.dataStorageClass = saved.storageClass;
+  /**
+   * Registered by ClustersService: resolves a cluster's dedicated-node kubeconfig
+   * (undefined for clusters living in the shared cluster).
+   */
+  setDedicatedKubeconfigResolver(resolver: (clusterId: string) => Promise<string | undefined>): void {
+    this.dedicatedKubeconfigResolver = resolver;
+  }
+
+  /** Runs fn against the cluster's own node when it has one, else the shared cluster. */
+  private async onClusterNode<T>(clusterId: string, fn: () => Promise<T>): Promise<T> {
+    if (this.clusterContext.getStore() || !this.dedicatedKubeconfigResolver || this.shouldSimulate()) {
+      return fn();
     }
+    const kubeconfig = await this.dedicatedKubeconfigResolver(clusterId);
+    return kubeconfig ? this.withDedicatedClients(kubeconfig, fn) : fn();
   }
 
   // ========== Helper Methods ==========
@@ -3247,6 +3330,25 @@ export class KubernetesService implements OnModuleInit {
 
   private getResourceName(clusterId: string): string {
     return `mongo-${clusterId}`.toLowerCase();
+  }
+
+  /**
+   * Selects a cluster's MongoDB pods: StatefulSet plans label them
+   * app=<resourceName>, operator-managed plans app=<resourceName>-svc. The
+   * policy used to match only the former, so it never applied to MEDIUM+.
+   */
+  private mongoPodSelector(resourceName: string): k8s.V1LabelSelector {
+    return {
+      matchExpressions: [{ key: 'app', operator: 'In', values: [resourceName, `${resourceName}-svc`] }],
+    };
+  }
+
+  /** Public egress IPs of the platform cluster's nodes (backups, metrics, migration). */
+  private get platformEgressCidrs(): string[] {
+    return (this.configService.get<string>('PLATFORM_EGRESS_CIDRS') || '')
+      .split(',')
+      .map((cidr) => cidr.trim())
+      .filter(Boolean);
   }
 
   private shouldSimulate(): boolean {

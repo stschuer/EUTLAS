@@ -16,6 +16,7 @@ import { UpdateClusterDto } from './dto/update-cluster.dto';
 import { JobsService } from '../jobs/jobs.service';
 import { CredentialsService } from '../credentials/credentials.service';
 import { resolveVectorSearchBackend } from '../kubernetes/kubernetes.service';
+import { markBackupsDeletedForClusters } from '../backups/backup-cascade';
 
 const DEFAULT_MONGO_VERSION = '7.0.5';
 const NATIVE_VECTOR_SEARCH_MIN_VERSION = '8.2.0';
@@ -310,7 +311,6 @@ export class ClustersService {
 
     // Collections that reference clusterId
     const clusterIdCollections = [
-      'backups',
       'backuppolicies',
       'databaseusers',
       'ipwhitelists',
@@ -333,6 +333,9 @@ export class ClustersService {
       'events',
       'dashboards',
     ];
+
+    const backupsMarked = await markBackupsDeletedForClusters(this.connection, [cluster._id as any]);
+    if (backupsMarked > 0) deletedCounts['backups'] = backupsMarked;
 
     // Delete all cluster-related data
     for (const collection of clusterIdCollections) {

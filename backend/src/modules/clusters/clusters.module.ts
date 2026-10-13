@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ClustersController } from './clusters.controller';
 import { ClustersService } from './clusters.service';
+import { DedicatedKubeconfigResolver } from './dedicated-kubeconfig.resolver';
 import { Cluster, ClusterSchema } from './schemas/cluster.schema';
 import { ProjectsModule } from '../projects/projects.module';
 import { OrgsModule } from '../orgs/orgs.module';
@@ -19,7 +20,7 @@ import { KubernetesModule } from '../kubernetes/kubernetes.module';
     KubernetesModule,
   ],
   controllers: [ClustersController],
-  providers: [ClustersService],
+  providers: [ClustersService, DedicatedKubeconfigResolver],
   exports: [ClustersService],
 })
 export class ClustersModule {}

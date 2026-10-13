@@ -181,6 +181,14 @@ export class MetricsService {
     params.set('retryWrites', 'true');
     params.set('w', 'majority');
 
+    // A cluster on its own dedicated node has no service in the shared cluster;
+    // reach it through its external endpoint. Replica-set members advertise
+    // in-cluster hostnames there, so connect directly.
+    if (cluster.dedicatedServerId && cluster.externalHost && cluster.externalPort) {
+      params.set('directConnection', 'true');
+      return `mongodb://${encodedUsername}:${encodedPassword}@${cluster.externalHost}:${cluster.externalPort}/${cluster.name}?${params.toString()}`;
+    }
+
     if (cluster.replicaSetName) {
       params.set('replicaSet', cluster.replicaSetName);
     } else {

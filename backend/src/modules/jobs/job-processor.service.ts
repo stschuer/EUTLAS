@@ -366,26 +366,7 @@ export class JobProcessorService implements OnModuleInit {
     const cluster = await this.clustersService.findById(clusterId);
     const plan = cluster?.plan || 'DEV';
 
-    // For a cluster on its own dedicated server (no pods in the shared cluster),
-    // the backup Job dumps the reachable external endpoint using the control-plane
-    // admin password. createBackup falls back to this only when the in-cluster
-    // service has no pods, so passing it always is harmless for shared clusters.
-    const c = cluster as any;
-    let backupHost: string | undefined;
-    let backupPort: number | undefined;
-    let adminPassword: string | undefined;
-    if (c?.externalHost && c?.externalPort) {
-      backupHost = c.externalHost;
-      backupPort = c.externalPort;
-      try {
-        const creds = await this.credentialsService.getDecrypted(clusterId);
-        adminPassword = creds.password;
-      } catch (e) {
-        this.logger.warn(
-          `[${clusterId}] Could not decrypt admin credentials for dedicated backup: ${e}`,
-        );
-      }
-    }
+    const { backupHost, backupPort, adminPassword } = await this.externalMongoTarget(clusterId, cluster);
 
     await this.backupsService.startBackup(backupId);
 
@@ -412,6 +393,28 @@ export class JobProcessorService implements OnModuleInit {
     }
   }
 
+  /**
+   * For a cluster on its own dedicated server (no pods in the shared cluster),
+   * backup and restore Jobs reach the external endpoint with the control-plane
+   * admin password. The Jobs fall back to this only when the in-cluster service
+   * has no pods, so passing it always is harmless for shared clusters.
+   */
+  private async externalMongoTarget(
+    clusterId: string,
+    cluster: any,
+  ): Promise<{ backupHost?: string; backupPort?: number; adminPassword?: string }> {
+    if (!cluster?.externalHost || !cluster?.externalPort) {
+      return {};
+    }
+    let adminPassword: string | undefined;
+    try {
+      adminPassword = (await this.credentialsService.getDecrypted(clusterId)).password;
+    } catch (e) {
+      this.logger.warn(`[${clusterId}] Could not decrypt admin credentials for dedicated backup/restore: ${e}`);
+    }
+    return { backupHost: cluster.externalHost, backupPort: cluster.externalPort, adminPassword };
+  }
+
   private async processRestoreCluster(job: JobDocument) {
     const { backupId } = job.payload as any;
     const clusterId = job.targetClusterId!.toString();
@@ -419,9 +422,10 @@ export class JobProcessorService implements OnModuleInit {
 
     const cluster = await this.clustersService.findById(clusterId);
     const plan = cluster?.plan || 'DEV';
+    const target = await this.externalMongoTarget(clusterId, cluster);
 
     try {
-      await this.kubernetesService.runRestore({ clusterId, projectId, plan, backupId });
+      await this.kubernetesService.runRestore({ clusterId, projectId, plan, backupId, ...target });
       await this.backupsService.completeRestore(backupId);
 
       await this.eventsService.createEvent({
