@@ -2,10 +2,23 @@
   "mcpServers": {
     "eutlas": {
       "command": "node",
-      "args": ["mcp-server/dist/index.js"],
+      "args": [
+        "mcp-server/dist/index.js"
+      ],
       "env": {
         "EUTLAS_API_URL": "${EUTLAS_API_URL:-https://app.eutlas.eu/api/v1}",
         "EUTLAS_API_TOKEN": "${EUTLAS_API_TOKEN}"
+      }
+    },
+    "eutlas-admin": {
+      "command": "node",
+      "args": [
+        "mcp-server/dist/index.js"
+      ],
+      "env": {
+        "EUTLAS_API_URL": "${EUTLAS_API_URL:-https://app.eutlas.eu/api/v1}",
+        "EUTLAS_API_TOKEN": "${EUTLAS_ADMIN_API_TOKEN}",
+        "EUTLAS_MCP_MODE": "admin"
       }
     }
   }

@@ -2,6 +2,9 @@ import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { AdminOpsService } from './admin-ops.service';
+import { AdminOpsController } from './admin-ops.controller';
+import { CredentialsModule } from '../credentials/credentials.module';
 import { GlobalAdminGuard } from './guards/global-admin.guard';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { Organization, OrganizationSchema } from '../orgs/schemas/org.schema';
@@ -24,9 +27,10 @@ import { JobsModule } from '../jobs/jobs.module';
     KubernetesModule,
     forwardRef(() => ClustersModule),
     forwardRef(() => JobsModule),
+    forwardRef(() => CredentialsModule),
   ],
-  controllers: [AdminController],
-  providers: [AdminService, GlobalAdminGuard],
+  controllers: [AdminController, AdminOpsController],
+  providers: [AdminService, AdminOpsService, GlobalAdminGuard],
   exports: [AdminService, GlobalAdminGuard],
 })
 export class AdminModule {}

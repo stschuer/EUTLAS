@@ -12,13 +12,20 @@
  *
  * Safety: read + non-destructive writes only. Cluster deletion is
  * intentionally NOT exposed here.
+ *
+ * Admin mode (EUTLAS_MCP_MODE=admin): additionally registers platform-wide
+ * tools (all tenants/clusters, diagnostics, connections, jobs) and the
+ * destructive ones. Requires a platform:admin API key (global admins only,
+ * expires within 30 days); every call is logged by the API.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { registerAdminTools, registerOperationsTools } from "./tools.js";
 
 const API_URL = (process.env.EUTLAS_API_URL ?? "https://app.eutlas.eu/api/v1").replace(/\/$/, "");
 const API_TOKEN = process.env.EUTLAS_API_TOKEN;
+const ADMIN_MODE = process.env.EUTLAS_MCP_MODE === "admin";
 
 if (!API_TOKEN) {
   console.error(
@@ -74,7 +81,7 @@ function fail(e: unknown) {
   };
 }
 
-const server = new McpServer({ name: "eutlas", version: "0.1.0" });
+const server = new McpServer({ name: ADMIN_MODE ? "eutlas-admin" : "eutlas", version: "0.2.0" });
 
 /* ---- Read ---- */
 
@@ -255,10 +262,15 @@ server.tool(
   },
 );
 
+registerOperationsTools(server, api);
+if (ADMIN_MODE) {
+  registerAdminTools(server, api);
+}
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`[eutlas-mcp] connected. API base: ${API_URL}`);
+  console.error(`[eutlas-mcp] connected${ADMIN_MODE ? " (admin mode)" : ""}. API base: ${API_URL}`);
 }
 
 main().catch((e) => {

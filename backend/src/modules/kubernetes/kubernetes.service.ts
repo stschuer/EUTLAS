@@ -160,6 +160,21 @@ export interface BackupRunResult {
   simulated: boolean;
 }
 
+export interface PlatformDiagnostics {
+  nodes: Array<{
+    name: string;
+    ready: boolean;
+    diskPressure: boolean;
+    memoryPressure: boolean;
+    pidPressure: boolean;
+    taints: string[];
+    memoryAllocatableGb: number;
+    memoryRequestedPercent: number | null;
+  }>;
+  unhealthyPods: Array<{ namespace: string; count: number; reasons: Record<string, number>; examples: string[] }>;
+  longRunningJobs: Array<{ namespace: string; name: string; ageMinutes: number }>;
+}
+
 export interface ClusterStatus {
   phase: string;
   ready: boolean;
@@ -3281,6 +3296,84 @@ export class KubernetesService implements OnModuleInit {
     }
     const kubeconfig = await this.dedicatedKubeconfigResolver(clusterId);
     return kubeconfig ? this.withDedicatedClients(kubeconfig, fn) : fn();
+  }
+
+  /**
+   * Platform health of the shared cluster for the admin MCP: node pressure and
+   * reservations, pods that are not running, and long-running Jobs. Uses only
+   * node status and pod specs (no nodes/proxy, which would grant kubelet exec).
+   */
+  async getPlatformDiagnostics(): Promise<PlatformDiagnostics> {
+    if (this.shouldSimulate()) {
+      return { nodes: [], unhealthyPods: [], longRunningJobs: [] };
+    }
+    const now = Date.now();
+    const [nodes, pods, jobs] = await Promise.all([
+      this.defaults.coreApi.listNode(),
+      this.defaults.coreApi.listPodForAllNamespaces(),
+      this.defaults.batchApi.listJobForAllNamespaces(),
+    ]);
+
+    const requestedMemGb = new Map<string, number>();
+    const unhealthy = new Map<string, { count: number; reasons: Record<string, number>; examples: string[] }>();
+    for (const pod of pods.body.items) {
+      const phase = pod.status?.phase;
+      const nodeName = pod.spec?.nodeName;
+      if (nodeName && phase !== 'Succeeded' && phase !== 'Failed') {
+        const mem = (pod.spec?.containers || []).reduce(
+          (sum, c) => sum + (c.resources?.requests?.memory ? parseMemoryToGB(c.resources.requests.memory) : 0),
+          0,
+        );
+        requestedMemGb.set(nodeName, (requestedMemGb.get(nodeName) ?? 0) + mem);
+      }
+
+      const waiting = (pod.status?.containerStatuses || []).find((cs) => cs.state?.waiting)?.state?.waiting?.reason;
+      const ageMin = (now - new Date(pod.metadata?.creationTimestamp ?? now).getTime()) / 60_000;
+      let reason: string | undefined;
+      if (phase === 'Failed') reason = pod.status?.reason || 'Failed';
+      else if (phase === 'Pending' && ageMin > 10) reason = 'Pending';
+      else if (waiting && waiting !== 'ContainerCreating' && waiting !== 'PodInitializing') reason = waiting;
+      if (!reason) continue;
+
+      const ns = pod.metadata?.namespace ?? '?';
+      const entry = unhealthy.get(ns) ?? { count: 0, reasons: {}, examples: [] };
+      entry.count += 1;
+      entry.reasons[reason] = (entry.reasons[reason] ?? 0) + 1;
+      if (entry.examples.length < 5) entry.examples.push(pod.metadata?.name ?? '?');
+      unhealthy.set(ns, entry);
+    }
+
+    return {
+      nodes: nodes.body.items.map((node) => {
+        const name = node.metadata?.name ?? '?';
+        const condition = (type: string) => node.status?.conditions?.find((c) => c.type === type)?.status === 'True';
+        const allocatableGb = parseMemoryToGB(node.status?.allocatable?.memory ?? '0');
+        return {
+          name,
+          ready: condition('Ready'),
+          diskPressure: condition('DiskPressure'),
+          memoryPressure: condition('MemoryPressure'),
+          pidPressure: condition('PIDPressure'),
+          taints: (node.spec?.taints || []).map((t) => `${t.key}:${t.effect}`),
+          memoryAllocatableGb: Math.round(allocatableGb * 10) / 10,
+          memoryRequestedPercent: allocatableGb
+            ? Math.round(((requestedMemGb.get(name) ?? 0) / allocatableGb) * 100)
+            : null,
+        };
+      }),
+      unhealthyPods: [...unhealthy.entries()]
+        .map(([namespace, e]) => ({ namespace, ...e }))
+        .sort((a, b) => b.count - a.count),
+      longRunningJobs: jobs.body.items
+        .filter((j) => (j.status?.active ?? 0) > 0)
+        .map((j) => ({
+          namespace: j.metadata?.namespace ?? '?',
+          name: j.metadata?.name ?? '?',
+          ageMinutes: Math.round((now - new Date(j.status?.startTime ?? j.metadata?.creationTimestamp ?? now).getTime()) / 60_000),
+        }))
+        .filter((j) => j.ageMinutes > 60)
+        .sort((a, b) => b.ageMinutes - a.ageMinutes),
+    };
   }
 
   // ========== Helper Methods ==========
