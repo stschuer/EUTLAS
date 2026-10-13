@@ -74,6 +74,11 @@ export function registerOperationsTools(server: McpServer, api: Api) {
     { projectId: project, clusterId: cluster, entryId: z.string() },
     (a) => ["DELETE", `${c(a.projectId, a.clusterId)}/network/ip-whitelist/${a.entryId}`]);
 
+  /* TLS + public DNS endpoint */
+  t("eutlas_enable_tls", "Give a cluster its public DNS name (<label>.db.eutlas.eu, mongodb+srv) and enable TLS with the platform CA. 'optional' still accepts plaintext clients (migration window); 'required' enforces TLS. Clients need tlsCAFile from GET /tls/ca.pem.",
+    { projectId: project, clusterId: cluster, mode: z.enum(["optional", "required"]) },
+    (a) => ["POST", `${c(a.projectId, a.clusterId)}/tls`, { mode: a.mode }]);
+
   /* Database users */
   t("eutlas_list_database_users", "List MongoDB users of a cluster.",
     { projectId: project, clusterId: cluster }, (a) => ["GET", `${c(a.projectId, a.clusterId)}/database-users`]);

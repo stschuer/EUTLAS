@@ -118,6 +118,18 @@ export class Cluster {
   @Prop()
   dedicatedKubeconfigEncrypted?: string;
 
+  // ── Public endpoint & TLS ─────────────────────────────────────────────────
+  /** DNS label under the platform DB zone: <dnsLabel>.db.eutlas.eu (+ m<i>.<…> per member). */
+  @Prop()
+  dnsLabel?: string;
+
+  /** TLS state: off (default), optional (TLS and plaintext accepted) or required. */
+  @Prop({ type: String, enum: ['off', 'optional', 'required'], default: 'off' })
+  tlsMode?: 'off' | 'optional' | 'required';
+
+  @Prop()
+  tlsCertExpiresAt?: Date;
+
   @Prop({ type: Types.ObjectId, ref: 'Cluster' })
   clonedFrom?: Types.ObjectId;
 

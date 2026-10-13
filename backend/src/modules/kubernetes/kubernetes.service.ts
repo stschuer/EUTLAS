@@ -163,6 +163,11 @@ export interface BackupRunResult {
   simulated: boolean;
 }
 
+export interface ClusterTlsTopology {
+  replicaSet: string;
+  members: Array<{ index: number; podName: string; host: string; port: number; horizon: string }>;
+}
+
 export interface PlatformDiagnostics {
   nodes: Array<{
     name: string;
@@ -3299,6 +3304,146 @@ export class KubernetesService implements OnModuleInit {
     }
     const kubeconfig = await this.dedicatedKubeconfigResolver(clusterId);
     return kubeconfig ? this.withDedicatedClients(kubeconfig, fn) : fn();
+  }
+
+  /**
+   * Turn on TLS for an operator-managed replica set and publish each member on
+   * its own NodePort, advertised via a replica-set horizon (m<i>.<dnsBase>:<port>)
+   * so drivers outside Kubernetes can discover and fail over between members.
+   * `optional` keeps accepting plaintext clients during a migration window.
+   */
+  async configureClusterTls(params: {
+    clusterId: string;
+    projectId: string;
+    plan: string;
+    dnsBase: string;
+    certPem: string;
+    keyPem: string;
+    caPem: string;
+    mode: 'optional' | 'required';
+  }): Promise<ClusterTlsTopology> {
+    return this.onClusterNode(params.clusterId, () => this.configureClusterTlsOnNode(params));
+  }
+
+  /** In-cluster DNS name pattern covering every member pod (data and arbiter). */
+  memberHostWildcard(clusterId: string, projectId: string): string {
+    const resourceName = this.getResourceName(clusterId);
+    return `*.${resourceName}-svc.${this.getNamespace(projectId)}.svc.cluster.local`;
+  }
+
+  private async configureClusterTlsOnNode(params: {
+    clusterId: string;
+    projectId: string;
+    plan: string;
+    dnsBase: string;
+    certPem: string;
+    keyPem: string;
+    caPem: string;
+    mode: 'optional' | 'required';
+  }): Promise<ClusterTlsTopology> {
+    if (!this.isOperatorManaged(params.plan)) {
+      throw new Error(`TLS is available for operator-managed plans (MEDIUM and above), not ${params.plan}`);
+    }
+    const namespace = this.getNamespace(params.projectId);
+    const resourceName = this.getResourceName(params.clusterId);
+    const tlsSecret = `${resourceName}-tls`;
+    const caConfigMap = `${resourceName}-ca`;
+    const labels = { 'eutlas.eu/managed-by': 'eutlas', 'eutlas.eu/cluster': resourceName };
+
+    await this.upsertSecret(namespace, {
+      metadata: { name: tlsSecret, namespace, labels },
+      type: 'kubernetes.io/tls',
+      stringData: { 'tls.crt': params.certPem, 'tls.key': params.keyPem },
+    });
+    await this.upsertConfigMap(namespace, {
+      metadata: { name: caConfigMap, namespace, labels },
+      data: { 'ca.crt': params.caPem },
+    });
+
+    const { body: cr } = (await this.customApi.getNamespacedCustomObject(
+      'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName,
+    )) as { body: any };
+    const memberCount: number = cr.spec.members;
+
+    const members: ClusterTlsTopology['members'] = [];
+    for (let i = 0; i < memberCount; i++) {
+      const podName = `${resourceName}-${i}`;
+      const port = await this.ensureMemberNodePort(namespace, resourceName, podName, `${resourceName}-m${i}`);
+      const host = await this.nodeIpOfPod(namespace, podName);
+      members.push({ index: i, podName, host, port, horizon: `m${i}.${params.dnsBase}:${port}` });
+    }
+
+    cr.spec.security = {
+      ...(cr.spec.security || {}),
+      tls: {
+        enabled: true,
+        optional: params.mode === 'optional',
+        certificateKeySecretRef: { name: tlsSecret },
+        caConfigMapRef: { name: caConfigMap },
+      },
+    };
+    cr.spec.replicaSetHorizons = members.map((m) => ({ external: m.horizon }));
+    await this.customApi.replaceNamespacedCustomObject(
+      'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName, cr,
+    );
+    this.logger.log(`TLS (${params.mode}) configured for ${resourceName}: ${members.map((m) => m.horizon).join(', ')}`);
+    return { replicaSet: resourceName, members };
+  }
+
+  /** NodePort service for exactly one member pod; returns its node port. */
+  private async ensureMemberNodePort(namespace: string, resourceName: string, podName: string, serviceName: string): Promise<number> {
+    try {
+      await this.coreApi.createNamespacedService(namespace, {
+        metadata: {
+          name: serviceName,
+          namespace,
+          labels: { 'eutlas.eu/managed-by': 'eutlas', 'eutlas.eu/cluster': resourceName, 'eutlas.eu/service-type': 'member-access' },
+        },
+        spec: {
+          type: 'NodePort',
+          // Preserve client source IPs for the IP access list (see createExternalService).
+          externalTrafficPolicy: 'Local',
+          selector: { app: `${resourceName}-svc`, 'statefulset.kubernetes.io/pod-name': podName },
+          ports: [{ name: 'mongodb', port: 27017, targetPort: 27017, protocol: 'TCP' }],
+        },
+      });
+    } catch (error: any) {
+      if (error.response?.statusCode !== 409) throw error;
+    }
+    const { body } = await this.coreApi.readNamespacedService(serviceName, namespace);
+    const port = body.spec?.ports?.[0]?.nodePort;
+    if (!port) throw new Error(`Service ${serviceName} has no node port`);
+    return port;
+  }
+
+  /** Public address of the node a pod runs on (ExternalIP, else InternalIP — public on Hetzner). */
+  private async nodeIpOfPod(namespace: string, podName: string): Promise<string> {
+    const { body: pod } = await this.coreApi.readNamespacedPod(podName, namespace);
+    const nodeName = pod.spec?.nodeName;
+    if (!nodeName) throw new Error(`Pod ${podName} is not scheduled yet`);
+    const { body: node } = await this.coreApi.readNode(nodeName);
+    const addresses = node.status?.addresses || [];
+    const ip = (addresses.find((a) => a.type === 'ExternalIP') ?? addresses.find((a) => a.type === 'InternalIP'))?.address;
+    if (!ip) throw new Error(`Node ${nodeName} has no address`);
+    return ip;
+  }
+
+  private async upsertSecret(namespace: string, secret: k8s.V1Secret): Promise<void> {
+    try {
+      await this.coreApi.createNamespacedSecret(namespace, secret);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 409) throw error;
+      await this.coreApi.replaceNamespacedSecret(secret.metadata!.name!, namespace, secret);
+    }
+  }
+
+  private async upsertConfigMap(namespace: string, configMap: k8s.V1ConfigMap): Promise<void> {
+    try {
+      await this.coreApi.createNamespacedConfigMap(namespace, configMap);
+    } catch (error: any) {
+      if (error.response?.statusCode !== 409) throw error;
+      await this.coreApi.replaceNamespacedConfigMap(configMap.metadata!.name!, namespace, configMap);
+    }
   }
 
   /**

@@ -22,6 +22,7 @@ import { UsersModule } from './modules/users/users.module';
 import { OrgsModule } from './modules/orgs/orgs.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { ClustersModule } from './modules/clusters/clusters.module';
+import { TlsModule } from './modules/tls/tls.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { BackupsModule } from './modules/backups/backups.module';
 import { EventsModule } from './modules/events/events.module';
@@ -101,6 +102,7 @@ import { HetznerModule } from './modules/hetzner/hetzner.module';
     AuthModule,
     UsersModule,
     OrgsModule,
+    TlsModule,
     ProjectsModule,
     ClustersModule,
     JobsModule,

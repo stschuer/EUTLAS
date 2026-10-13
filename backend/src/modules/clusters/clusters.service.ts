@@ -126,10 +126,29 @@ export class ClustersService {
         externalHost: cluster.externalHost || null,
         externalPort: cluster.externalPort || 27017,
         externalConnectionString: this.buildExternalConnectionString(cluster, credentials),
+        srvConnectionString: this.buildSrvConnectionString(cluster, credentials),
+        tlsMode: cluster.tlsMode || 'off',
         username: credentials.username,
         password: credentials.password,
       },
     };
+  }
+
+  /**
+   * mongodb+srv URI over TLS once the cluster has a public DNS name. The SRV
+   * record lists every member (replica-set horizon), the TXT record carries
+   * authSource/replicaSet; clients trust the platform CA (GET /tls/ca.pem).
+   */
+  private buildSrvConnectionString(
+    cluster: ClusterDocument,
+    credentials: { username: string; password: string },
+  ): string | null {
+    if (!cluster.dnsLabel || !cluster.tlsMode || cluster.tlsMode === 'off') return null;
+    const zone = process.env.DB_DNS_ZONE || 'eutlas.eu';
+    const label = process.env.DB_DNS_LABEL || 'db';
+    const user = encodeURIComponent(credentials.username);
+    const pass = encodeURIComponent(credentials.password);
+    return `mongodb+srv://${user}:${pass}@${cluster.dnsLabel}.${label}.${zone}/?tls=true`;
   }
 
   private buildReachableConnectionString(
