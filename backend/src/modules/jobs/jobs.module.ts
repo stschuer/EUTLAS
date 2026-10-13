@@ -24,7 +24,7 @@ import { CredentialsModule } from '../credentials/credentials.module';
     EventsModule,
     UsersModule,
     HetznerModule,
-    CredentialsModule,
+    forwardRef(() => CredentialsModule),
   ],
   providers: [JobsService, JobProcessorService],
   exports: [JobsService],
