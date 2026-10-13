@@ -1,0 +1,12 @@
+# The single-instance platform MongoDB from before the HA migration. Production
+# uses platform-mongodb-ha (backend MONGODB_URI, platform backups); nothing
+# references this one any more (verified 2026-10-13), but it still reserved
+# 768Mi on eutlas-prod-node-1, which also runs the control plane.
+# Scaled to zero; its PVC (mongodb-data-pvc) is kept as a fallback — delete it
+# together with this Deployment after 2026-11-13.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+spec:
+  replicas: 0

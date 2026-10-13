@@ -10,3 +10,4 @@ resources:
 patches:
   - path: backend-mongodb-ha-tls-patch.yaml
   - path: platform-backup-ha-tls-patch.yaml
+  - path: legacy-mongodb-scale-down-patch.yaml
