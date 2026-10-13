@@ -3370,6 +3370,12 @@ export class KubernetesService implements OnModuleInit {
         }));
       });
       this.logger.log(`Multi-site ${resourceName}: members ${JSON.stringify(Object.fromEntries(zoneOf))}, arbiter untainted`);
+
+      // TLS must only be enabled on a running replica set: the operator adds
+      // the certificate volumes to the pod template but rolls the pods only
+      // once the set reached its goal state — enabling TLS earlier deadlocks
+      // (agents look for a CA file their pods never mounted).
+      await this.waitForReplicaSetRunning(namespace, resourceName, 3, 20 * 60_000);
       return { primaryZone: 'fsn1' };
     });
   }
@@ -3431,6 +3437,11 @@ export class KubernetesService implements OnModuleInit {
     const { body: cr } = (await this.customApi.getNamespacedCustomObject(
       'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', resourceName,
     )) as { body: any };
+    // See waitForReplicaSetRunning: TLS on a set that never reached its goal
+    // state deadlocks the operator's rolling restart.
+    if (cr.status?.phase !== 'Running') {
+      throw new Error(`Replica set ${resourceName} is ${cr.status?.phase ?? 'not running'}; enable TLS once it is Running`);
+    }
     const memberCount: number = cr.spec.members;
 
     const members: ClusterTlsTopology['members'] = [];
@@ -3455,6 +3466,22 @@ export class KubernetesService implements OnModuleInit {
     });
     this.logger.log(`TLS (${params.mode}) configured for ${resourceName}: ${members.map((m) => m.horizon).join(', ')}`);
     return { replicaSet: resourceName, members };
+  }
+
+  /** Waits until the operator reports the replica set Running with `processes` members incl. arbiters. */
+  private async waitForReplicaSetRunning(namespace: string, name: string, processes: number, timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let status: any = {};
+    while (Date.now() < deadline) {
+      const { body } = (await this.customApi.getNamespacedCustomObject(
+        'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', name,
+      )) as { body: any };
+      status = body.status ?? {};
+      const total = (status.currentMongoDBMembers ?? 0) + (status.currentMongoDBArbiters ?? 0);
+      if (status.phase === 'Running' && total >= processes) return;
+      await new Promise((r) => setTimeout(r, 10_000));
+    }
+    throw new Error(`Replica set ${name} not Running after ${timeoutMs / 60_000} min: ${JSON.stringify(status)}`);
   }
 
   /**
