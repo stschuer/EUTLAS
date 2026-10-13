@@ -30,6 +30,20 @@ const DEFAULT_SERVER_TYPE = 'cx23';
 const ARBITER_SERVER_TYPE = 'cx23';
 const HCLOUD_API = 'https://api.hetzner.cloud/v1';
 
+// Equivalent (same or more memory) types to try when one has no capacity.
+const SERVER_TYPE_FALLBACKS: Record<string, string[]> = {
+  cx23: ['cpx22'],
+  cx33: ['cpx32'],
+  cx43: ['cpx42'],
+  cx53: ['ccx33'],
+};
+
+/** Error with Hetzner's own code/message instead of axios' bare "status code 412". */
+function hetznerError(error: any, what: string): Error {
+  const e = error.response?.data?.error;
+  return new Error(e ? `Hetzner ${what} failed: ${e.code} — ${e.message}` : `Hetzner ${what} failed: ${error.message}`);
+}
+
 // K3s local-path provisioner root; mounted from the encrypted data volume.
 const LOCAL_PATH_ROOT = '/var/lib/rancher/k3s/storage';
 const MIN_VOLUME_GB = 10;
@@ -460,28 +474,32 @@ export class HetznerProvisionerService {
     if (extra.networkId) payload.networks = [extra.networkId];
     if (extra.placementGroupId) payload.placement_group = extra.placementGroupId;
 
-    try {
-      const response = await axios.post('https://api.hetzner.cloud/v1/servers', payload, {
-        headers: { Authorization: `Bearer ${this.hcloudToken}` },
-      });
-      return response.data.server;
-    } catch (error: any) {
-      if (error.response?.status !== 409) {
-        throw error;
+    // Hetzner answers 412 resource_unavailable when a type has no capacity in a
+    // location; fall back to an equivalent type in the same (German) location.
+    const candidates = [serverType, ...(SERVER_TYPE_FALLBACKS[serverType] ?? [])];
+    for (const [i, type] of candidates.entries()) {
+      try {
+        const response = await axios.post(`${HCLOUD_API}/servers`, { ...payload, server_type: type }, this.api);
+        if (type !== serverType) {
+          this.logger.warn(`${name}: ${serverType} unavailable in ${location}, created as ${type}`);
+        }
+        return response.data.server;
+      } catch (error: any) {
+        const code = error.response?.data?.error?.code;
+        if (error.response?.status === 409) {
+          const existing = (await axios.get(`${HCLOUD_API}/servers`, { ...this.api, params: { name } })).data.servers?.[0];
+          if (!existing) throw hetznerError(error, `create server ${name}`);
+          this.logger.warn(`Hetzner server ${name} already exists - reusing server ${existing.id}`);
+          return existing;
+        }
+        if (code === 'resource_unavailable' && i < candidates.length - 1) {
+          this.logger.warn(`${name}: ${type} unavailable in ${location} (${error.response?.data?.error?.message}); trying ${candidates[i + 1]}`);
+          continue;
+        }
+        throw hetznerError(error, `create server ${name} (${type} in ${location})`);
       }
-
-      const existing = await axios.get('https://api.hetzner.cloud/v1/servers', {
-        headers: { Authorization: `Bearer ${this.hcloudToken}` },
-        params: { name },
-      });
-      const server = existing.data.servers?.[0];
-      if (!server) {
-        throw error;
-      }
-
-      this.logger.warn(`Hetzner server ${name} already exists - reusing server ${server.id}`);
-      return server;
     }
+    throw new Error('unreachable');
   }
 
   /** Looks up the SSH key on Hetzner by name so we can inject it into new servers. */

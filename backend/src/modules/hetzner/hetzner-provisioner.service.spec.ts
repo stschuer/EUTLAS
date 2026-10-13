@@ -90,6 +90,28 @@ describe('HetznerProvisionerService', () => {
     });
   });
 
+  describe('createHetznerServer', () => {
+    const unavailable = { response: { status: 412, data: { error: { code: 'resource_unavailable', message: 'no capacity' } } } };
+
+    it('falls back to an equivalent type when the requested one has no capacity', async () => {
+      mockedAxios.get.mockResolvedValue({ data: { ssh_keys: [] } });
+      mockedAxios.post.mockRejectedValueOnce(unavailable).mockResolvedValueOnce({ data: { server: { id: 1 } } });
+
+      const server = await (service as any).createHetznerServer('n', 'cx33', 'fsn1');
+
+      expect(server.id).toBe(1);
+      expect(mockedAxios.post.mock.calls.map((c) => (c[1] as any).server_type)).toEqual(['cx33', 'cpx32']);
+    });
+
+    it("surfaces Hetzner's error code and message when all candidates fail", async () => {
+      mockedAxios.get.mockResolvedValue({ data: { ssh_keys: [] } });
+      mockedAxios.post.mockRejectedValue(unavailable);
+      await expect((service as any).createHetznerServer('n', 'cx33', 'fsn1')).rejects.toThrow(
+        /resource_unavailable — no capacity/,
+      );
+    });
+  });
+
   describe('multi-site bootstrap roles', () => {
     const volume = { id: 7, linuxDevice: '/dev/disk/by-id/scsi-0HC_Volume_7' };
     const labels = { 'eutlas.eu/role': 'data', 'topology.kubernetes.io/zone': 'fsn1' };
