@@ -115,7 +115,8 @@ export class JobProcessorService implements OnModuleInit {
       await this.jobsService.failJob(job.id, error.message);
       
       // Update cluster status if this was the last retry
-      if (job.targetClusterId && job.attempts >= job.maxAttempts) {
+      // `job` is the pending snapshot from before the claim; `claimed` carries the incremented attempts.
+      if (job.targetClusterId && claimed.attempts >= claimed.maxAttempts) {
         await this.clustersService.updateStatus(job.targetClusterId.toString(), 'failed');
         await this.eventsService.createEvent({
           orgId: job.targetOrgId?.toString() || '',

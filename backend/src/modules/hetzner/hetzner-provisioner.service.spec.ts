@@ -18,6 +18,14 @@ describe('HetznerProvisionerService', () => {
     (service as any).sleep = jest.fn().mockResolvedValue(undefined);
   });
 
+  it('never touches Hetzner in tests, even with a real token configured', async () => {
+    const testService = new HetznerProvisionerService({ get: (k: string, d?: string) => ({ ...config, NODE_ENV: 'test' } as any)[k] ?? d } as any);
+    expect(testService.needsDedicatedServer('LARGE')).toBe(false);
+    await expect(testService.provisionClusterServer('c1', 'fsn1', 'DEV')).rejects.toThrow(/NODE_ENV=test/);
+    await expect(testService.provisionMultiSiteCluster('c1', 'LARGE')).rejects.toThrow(/NODE_ENV=test/);
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+
   describe('dataVolumeSizeGb', () => {
     it('sizes the volume from the plan storage budget', () => {
       expect(dataVolumeSizeGb('DEV')).toBe(15);

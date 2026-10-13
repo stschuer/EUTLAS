@@ -118,7 +118,19 @@ export class HetznerProvisionerService {
    * and to make the intent explicit at the call site.
    */
   needsDedicatedServer(_plan: string): boolean {
-    return true;
+    // Tests run with the platform's real HCLOUD_TOKEN from backend/.env in
+    // reach; a local e2e run once provisioned six production servers.
+    return !this.isTestRun;
+  }
+
+  private get isTestRun(): boolean {
+    return this.configService.get<string>('NODE_ENV') === 'test';
+  }
+
+  private assertNotTestRun(action: string): void {
+    if (this.isTestRun) {
+      throw new Error(`Refusing to ${action} on Hetzner while NODE_ENV=test`);
+    }
   }
 
   /**
@@ -128,6 +140,7 @@ export class HetznerProvisionerService {
    * Expected runtime: 4–8 minutes.
    */
   async provisionClusterServer(clusterId: string, region: string, plan: string): Promise<DedicatedServerInfo> {
+    this.assertNotTestRun('provision a server');
     if (!this.hcloudToken) {
       throw new Error('HCLOUD_TOKEN is not configured — cannot provision dedicated server');
     }
@@ -170,6 +183,7 @@ export class HetznerProvisionerService {
    * entirely needs a manual forced reconfig (see scripts/multi-site-failover.sh).
    */
   async provisionMultiSiteCluster(clusterId: string, plan: string): Promise<MultiSiteClusterInfo> {
+    this.assertNotTestRun('provision servers');
     if (!this.hcloudToken) {
       throw new Error('HCLOUD_TOKEN is not configured — cannot provision dedicated servers');
     }
