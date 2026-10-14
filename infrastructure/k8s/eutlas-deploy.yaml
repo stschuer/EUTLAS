@@ -9,7 +9,7 @@ metadata:
 type: Opaque
 stringData:
   username: eutlas-admin
-  password: EutlasSecure2025Prod!
+  password: PLACEHOLDER_PASSWORD
 ---
 apiVersion: mongodbcommunity.mongodb.com/v1
 kind: MongoDBCommunity
@@ -56,9 +56,9 @@ metadata:
   namespace: eutlas
 type: Opaque
 stringData:
-  JWT_SECRET: "EutlasJwtSecret2025ProductionKey32ch"
-  MONGODB_URI: "mongodb://eutlas-admin:EutlasSecure2025Prod!@eutlas-mongodb-0.eutlas-mongodb-svc.eutlas.svc.cluster.local:27017,eutlas-mongodb-1.eutlas-mongodb-svc.eutlas.svc.cluster.local:27017,eutlas-mongodb-2.eutlas-mongodb-svc.eutlas.svc.cluster.local:27017/eutlas?replicaSet=eutlas-mongodb&authSource=admin"
-  RESEND_API_KEY: "re_e4RqM2Zz_UX8PyynNuB68WcJ8SUQN2aUW"
+  JWT_SECRET: "PLACEHOLDER_JWT_SECRET"
+  MONGODB_URI: "mongodb://eutlas-admin:PLACEHOLDER_PASSWORD@eutlas-mongodb-0.eutlas-mongodb-svc.eutlas.svc.cluster.local:27017,eutlas-mongodb-1.eutlas-mongodb-svc.eutlas.svc.cluster.local:27017,eutlas-mongodb-2.eutlas-mongodb-svc.eutlas.svc.cluster.local:27017/eutlas?replicaSet=eutlas-mongodb&authSource=admin"
+  RESEND_API_KEY: "PLACEHOLDER_RESEND_API_KEY"
   EMAIL_FROM: "noreply@eutlas.eu"
   STRIPE_SECRET_KEY: "PLACEHOLDER_STRIPE_SECRET_KEY"
   STRIPE_WEBHOOK_SECRET: ""
