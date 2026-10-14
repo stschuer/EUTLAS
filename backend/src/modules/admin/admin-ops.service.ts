@@ -204,12 +204,18 @@ export class AdminOpsService {
   async retryJob(jobId: string) {
     const job = await this.jobsService.retryJob(jobId);
     if (!job) throw new NotFoundException('Job not found');
-    return job;
+    return withoutPayload(job);
   }
 
   async failJob(jobId: string, reason?: string) {
     const job = await this.jobsService.failJob(jobId, reason || 'Marked failed by platform admin', false);
     if (!job) throw new NotFoundException('Job not found');
-    return job;
+    return withoutPayload(job);
   }
+}
+
+/** Job payloads carry secrets (e.g. initial database credentials); never return them. */
+function withoutPayload(job: any) {
+  const { payload: _payload, ...rest } = typeof job.toJSON === 'function' ? job.toJSON() : job;
+  return rest;
 }
