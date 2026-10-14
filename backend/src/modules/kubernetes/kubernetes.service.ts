@@ -954,7 +954,7 @@ export class KubernetesService implements OnModuleInit {
     params: CreateClusterParams & { resources: typeof PLAN_RESOURCES.DEV; nativeVectorSearch?: boolean },
   ): Promise<void> {
     const multiSite = params.topology === 'multi-site';
-    if (multiSite) await this.pinMultiSiteVolumes(namespace, resourceName, params.resources.storage);
+    const hostAliases = multiSite ? await this.prepareMultiSitePlacement(namespace, resourceName, params.resources.storage) : [];
     const mongoDBSpec = {
       apiVersion: MONGODB_API_VERSION,
       kind: MONGODB_KIND,
@@ -1052,7 +1052,10 @@ export class KubernetesService implements OnModuleInit {
                   : {}),
                 // The arbiter shares this template and runs on the tainted arbiter node.
                 ...(multiSite
-                  ? { tolerations: [{ key: 'eutlas.eu/arbiter', operator: 'Equal', value: 'true', effect: 'NoSchedule' }] }
+                  ? {
+                      tolerations: [{ key: 'eutlas.eu/arbiter', operator: 'Equal', value: 'true', effect: 'NoSchedule' }],
+                      hostAliases,
+                    }
                   : {}),
                 initContainers: [
                   {
@@ -3333,8 +3336,20 @@ export class KubernetesService implements OnModuleInit {
    * member 1 on the nbg1 data node, the arbiter on the arbiter node. This
    * keeps the arbiter in the initial spec — adding it later deadlocks the
    * operator (its reconfig includes an arbiter pod that does not exist yet).
+   *
+   * Members also must not depend on cluster DNS to reach each other: CoreDNS
+   * and the API server run on the fsn1 data node, so when that node fails
+   * the survivors could not resolve the arbiter and never elect a primary.
+   * Each member therefore gets a ClusterIP service, and the returned host
+   * aliases put every member's name into /etc/hosts; kube-proxy rules keep
+   * routing on the surviving nodes without a control plane. (A pod's own
+   * name resolves to its pod IP — kubelet writes that entry first.)
    */
-  private async pinMultiSiteVolumes(namespace: string, resourceName: string, storage: string): Promise<void> {
+  private async prepareMultiSitePlacement(
+    namespace: string,
+    resourceName: string,
+    storage: string,
+  ): Promise<Array<{ ip: string; hostnames: string[] }>> {
     const nodeFor = async (selector: string): Promise<string> => {
       const { body } = await this.coreApi.listNode(undefined, undefined, undefined, undefined, selector);
       if (body.items.length !== 1) throw new Error(`Expected exactly one node for ${selector}, found ${body.items.length}`);
@@ -3375,6 +3390,32 @@ export class KubernetesService implements OnModuleInit {
       }
     }
     this.logger.log(`Multi-site ${resourceName}: volumes pinned ${placement.map(([p, n]) => `${p}→${n}`).join(', ')}`);
+
+    const hostAliases: Array<{ ip: string; hostnames: string[] }> = [];
+    for (const [pod] of placement) {
+      const name = `${pod}-rep`;
+      try {
+        await this.coreApi.createNamespacedService(namespace, {
+          metadata: {
+            name,
+            namespace,
+            labels: { 'eutlas.eu/managed-by': 'eutlas', 'eutlas.eu/cluster': resourceName, 'eutlas.eu/service-type': 'member-replication' },
+          },
+          spec: {
+            type: 'ClusterIP',
+            // Members must reach each other before they report ready (initial sync, elections).
+            publishNotReadyAddresses: true,
+            selector: { app: `${resourceName}-svc`, 'statefulset.kubernetes.io/pod-name': pod },
+            ports: [{ name: 'mongodb', port: 27017, targetPort: 27017, protocol: 'TCP' }],
+          },
+        });
+      } catch (error: any) {
+        if (error.response?.statusCode !== 409) throw error;
+      }
+      const { body } = await this.coreApi.readNamespacedService(name, namespace);
+      hostAliases.push({ ip: body.spec!.clusterIP!, hostnames: [`${pod}.${resourceName}-svc.${namespace}.svc.cluster.local`] });
+    }
+    return hostAliases;
   }
 
   /**
