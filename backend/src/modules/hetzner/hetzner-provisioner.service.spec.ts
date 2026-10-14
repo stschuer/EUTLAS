@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { execFileSync } from 'child_process';
-import { HetznerProvisionerService, dataVolumeSizeGb } from './hetzner-provisioner.service';
+import { HetznerProvisionerService, dataVolumeSizeGb, multiSiteVolumeSizeGb } from './hetzner-provisioner.service';
 
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -24,6 +24,14 @@ describe('HetznerProvisionerService', () => {
     await expect(testService.provisionClusterServer('c1', 'fsn1', 'DEV')).rejects.toThrow(/NODE_ENV=test/);
     await expect(testService.provisionMultiSiteCluster('c1', 'LARGE')).rejects.toThrow(/NODE_ENV=test/);
     expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+
+  describe('multiSiteVolumeSizeGb', () => {
+    it('sizes one member (data + backup staging + logs), not the three-replica budget', () => {
+      expect(multiSiteVolumeSizeGb('LARGE')).toBe(50);
+      expect(multiSiteVolumeSizeGb('XXXL')).toBe(410);
+      expect(multiSiteVolumeSizeGb('XXXL')).toBeLessThan(dataVolumeSizeGb('XXXL'));
+    });
   });
 
   describe('dataVolumeSizeGb', () => {

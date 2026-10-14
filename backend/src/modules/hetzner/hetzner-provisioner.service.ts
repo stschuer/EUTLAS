@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { createHmac, randomBytes } from 'crypto';
 import { Client as SshClient } from 'ssh2';
-import { PLAN_NAMESPACE_STORAGE_QUOTA } from '../kubernetes/kubernetes.service';
+import { PLAN_NAMESPACE_STORAGE_QUOTA, PLAN_RESOURCES } from '../kubernetes/kubernetes.service';
 
 // Hetzner server type per EUTLAS plan.
 // Every plan (including DEV/SMALL/MEDIUM) runs on its own dedicated Hetzner
@@ -55,6 +55,19 @@ export function dataVolumeSizeGb(plan: string): number {
   if (!match) return MIN_VOLUME_GB;
   const gb = Number(match[1]) * (match[2] === 'Ti' ? 1024 : 1);
   return Math.max(MIN_VOLUME_GB, gb);
+}
+
+/**
+ * Multi-site data volume: each data server holds one member, so size it from
+ * the member's data size plus room for staged backup archives, logs and
+ * growth — not from the three-replica namespace budget.
+ */
+export function multiSiteVolumeSizeGb(plan: string): number {
+  const storage = (PLAN_RESOURCES[plan] ?? PLAN_RESOURCES.DEV).storage;
+  const match = /^(\d+)(Gi|Ti)$/.exec(storage);
+  if (!match) return MIN_VOLUME_GB;
+  const gb = Number(match[1]) * (match[2] === 'Ti' ? 1024 : 1);
+  return Math.max(MIN_VOLUME_GB, Math.ceil((gb * 1.6 + 10) / 10) * 10);
 }
 
 export interface DedicatedServerInfo {
@@ -209,7 +222,7 @@ export class HetznerProvisionerService {
         await this.waitForServerRunning(server.id);
         const privateIp = await this.waitForPrivateIp(server.id, network);
         const volume = spec.role === 'data'
-          ? await this.ensureDataVolume(clusterId, server.id, plan, `-${spec.suffix}`)
+          ? await this.ensureDataVolume(clusterId, server.id, plan, `-${spec.suffix}`, multiSiteVolumeSizeGb(plan))
           : null;
         await this.waitForSsh(server.public_net.ipv4.ip);
         return { ...spec, serverId: server.id as number, publicIp: server.public_net.ipv4.ip as string, privateIp, volume };
@@ -378,7 +391,13 @@ export class HetznerProvisionerService {
   }
 
   /** Creates (or, on a retry, reuses) the cluster's data volume and attaches it to the server. */
-  private async ensureDataVolume(clusterId: string, serverId: number, plan: string, suffix = ''): Promise<DataVolume> {
+  private async ensureDataVolume(
+    clusterId: string,
+    serverId: number,
+    plan: string,
+    suffix = '',
+    sizeGb = dataVolumeSizeGb(plan),
+  ): Promise<DataVolume> {
     const name = `eutlas-data-${clusterId}${suffix}`;
     let volume = await this.findVolumeByName(name);
 
@@ -388,7 +407,7 @@ export class HetznerProvisionerService {
         'https://api.hetzner.cloud/v1/volumes',
         {
           name,
-          size: dataVolumeSizeGb(plan),
+          size: sizeGb,
           server: serverId,
           automount: false,
           labels: { 'managed-by': 'eutlas', type: 'customer-cluster-data', cluster: clusterId },

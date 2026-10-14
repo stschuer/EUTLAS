@@ -172,7 +172,15 @@ export function registerAdminTools(server: McpServer, api: Api) {
   t("eutlas_admin_fail_job", "Mark a stuck job as failed without retry.",
     { jobId: z.string(), reason: z.string().optional() }, (a) => ["POST", `/admin/jobs/${a.jobId}/fail`, { reason: a.reason }]);
 
+  t("eutlas_admin_create_project", "Create a project in an organization.",
+    { orgId: z.string().describe("Organization id"), name: z.string().min(1).max(100), description: z.string().max(500).optional() },
+    ({ orgId, ...body }) => ["POST", `/orgs/${orgId}/projects`, body]);
+
   /* Destructive — admin mode only */
+  t("eutlas_admin_delete_project", "DESTRUCTIVE: delete an (empty) project.",
+    { orgId: z.string().describe("Organization id"), projectId: project },
+    (a) => ["DELETE", `/orgs/${a.orgId}/projects/${a.projectId}`]);
+
   t("eutlas_admin_delete_cluster", "DESTRUCTIVE: delete a cluster, its dedicated server, volume and backups. Irreversible.",
     { projectId: project, clusterId: cluster }, (a) => ["DELETE", `/projects/${a.projectId}/clusters/${a.clusterId}`]);
 
