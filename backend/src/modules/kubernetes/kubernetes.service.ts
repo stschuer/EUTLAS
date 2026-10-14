@@ -3347,6 +3347,14 @@ export class KubernetesService implements OnModuleInit {
     ];
     for (const [pod, node] of placement) {
       for (const [volume, size] of [['data-volume', storage], ['logs-volume', '1Gi']]) {
+        // Read first on a retried job: the quota admission check runs before the
+        // name conflict, so re-creating an existing claim fails with 403, not 409.
+        try {
+          await this.coreApi.readNamespacedPersistentVolumeClaim(`${volume}-${pod}`, namespace);
+          continue;
+        } catch (error: any) {
+          if (error.response?.statusCode !== 404) throw error;
+        }
         try {
           await this.coreApi.createNamespacedPersistentVolumeClaim(namespace, {
             metadata: {
@@ -3384,8 +3392,8 @@ export class KubernetesService implements OnModuleInit {
 
       const zones: string[] = [];
       for (const i of [0, 1]) {
-        const { body: pod } = await this.coreApi.readNamespacedPod(`${resourceName}-${i}`, namespace);
-        const { body: node } = await this.coreApi.readNode(pod.spec!.nodeName!);
+        const { body: pod } = await retryTransient(() => this.coreApi.readNamespacedPod(`${resourceName}-${i}`, namespace));
+        const { body: node } = await retryTransient(() => this.coreApi.readNode(pod.spec!.nodeName!));
         zones.push(node.metadata?.labels?.['topology.kubernetes.io/zone'] ?? '?');
       }
       if (zones[0] !== 'fsn1' || zones[1] === 'fsn1') {
@@ -3498,9 +3506,17 @@ export class KubernetesService implements OnModuleInit {
     const deadline = Date.now() + timeoutMs;
     let status: any = {};
     while (Date.now() < deadline) {
-      const { body } = (await this.customApi.getNamespacedCustomObject(
-        'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', name,
-      )) as { body: any };
+      let body: any;
+      try {
+        ({ body } = (await this.customApi.getNamespacedCustomObject(
+          'mongodbcommunity.mongodb.com', 'v1', namespace, 'mongodbcommunity', name,
+        )) as { body: any });
+      } catch (error: any) {
+        if (!isTransientNetworkError(error)) throw error;
+        this.logger.warn(`Polling ${name}: ${error.code ?? error.message}; retrying`);
+        await new Promise((r) => setTimeout(r, 10_000));
+        continue;
+      }
       status = body.status ?? {};
       const total = (status.currentMongoDBMembers ?? 0) + (status.currentMongoDBArbiters ?? 0);
       if (status.phase === 'Running' && total >= processes) return;
@@ -3821,6 +3837,25 @@ export class KubernetesService implements OnModuleInit {
         storage: 0,
         connections: 0,
       };
+    }
+  }
+}
+
+const TRANSIENT_NETWORK_CODES = new Set(['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN', 'EPIPE']);
+
+/** Connection-level failure talking to a (dedicated) Kubernetes API, as opposed to an API error response. */
+export function isTransientNetworkError(error: any): boolean {
+  return !error?.response && TRANSIENT_NETWORK_CODES.has(error?.code ?? error?.cause?.code);
+}
+
+/** Retries `fn` on transient network errors (dedicated API servers are reached over the internet). */
+export async function retryTransient<T>(fn: () => Promise<T>, attempts = 6, delayMs = 10_000): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (i >= attempts || !isTransientNetworkError(error)) throw error;
+      await new Promise((r) => setTimeout(r, delayMs));
     }
   }
 }
