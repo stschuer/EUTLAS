@@ -953,6 +953,8 @@ export class KubernetesService implements OnModuleInit {
     resourceName: string,
     params: CreateClusterParams & { resources: typeof PLAN_RESOURCES.DEV; nativeVectorSearch?: boolean },
   ): Promise<void> {
+    const multiSite = params.topology === 'multi-site';
+    if (multiSite) await this.pinMultiSiteVolumes(namespace, resourceName, params.resources.storage);
     const mongoDBSpec = {
       apiVersion: MONGODB_API_VERSION,
       kind: MONGODB_KIND,
@@ -972,9 +974,12 @@ export class KubernetesService implements OnModuleInit {
         },
       },
       spec: {
-        // Multi-site: two data members; the arbiter is added by
-        // finalizeMultiSiteTopology once both are placed (see there).
-        members: params.topology === 'multi-site' ? 2 : params.resources.replicas,
+        // Multi-site: two data members + one arbiter, each pinned to its node
+        // through a pre-bound volume (see pinMultiSiteVolumes); member 0 sits
+        // in fsn1 next to the applications and is the preferred primary.
+        ...(multiSite
+          ? { members: 2, arbiters: 1, memberConfig: [{ votes: 1, priority: '2' }, { votes: 1, priority: '1' }] }
+          : { members: params.resources.replicas }),
         type: 'ReplicaSet', // MongoDB Community Operator only supports ReplicaSet
         version: params.mongoVersion || DEFAULT_MONGO_VERSION,
         security: {
@@ -1045,6 +1050,10 @@ export class KubernetesService implements OnModuleInit {
                       },
                     }
                   : {}),
+                // The arbiter shares this template and runs on the tainted arbiter node.
+                ...(multiSite
+                  ? { tolerations: [{ key: 'eutlas.eu/arbiter', operator: 'Equal', value: 'true', effect: 'NoSchedule' }] }
+                  : {}),
                 initContainers: [
                   {
                     name: 'mongod-posthook',
@@ -1077,10 +1086,12 @@ export class KubernetesService implements OnModuleInit {
                   {
                     name: 'mongod',
                     resources: {
-                      requests: {
-                        cpu: params.resources.cpu,
-                        memory: params.resources.memory,
-                      },
+                      // Multi-site nodes each run exactly one mongod, so requests only
+                      // gate scheduling — and the arbiter (same template, small
+                      // node) must fit. Limits stay at the plan size.
+                      requests: multiSite
+                        ? { cpu: '100m', memory: '256Mi' }
+                        : { cpu: params.resources.cpu, memory: params.resources.memory },
                       limits: {
                         cpu: params.resources.cpuLimit,
                         memory: params.resources.memoryLimit,
@@ -3315,67 +3326,72 @@ export class KubernetesService implements OnModuleInit {
   }
 
   /**
-   * After creating a multi-site replica set: wait until both data members are
-   * scheduled (the arbiter node is tainted, so they land on the two data
-   * nodes, one per location), then lift the taint, add the arbiter — host
-   * anti-affinity leaves it only the arbiter node — and prefer the fsn1
-   * member as primary. The arbiter cannot be part of the initial spec: the
-   * operator creates its StatefulSet right away (same pod template), and it
-   * grabbed a data node before the second data member was scheduled.
+   * Multi-site placement: pre-create the StatefulSets' volume claims and bind
+   * each to its node (selected-node annotation, honoured by local-path with
+   * WaitForFirstConsumer). The StatefulSets adopt claims by name, and a pod
+   * can only run where its volume lives: member 0 on the fsn1 data node,
+   * member 1 on the nbg1 data node, the arbiter on the arbiter node. This
+   * keeps the arbiter in the initial spec — adding it later deadlocks the
+   * operator (its reconfig includes an arbiter pod that does not exist yet).
+   */
+  private async pinMultiSiteVolumes(namespace: string, resourceName: string, storage: string): Promise<void> {
+    const nodeFor = async (selector: string): Promise<string> => {
+      const { body } = await this.coreApi.listNode(undefined, undefined, undefined, undefined, selector);
+      if (body.items.length !== 1) throw new Error(`Expected exactly one node for ${selector}, found ${body.items.length}`);
+      return body.items[0].metadata!.name!;
+    };
+    const placement: Array<[string, string]> = [
+      [`${resourceName}-0`, await nodeFor('eutlas.eu/role=data,topology.kubernetes.io/zone=fsn1')],
+      [`${resourceName}-1`, await nodeFor('eutlas.eu/role=data,topology.kubernetes.io/zone=nbg1')],
+      [`${resourceName}-arb-0`, await nodeFor('eutlas.eu/role=arbiter')],
+    ];
+    for (const [pod, node] of placement) {
+      for (const [volume, size] of [['data-volume', storage], ['logs-volume', '1Gi']]) {
+        try {
+          await this.coreApi.createNamespacedPersistentVolumeClaim(namespace, {
+            metadata: {
+              name: `${volume}-${pod}`,
+              namespace,
+              labels: { app: `${resourceName}-svc` },
+              annotations: { 'volume.kubernetes.io/selected-node': node },
+            },
+            spec: {
+              accessModes: ['ReadWriteOnce'],
+              storageClassName: this.dataStorageClass,
+              resources: { requests: { storage: size } },
+            },
+          });
+        } catch (error: any) {
+          if (error.response?.statusCode !== 409) throw error;
+        }
+      }
+    }
+    this.logger.log(`Multi-site ${resourceName}: volumes pinned ${placement.map(([p, n]) => `${p}→${n}`).join(', ')}`);
+  }
+
+  /**
+   * Waits until a multi-site replica set is Running with both data members and
+   * the arbiter, and verifies that the data members ended up in two locations.
+   * TLS must only be enabled afterwards: the operator adds the certificate
+   * volumes to the pod template but rolls the pods only once the set reached
+   * its goal state — enabling TLS earlier deadlocks.
    */
   async finalizeMultiSiteTopology(params: { clusterId: string; projectId: string; kubeconfig: string }): Promise<{ primaryZone: string }> {
     return this.withDedicatedClients(params.kubeconfig, async () => {
       const namespace = this.getNamespace(params.projectId);
       const resourceName = this.getResourceName(params.clusterId);
-
-      const zoneOf = new Map<string, string>();
-      const deadline = Date.now() + 20 * 60_000;
-      while (Date.now() < deadline) {
-        zoneOf.clear();
-        for (const i of [0, 1]) {
-          try {
-            const { body: pod } = await this.coreApi.readNamespacedPod(`${resourceName}-${i}`, namespace);
-            if (!pod.spec?.nodeName) continue;
-            const { body: node } = await this.coreApi.readNode(pod.spec.nodeName);
-            zoneOf.set(`${i}`, node.metadata?.labels?.['topology.kubernetes.io/zone'] ?? '?');
-          } catch (error: any) {
-            if (error.response?.statusCode !== 404) throw error;
-          }
-        }
-        if (zoneOf.size === 2) break;
-        await new Promise((r) => setTimeout(r, 10_000));
-      }
-      if (zoneOf.size !== 2) throw new Error(`Data members of ${resourceName} were not scheduled within 20 minutes`);
-      if (new Set(zoneOf.values()).size !== 2) {
-        throw new Error(`Data members of ${resourceName} landed in one location (${[...zoneOf.values()].join(', ')})`);
-      }
-
-      const { body: nodes } = await this.coreApi.listNode(undefined, undefined, undefined, undefined, 'eutlas.eu/role=arbiter');
-      for (const node of nodes.items) {
-        const taints = (node.spec?.taints || []).filter((t) => t.key !== 'eutlas.eu/arbiter');
-        await this.coreApi.patchNode(
-          node.metadata!.name!,
-          { spec: { taints } },
-          undefined, undefined, undefined, undefined, undefined,
-          // Merge patch replaces the whole taint list (strategic merge would merge entries).
-          { headers: { 'Content-Type': 'application/merge-patch+json' } },
-        );
-      }
-
-      await this.updateMongoDbResource(namespace, resourceName, (cr) => {
-        cr.spec.arbiters = 1;
-        cr.spec.memberConfig = [0, 1].map((i) => ({
-          votes: 1,
-          priority: zoneOf.get(`${i}`) === 'fsn1' ? '2' : '1',
-        }));
-      });
-      this.logger.log(`Multi-site ${resourceName}: members ${JSON.stringify(Object.fromEntries(zoneOf))}, arbiter untainted`);
-
-      // TLS must only be enabled on a running replica set: the operator adds
-      // the certificate volumes to the pod template but rolls the pods only
-      // once the set reached its goal state — enabling TLS earlier deadlocks
-      // (agents look for a CA file their pods never mounted).
       await this.waitForReplicaSetRunning(namespace, resourceName, 3, 20 * 60_000);
+
+      const zones: string[] = [];
+      for (const i of [0, 1]) {
+        const { body: pod } = await this.coreApi.readNamespacedPod(`${resourceName}-${i}`, namespace);
+        const { body: node } = await this.coreApi.readNode(pod.spec!.nodeName!);
+        zones.push(node.metadata?.labels?.['topology.kubernetes.io/zone'] ?? '?');
+      }
+      if (zones[0] !== 'fsn1' || zones[1] === 'fsn1') {
+        throw new Error(`Data members of ${resourceName} are misplaced (${zones.join(', ')})`);
+      }
+      this.logger.log(`Multi-site ${resourceName} running: data ${zones.join(' + ')}, arbiter fsn1`);
       return { primaryZone: 'fsn1' };
     });
   }
